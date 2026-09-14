@@ -1,6 +1,12 @@
-# NCMLyricsBar 1.0.1 — Plugin API v1.0 Reference Plugin
+# NCMLyricsBar 1.0.2 — Plugin API v1.0 Reference Plugin
 
 ID: `org.AkiACG_Community.NCMLyricsBar`
+
+1.0.2：暂停时持续发送心跳；配合新版宿主，兼容旧插件的静默暂停。
+后台重连保留原歌词，不显示重连提示。该修复需要同步更新宿主执行器及原生 renderer。
+
+1.0.2: keep sending heartbeats while paused. The updated host tolerates silent legacy
+streams and preserves lyrics during background reconnection without a reconnect label.
 
 跟随系统配色时，原文使用主题前景、译文使用有区分度的强调色，
 分隔线使用主题混色。取消旧的所有文字直接继承同色的方法；

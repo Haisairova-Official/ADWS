@@ -23,7 +23,8 @@
     "将网易云歌词Sample插件正式命名为 NCMLyricsBar，升级至 1.0.1，保留旧插件配置。",
     "优化了歌词的系统配色，原文、译文和分隔线终于不用挤一个颜色了。",
     "修复了上游 Niri 窗口数据兼容问题，补充事件容错和断线重连。",
-    "提供 Arch Linux x86_64 的预构建安装包，安装时不再需要现场编译 Rust 和 C。（1.25 Pre-release）"
+    "提供 Arch Linux x86_64 的预构建安装包，安装时不再需要现场编译 Rust 和 C。（1.25 Pre-release）",
+    "修复歌词暂停后的误判超时；后台重连保留显示，NCMLyricsBar 更新至 1.0.2。"
   ],
   "release_label": "Pre-release"
 }

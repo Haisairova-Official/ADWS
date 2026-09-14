@@ -124,10 +124,11 @@ mnws mplg remove org.example.HelloWorld
 ## 旧包与参考插件
 
 旧清单的 api/apiVersion/kind/language/interfaces 继续校验并兼容，
-`panel.json-v1` 对应新版文本 renderer；旧 Python 入口仍收到 `--output-json`。
+`panel.json-v1` 对应新版文本 renderer；旧 Python 入口仍收到 `--output-json`。旧协议只要求首条数据在超时前到达；
+收到有效数据后允许长期静默，不强制旧插件实现新协议的心跳。
 新插件应使用本文的简化格式，避免混用两种声明。
 
-参考插件：`org.AkiACG_Community.NCMLyricsBar`，版本 1.0.1。
+参考插件：`org.AkiACG_Community.NCMLyricsBar`，版本 1.0.2。
 旧 ID `org.mnws.neteaselyrics` 在加载布局和扫描包时映射为新 ID，
 保留启用状态、分区、顺序和 settings；同时存在时只选一个版本，不重复显示。
 [HelloWorld](../plugins/sample/) 是最小示例，歌词插件是完整参考实现。

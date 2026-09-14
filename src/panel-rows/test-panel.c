@@ -46,6 +46,10 @@ int main(int argc, char **argv) {
         gtk_widget_get_allocated_height(p->primary), gtk_widget_get_allocated_height(p->secondary), gtk_widget_get_visible(p->separator));
     g_assert_cmpint(height, <=, 36);
     g_assert(gtk_widget_get_visible(p->separator));
+    update(p, "{\"primary\":\"Plugin failed\",\"secondary\":\"\",\"class\":\"error\"}");
+    g_assert_cmpstr(gtk_label_get_text(GTK_LABEL(p->primary)), ==, "原文の歌詞がここに表示されます");
+    g_assert(gtk_widget_get_visible(p->secondary));
+    g_assert(gtk_widget_get_visible(p->separator));
     g_assert_cmpfloat(gtk_label_get_xalign(GTK_LABEL(p->primary)), ==, 0.5);
     g_assert_cmpfloat(gtk_label_get_xalign(GTK_LABEL(p->secondary)), ==, 0.5);
     PangoAttrIterator *attrs = pango_attr_list_get_iterator(gtk_label_get_attributes(GTK_LABEL(p->primary)));

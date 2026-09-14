@@ -6,7 +6,7 @@
 
 **A simpler desktop solution for Niri.**
 
-当前开发版本 / Current development version: **1.25 Pre-release**（待发布 / unreleased） · [更新记录 / Changelog](CHANGELOG.md)
+当前开发版本 / Current development version: **1.25 Pre-release** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
 
@@ -14,6 +14,33 @@
 
 MNWS 为 Niri 整合桌面图标、底部任务栏、统一设置与插件，让日常桌面操作更简单。
 它仍在持续开发，当前主要在 Niri/Shorin 26.04 环境验证；尚未完成不同发行版与上游 Niri 的兼容性验证。
+
+### 预发布补丁：NCMLyricsBar 1.0.2
+
+修复暂停较久后歌词周期性断开的问题：旧插件只在内容变化时输出数据，
+新版宿主不再把这种正常静默当作超时。后台重连时保留上一条歌词，
+不显示“正在重新连接”，也不清空译文和分隔线。
+
+**本补丁需要同时更新宿主与插件，单独替换 `.mplg` 不够。**
+源码用户更新仓库后重新运行 `./install.sh`，并重新构建安装原生面板组件；
+Arch 用户可使用预发布附件 `MNWS1.25_for_arch_lyrics1.0.2.zip`。
+安装 `org.AkiACG_Community.NCMLyricsBar_1.0.2.mplg` 后，应用任务栏布局并重启任务栏。
+已有设置保留；无需修改 Firefox 或歌词 API。
+
+源码版在更新后的仓库目录执行（任务栏会短暂关闭）：
+
+```sh
+./mnws taskbar -S
+make -C src/panel-rows
+install -Dm644 src/panel-rows/libmnws_panel.so "$HOME/.local/lib/waybar/libmnws_panel.so"
+./install.sh
+./mnws mplg build plugins/netease-lyrics
+./mnws mplg install plugins/org.AkiACG_Community.NCMLyricsBar_1.0.2.mplg
+./mnws layout apply --restart
+```
+
+下载入口：[1.25 Pre-release 附件](https://github.com/Haisairova-Official/MNWS/releases/tag/v1.25-pre-release)。
+原始 1.0.1 与初版 Arch 包保留供追溯，请选择带 1.0.2 标识的补丁包。
 
 ### 功能
 
@@ -102,6 +129,24 @@ MNWS 原创代码采用 **GNU GPL v3.0 或更新版本（GPL-3.0-or-later）**�
 
 MNWS brings desktop icons, a bottom taskbar, unified settings and plugins to Niri, making everyday desktop interaction simpler.
 It is under active development and has mainly been tested with Niri/Shorin 26.04. Compatibility across distributions and upstream Niri has not yet been verified.
+
+### Pre-release patch: NCMLyricsBar 1.0.2
+
+Fix periodic lyric interruptions after a long pause. Legacy plugins emit only
+changed data; the host no longer treats their normal silence as a timeout.
+Background reconnection preserves the last lyrics, translation and separator,
+without displaying a reconnect message.
+
+**Update both the host and the plugin; replacing only the `.mplg` is insufficient.**
+Source users must update the checkout, rerun `./install.sh`, and rebuild/install
+the native panel component. Arch users can use `MNWS1.25_for_arch_lyrics1.0.2.zip`.
+Install `org.AkiACG_Community.NCMLyricsBar_1.0.2.mplg`, apply the layout and restart
+the taskbar. Existing settings are preserved.
+The source-upgrade commands in the Chinese patch section above perform these
+steps explicitly, including rebuilding the native panel library.
+
+Get the files from [1.25 Pre-release](https://github.com/Haisairova-Official/MNWS/releases/tag/v1.25-pre-release).
+Original 1.0.1 assets remain available; choose the patch archive marked 1.0.2.
 
 ### Features
 

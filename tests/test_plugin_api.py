@@ -102,6 +102,14 @@ class PluginApiTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(execute(self.source(),api.normalize(self.manifest),{}),0)
 
+    def test_legacy_unchanged_stream_does_not_timeout(self):
+        manifest = api.normalize(self.manifest)
+        del manifest['renderer']
+        code = 'import time; print(\'{"text":"paused"}\', flush=True); time.sleep(.3); print(\'{"text":"resumed"}\', flush=True)'
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(execute(self.source(code),manifest,{},timeout=.15),0)
+        self.assertIn('resumed',output.getvalue())
+
     def test_text_and_rows_layout_use_runner(self):
         for renderer in ['panel.text-v1','panel.rows-v1']:
             self.manifest['renderer']=renderer

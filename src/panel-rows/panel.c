@@ -16,6 +16,7 @@ typedef struct { const char *key, *value; } wbcffi_config_entry;
 typedef struct {
     gint refs;
     gboolean disposed;
+    gboolean has_content;
     GtkWidget *box, *primary, *secondary, *separator;
     GSubprocess *process;
     GDataInputStream *stream;
@@ -189,8 +190,14 @@ static void update(Panel *p, const char *line) {
     JsonNode *root = json_parser_get_root(parser);
     if (!JSON_NODE_HOLDS_OBJECT(root)) { g_object_unref(parser); return; }
     JsonObject *obj = json_node_get_object(root);
+    // An interrupted stream must not replace already displayed lyrics with a transient error.
+    if (p->has_content && !strcmp(string_member(obj, "class"), "error")) {
+        g_object_unref(parser);
+        return;
+    }
     const char *primary = string_member(obj, "primary");
     const char *secondary = string_member(obj, "secondary");
+    p->has_content = TRUE;
     gtk_label_set_text(GTK_LABEL(p->primary), primary);
     gtk_label_set_text(GTK_LABEL(p->secondary), secondary);
     gboolean bilingual = *secondary != '\0';
@@ -224,9 +231,8 @@ static void read_done(GObject *source, GAsyncResult *result, gpointer data) {
             update(p, line);
             read_next(p);
         } else {
-            gtk_label_set_text(GTK_LABEL(p->primary), mnws_text("♫ 正在重新连接", "♫ Reconnecting"));
-            gtk_widget_hide(p->secondary);
-            gtk_widget_hide(p->separator);
+            // Retry in the background while preserving the last rendered state.
+            if (error) g_warning("MNWS panel stream interrupted: %s", error->message);
             p->retry = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 5, start, panel_ref(p), panel_unref);
         }
     }

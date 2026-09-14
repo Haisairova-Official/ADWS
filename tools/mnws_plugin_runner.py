@@ -65,7 +65,8 @@ def execute(root, manifest, overrides, timeout=30):
                             raise ValueError('Invalid percentage')
                         print(json.dumps(payload, ensure_ascii=False), flush=True)
                         count += 1
-                        deadline = time.monotonic() + timeout
+                        # Legacy streams emit only changed data and have no heartbeat contract.
+                        deadline = time.monotonic() + timeout if 'renderer' in manifest else float('inf')
             code = process.wait(timeout=max(.1, deadline-time.monotonic()))
             if code or not count: raise ValueError(f'Plugin exited with status {code}; records={count}')
         return 0

@@ -1,5 +1,10 @@
 # Changelog / 更新记录
 
+## NCMLyricsBar 1.0.2（待发布 / Unreleased）
+
+- 修复旧歌词插件暂停后被误判超时的问题；后台重连保留歌词，不显示重连提示。需要同步更新宿主执行器与原生 renderer。
+- Fix false timeouts when legacy lyrics plugins are paused; preserve lyrics during background reconnection without a reconnect label. Requires the updated host runner and native renderer.
+
 ## 1.25 Pre-release — 2026-09-14
 
 ### 最新更新

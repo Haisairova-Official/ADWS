@@ -54,3 +54,12 @@
 
 预发布版本；Arch、Ubuntu 裸 Niri 环境仍待实机复测。
 Pre-release: real-world verification on stock Niri under Arch and Ubuntu remains pending.
+
+## NCMLyricsBar 1.0.2 补丁 / Patch
+
+- 修复旧歌词插件暂停后被误判超时；后台重连保留歌词、译文与分隔线，不显示重连提示。
+- Fix false timeouts in paused legacy plugins. Background reconnection preserves the displayed lyrics without a reconnect label.
+- 需要同时更新宿主执行器、原生 renderer 和插件。/ Update the host runner, native renderer and plugin together.
+- 新附件：`MNWS1.25_for_arch_lyrics1.0.2.zip`、对应 SHA-256 文件、`org.AkiACG_Community.NCMLyricsBar_1.0.2.mplg`。
+- 原发布标签及其自动生成的 Source code 归档仍对应初版；补丁源码包含在新 Arch ZIP 内，也可从 main 获取。旧附件保留。
+- The original release tag and automatic Source code archives remain the initial snapshot. Patch sources are included in the new Arch ZIP and available on main. Original assets are retained.
