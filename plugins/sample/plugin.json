@@ -1,0 +1,28 @@
+{
+  "id": "org.mnws.sample.HelloWorld",
+  "name": "plugin.name",
+  "version": "1.0.0",
+  "entry": "main.py",
+  "renderer": "panel.text-v1",
+  "mnws": {
+    "api": 1,
+    "minVersion": "1.25"
+  },
+  "defaults": {
+    "interval": 5
+  },
+  "settingsSchema": [
+    {
+      "key": "greeting",
+      "label": "settings.greeting",
+      "type": "string",
+      "default": "Hello MNWS"
+    },
+    {
+      "key": "enabled",
+      "label": "settings.enabled",
+      "type": "boolean",
+      "default": true
+    }
+  ]
+}

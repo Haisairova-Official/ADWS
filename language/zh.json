@@ -1,0 +1,8 @@
+{
+  "_messages": {
+    "updates.none": [
+      {"weight": 80, "text": "未检测到更新。"},
+      {"weight": 20, "text": "您是最新的！"}
+    ]
+  }
+}

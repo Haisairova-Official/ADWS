@@ -7,6 +7,7 @@
 - 宿主（当前为 Waybar 适配层）按布局渲染实际配置。
 """
 from __future__ import annotations
+from mnws_i18n import tr as _tr
 
 import argparse
 import json
@@ -33,13 +34,13 @@ TASKBAR_MARKER = "/* ==== MNWS 任务栏样式（自动生成）==== */"
 CSS_START = "/* ==== MNWS 插件布局（自动生成）==== */"
 CSS_END = "/* ==== MNWS 插件布局 END ==== */"
 
-SLOT_NAMES = {"left": "左侧", "center": "中间", "right": "右侧"}
+SLOT_NAMES = {"left": _tr('左侧'), "center": _tr('中间'), "right": _tr('右侧')}
 
 BUILTIN_INFO = {
-    "start": {"name": "开始按钮", "module": "custom/applauncher", "slot": "left"},
-    "workspaces": {"name": "工作区", "module": "niri/workspaces", "slot": "left"},
-    "windows": {"name": "窗口图标（任务栏）", "module": "cffi/niri-taskbar", "slot": "left"},
-    "clock": {"name": "时钟", "module": "clock", "slot": "right"},
+    "start": {"name": _tr('开始按钮'), "module": "custom/applauncher", "slot": "left"},
+    "workspaces": {"name": _tr('工作区'), "module": "niri/workspaces", "slot": "left"},
+    "windows": {"name": _tr('窗口图标（任务栏）'), "module": "cffi/niri-taskbar", "slot": "left"},
+    "clock": {"name": _tr('时钟'), "module": "clock", "slot": "right"},
 }
 
 INTERNAL_SPACE_MODULE = "cffi/desktop-space"
@@ -81,6 +82,9 @@ def load_layout(path: Path | None = None) -> dict:
         data["builtins"] = []
     if not isinstance(data.get("plugins"), list):
         data["plugins"] = []
+    for item in data["plugins"]:
+        if isinstance(item, dict) and isinstance(item.get("package"), str):
+            item["package"] = mplg.api1.canonical_id(item["package"])
     data.setdefault("apiVersion", 1)
     data.setdefault("options", {})
     return data
@@ -110,8 +114,15 @@ def scan_available_plugins() -> list[dict]:
         if not ok:
             results.append({"file": path, "ok": False, "errors": errors})
             continue
+        manifest["id"] = mplg.api1.canonical_id(manifest["id"])
         results.append({"file": path, "ok": True, "manifest": manifest})
-    return results
+    chosen = {}
+    for item in results:
+        if item.get("ok"):
+            key = item["manifest"]["id"]
+            if key not in chosen or mplg.api1.package_version(item["manifest"]["version"]) > mplg.api1.package_version(chosen[key]["manifest"]["version"]):
+                chosen[key] = item
+    return [item for item in results if not item.get("ok")] + list(chosen.values())
 
 
 def plugin_by_id(package_id: str) -> dict | None:
@@ -196,7 +207,7 @@ def parse_jsonc(text: str) -> dict:
     clean = _drop_trailing_commas(_strip_jsonc(text))
     data = json.loads(clean)
     if not isinstance(data, dict):
-        raise ValueError("配置文件根必须是对象")
+        raise ValueError(_tr('配置文件根必须是对象'))
     return data
 
 
@@ -335,7 +346,7 @@ def distro_logo():
     return release.get("PRETTY_NAME", "Linux"), glyph
 
 
-def launcher_definition(base=None):
+def launcher_definition(base=None, config_path=None):
     definition, visited = {}, set()
     def read(obj, parent):
         includes = obj.get("include", [])
@@ -351,13 +362,14 @@ def launcher_definition(base=None):
         value = obj.get("custom/applauncher")
         if isinstance(value, dict):
             definition.update(value)
-    read(base if base is not None else (read_live_config() or default_base_config()), live_config_path().parent)
+    read(base if base is not None else (read_live_config() or default_base_config()), (config_path or live_config_path()).parent)
     return definition
 
 
 def render_waybar_config(layout: dict, available: list[dict] | None = None,
                          base: dict | None = None,
-                         base_from_live: bool = True) -> dict:
+                         base_from_live: bool = True,
+                         config_path: Path | None = None) -> dict:
     """按布局渲染底部任务栏 waybar 配置对象。"""
     available = available if available is not None else scan_available_plugins()
     if base is None and base_from_live:
@@ -365,6 +377,8 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
     if not isinstance(base, dict):
         base = default_base_config()
     cfg = json.loads(json.dumps(base))  # 深拷贝
+    from mnws_include import normalize_default_include
+    normalize_default_include(cfg, config_path or live_config_path())
     # "中间" means the bar's geometric centre, independent of side widths.
     cfg["fixed-center"] = True
 
@@ -372,7 +386,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
 
     if "start_label" in options or options.get("start_icon_mode") == "distro":
         import html
-        definition = launcher_definition(cfg)
+        definition = launcher_definition(cfg, config_path)
         text = distro_logo()[1] if options.get("start_icon_mode") == "distro" else str(options.get("start_label") or "Apps")
         definition["format"] = html.escape(text).replace("{", "{{").replace("}", "}}")
         cfg["custom/applauncher"] = definition
@@ -429,23 +443,20 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
                 return None
             if not entry_path.is_file():
                 return None
-            settings = item.get("settings", {})
-            settings_arg = ""
-            if item["manifest"].get("settingsSchema"):
-                settings_arg = " --settings-json " + shlex.quote(json.dumps(settings, ensure_ascii=False))
+            try:
+                settings = mplg.api1.settings(item['manifest'], item.get('settings', {}))
+            except ValueError:
+                # Let the isolated runner report invalid saved settings, not abort the whole layout.
+                settings = item.get('settings', {})
+            command = shlex.join([sys.executable, str(mplg.project_root() / 'tools/mnws_plugin_runner.py'), str(item['file']), '--settings-json', json.dumps(settings, ensure_ascii=False)])
             if "panel.rows-v1" in item["manifest"].get("interfaces", []):
                 return {
                     "module_path": str(Path.home() / ".local/lib/waybar/libmnws_panel.so"),
-                    "exec": "%s %s --output-json" % (shlex.quote(sys.executable), shlex.quote(str(entry_path))) + settings_arg,
+                    "exec": command,
                     **{key: str(settings.get(key, "")) for key in ("font_family", "primary_color", "secondary_color", "separator_color")},
                     "width": int(item.get("width", 420) or 420),
                     "widget_name": module_css_id(module),
                 }
-            command = "cd %s && exec %s %s --output-json" % (
-                shlex.quote(str(entry_root)),
-                shlex.quote(sys.executable),
-                shlex.quote(str(entry_path)))
-            command += settings_arg
             module_cfg = {"return-type": "json", "exec": command, "tooltip": True}
             alignment = item["manifest"].get("defaults", {}).get("align")
             if isinstance(alignment, (int, float)) and 0 <= alignment <= 1:
@@ -571,16 +582,16 @@ def apply_layout(layout: dict | None = None, restart: bool = False,
     style_path = style_path or live_style_path()
     layout = layout if layout is not None else load_layout()
     try:
-        cfg = render_waybar_config(layout, available=available)
+        cfg = render_waybar_config(layout, available=available, config_path=config_path)
         config_text = config_to_jsonc(cfg)
         css_block = render_css_block(cfg.get("_mnws_css_rules", []))
     except (OSError, ValueError) as exc:
-        return False, "渲染失败：%s" % exc
+        return False, _tr('渲染失败：%s') % exc
 
     from mnws_health import validate_waybar
     errors = validate_waybar(config_path, style_path, cfg)
     if errors:
-        return False, "应用前检查失败：\n" + "\n".join(errors)
+        return False, _tr('应用前检查失败：\n') + "\n".join(errors)
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
     style_path.parent.mkdir(parents=True, exist_ok=True)
@@ -591,13 +602,13 @@ def apply_layout(layout: dict | None = None, restart: bool = False,
         old_style = style_path.read_text(encoding="utf-8") if style_path.exists() else ""
         style_path.write_text(patch_style(old_style, css_block), encoding="utf-8")
     except OSError as exc:
-        return False, "写入失败：%s" % exc
+        return False, _tr('写入失败：%s') % exc
 
-    message = "已写入 %s（备份：%s.mnws-bak）" % (config_path, config_path)
+    message = _tr('已写入 %s（备份：%s.mnws-bak）') % (config_path, config_path)
     if restart:
         ok, text = restart_taskbar(config_path, style_path)
         if not ok:
-            return False, message + "\n重启失败：" + text
+            return False, message + _tr('\n重启失败：') + text
         message += "\n" + text
     return True, message
 
@@ -624,10 +635,10 @@ def restart_taskbar(config_path: Path | None = None, style_path: Path | None = N
     deadline = time.monotonic() + 2.0
     while set(targets) & set(taskbar_pids()):
         if time.monotonic() >= deadline:
-            return False, '旧任务栏尚未退出；未启动第二个实例。'
+            return False, _tr('旧任务栏尚未退出；未启动第二个实例。')
         time.sleep(0.08)
     ok, message = start_taskbar(config_path, style_path)
-    return ok, message if not ok else '底部任务栏已重启'
+    return ok, message if not ok else _tr('底部任务栏已重启')
 
 
 def cli_render(args) -> int:
@@ -636,13 +647,13 @@ def cli_render(args) -> int:
     text = config_to_jsonc(cfg)
     if args.output:
         Path(args.output).expanduser().write_text(text, encoding="utf-8")
-        print("已写入：%s" % args.output)
+        print(_tr('已写入：%s') % args.output)
     else:
         sys.stdout.write(text)
     if args.style_out:
         block = render_css_block(cfg.get("_mnws_css_rules", []))
         Path(args.style_out).expanduser().write_text(block, encoding="utf-8")
-        print("CSS 已写入：%s" % args.style_out)
+        print(_tr('CSS 已写入：%s') % args.style_out)
     return 0
 
 
@@ -661,27 +672,27 @@ def cli_show(_args) -> int:
 
 def arguments(argv=None):
     parser = argparse.ArgumentParser(
-        prog="mnws-layout", description="任务栏组件布局：渲染 / 应用",
+        prog="mnws-layout", description=_tr('任务栏组件布局：渲染 / 应用'),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("show", help="显示当前布局状态")
+    p = sub.add_parser("show", help=_tr('显示当前布局状态'))
     p.set_defaults(func=cli_show)
 
-    p = sub.add_parser("render", help="渲染 Waybar 配置（不写入 live 配置）")
-    p.add_argument("--layout", help="布局文件")
-    p.add_argument("-o", "--output", help="输出 jsonc 路径")
-    p.add_argument("--style-out", help="把插件宽度 CSS 写到该文件")
-    p.add_argument("--no-live", action="store_true", help="不用 live 配置做底，使用内置模板")
+    p = sub.add_parser("render", help=_tr('渲染 Waybar 配置（不写入 live 配置）'))
+    p.add_argument("--layout", help=_tr('布局文件'))
+    p.add_argument("-o", "--output", help=_tr('输出 jsonc 路径'))
+    p.add_argument("--style-out", help=_tr('把插件宽度 CSS 写到该文件'))
+    p.add_argument("--no-live", action="store_true", help=_tr('不用 live 配置做底，使用内置模板'))
     p.set_defaults(func=cli_render)
 
-    p = sub.add_parser("apply", help="写入 live 配置并可选重启任务栏")
-    p.add_argument("--layout", help="布局文件")
-    p.add_argument("--restart", action="store_true", help="写入后重启底部任务栏")
+    p = sub.add_parser("apply", help=_tr('写入 live 配置并可选重启任务栏'))
+    p.add_argument("--layout", help=_tr('布局文件'))
+    p.add_argument("--restart", action="store_true", help=_tr('写入后重启底部任务栏'))
     p.set_defaults(func=cli_apply)
 
-    p = sub.add_parser("gui", help="打开任务栏组件与插件管理窗口")
-    p.add_argument("--layout", help="布局文件")
+    p = sub.add_parser("gui", help=_tr('打开任务栏组件与插件管理窗口'))
+    p.add_argument("--layout", help=_tr('布局文件'))
     p.set_defaults(func=cli_gui)
 
     return parser.parse_args(argv)

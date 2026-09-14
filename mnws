@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+source "$ROOT/scripts/mnws-i18n.sh"
 
 usage() {
     python3 "$ROOT/tools/mnws_runtime.py" --help
@@ -33,9 +34,13 @@ if [[ "${2:-}" == "-h" || "${2:-}" == "--help" || "${2:-}" == "-?" ]]; then
 fi
 
 case "${1:-help}" in
+    --update|-u)
+        shift
+        exec python3 "$ROOT/tools/mnws_update.py" "$@"
+        ;;
     --uninstall)
         if [ "$#" -ne 1 ]; then
-            echo "用法: mnws --uninstall" >&2
+            mnws_message "用法: mnws --uninstall" "Usage: mnws --uninstall" >&2
             exit 2
         fi
         exec python3 "$ROOT/tools/mnws_uninstall.py"
@@ -61,12 +66,12 @@ case "${1:-help}" in
         trap 'rm -f "$taskbar_library_tmp"' EXIT
         install -m644 target/release/libniri_taskbar.so "$taskbar_library_tmp"
         mv -f "$taskbar_library_tmp" "$HOME/.local/lib/waybar/libniri_taskbar.so"
-        echo "已复制 libniri_taskbar.so 到 ~/.local/lib/waybar/"
+        mnws_message "已复制 libniri_taskbar.so 到 ~/.local/lib/waybar/" "Installed libniri_taskbar.so in ~/.local/lib/waybar/"
         ;;
     restart)
         case "${2:-}" in
             desktop|taskbar) exec python3 "$ROOT/tools/mnws_runtime.py" "$2" --restart ;;
-            *) echo "用法: mnws restart desktop|taskbar" >&2; exit 2 ;;
+            *) mnws_message "用法: mnws restart desktop|taskbar" "Usage: mnws restart desktop|taskbar" >&2; exit 2 ;;
         esac
         ;;
     install)
@@ -92,7 +97,7 @@ case "${1:-help}" in
         usage
         ;;
     *)
-        echo "未知命令: ${1:-}" >&2
+        mnws_message "未知命令: ${1:-}" "Unknown command: ${1:-}" >&2
         usage >&2
         exit 2
         ;;

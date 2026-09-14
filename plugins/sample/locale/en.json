@@ -1,0 +1,5 @@
+{
+  "plugin.name": "HelloWorld sample",
+  "settings.greeting": "Greeting",
+  "settings.enabled": "Show greeting"
+}

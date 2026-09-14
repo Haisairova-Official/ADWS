@@ -6,7 +6,7 @@
 
 **A simpler desktop solution for Niri.**
 
-当前版本 / Current version: **1.23 H** · [更新记录 / Changelog](CHANGELOG.md)
+当前开发版本 / Current development version: **1.25 Pre-release**（待发布 / unreleased） · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
 
@@ -20,64 +20,49 @@ MNWS 为 Niri 整合桌面图标、底部任务栏、统一设置与插件，让
 - **桌面图标层**：桌面文件展示、选择、拖动排序、文件操作及外观设置。
 - **底部任务栏**：窗口图标随内容增长，空间不足时滚动；支持右键菜单，桌面与任务栏可独立显示或隐藏。
 - **布局设置**：内置组件与用户插件可混合排序、放入左/中/右分区；中间分区对齐整条任务栏中心。设置窗口以浮动形式打开。
-- **插件系统**：通过 `.mplg` 包分发插件，支持插件自带设置；长名称自动省略，操作按钮保持可见。
+- **插件系统**：Plugin API v1.0 通过 `.mplg` 包分发插件，支持插件自带设置；长名称自动省略，操作按钮保持可见。
 - **网易云歌词**：读取 Firefox 的 MPRIS 媒体会话，同步当前歌词。双语上下居中，原文与译文字号比为 3:2，中间以细线分隔，字号根据任务栏实时高度计算。支持字体、颜色、同步偏移和自定义歌词 API。
 
 ### 环境要求
 
 - Linux、Niri，以及支持 CFFI v2 的 Waybar。
 - Python 3.11+、PyGObject（GTK 3/Gio）、PyCairo、Pillow、gtk-layer-shell；文件管理集成使用 Thunar。
-- Rust 1.87+ / Cargo、C 编译器、Make、pkg-config，以及 GTK 3、gtk-layer-shell、json-glib 开发文件。
+- 仅源码构建需要：Rust 1.87+ / Cargo、C 编译器、Make、pkg-config，以及 GTK 3、gtk-layer-shell、json-glib 开发文件。
 - 桌面启动器使用 systemd 用户服务；应用菜单优先使用 fuzzel，其次 rofi，也可自定义启动命令。
 - 歌词插件需要 Firefox 启用 MPRIS 并正在播放 `music.163.com` 的音乐。
 
-任务栏使用随仓库提供的 `vendor/niri-ipc`，来自 Niri/Shorin 26.04 的本地源码快照，包含最小化等扩展接口。其他 Niri 版本可能需要适配。
+任务栏使用随仓库提供的 `vendor/niri-ipc`，兼容上游窗口数据与 Shorin 最小化扩展。
+缺少最小化接口时回退到聚焦窗口。仍需支持 CFFI v2 的 Waybar；具体发行版的实机兼容性需要验证。
 
 ### 构建与安装
 
-下载源码后可直接运行 `./install.sh`，按提示补齐依赖和构建组件。以下手动步骤供需要自行准备环境的用户参考。
+安装完成后会询问是否让桌面和任务栏随 Niri 自启（默认 Y）；选择 n 或 Ctrl+C 保留安装结果和原有自启设置。
 
-**1. 准备依赖并下载源码**
-
-安装上面的依赖，然后执行：
+源码安装：
 
 ```sh
 git clone https://github.com/Haisairova-Official/MNWS.git
 cd MNWS
-```
-
-**2. 构建组件**（首次安装必须执行）
-
-<details>
-<summary>展开编译命令 / Build commands</summary>
-
-升级已有安装时，先用 `mnws taskbar -S` 停止底部任务栏。
-
-```sh
-./mnws build-taskbar
-make -C src/panel-rows
-cc -shared -fPIC -O2 src/niri-desktop-layer/integration/waybar-space.c \
-  -o src/niri-desktop-layer/integration/libwaybar-space.so \
-  $(pkg-config --cflags --libs gtk+-3.0 gtk-layer-shell-0)
-install -m644 src/panel-rows/libmnws_panel.so "$HOME/.local/lib/waybar/"
-install -m644 src/niri-desktop-layer/integration/libwaybar-space.so "$HOME/.local/lib/waybar/"
-```
-
-</details>
-
-**3. 安装并启动**
-
-```sh
 ./install.sh
-./mnws layout apply --restart
-./mnws desktop -s
+mnws -s
 ```
+
+按提示补齐依赖、构建组件和选择启动器即可。Arch x86_64 用户也可使用预构建包，
+省去 Rust/Cargo 和 C 编译步骤，见 [Arch 安装说明](docs/arch-install.md)。
 
 用 `./mnws config` 打开设置，`./mnws check` 排查安装问题。
 安装保留已有配置，并更新应用菜单启动命令（原文件备份为 `.mnws-launcher.bak`）。优先使用 fuzzel，其次 rofi；都没有时按提示选择安装 fuzzel（默认 Y）、输入自定义启动命令（n），或 Ctrl+C 取消。缺少运行依赖或组件时，安装程序会询问是否补齐或构建（默认 Y，n/Ctrl+C 取消），完成后重新检查。自动补齐支持 apt、pacman、dnf；软件源缺包或版本不够时会提示手动处理。
 保留仓库目录。安装程序优先在已有 PATH 的 `~/.local/bin` 建立命令链接，否则询问是否安装到 `/usr/local/bin`（可能需要 sudo）。不会修改终端配置或覆盖其他程序；卸载只移除属于 MNWS 的链接。
 
+为兼容部分 Ubuntu 构建环境，安装和应用布局时会把单个默认 `modules.jsonc` 引用写为实际配置目录下的绝对路径字符串。已有配置转换前备份为 `.mnws-include-bak`；自定义引用和多文件 include 保留。
+
 浮动窗口规则、登录自启及已有 Waybar 配置的接入方式见 [安装详情](docs/installation.md)。
+
+### 语言与检查更新
+
+中文显示环境使用中文，其他语言统一使用英文。执行 `mnws --update` / `mnws -u`，
+或在设置的“关于”页点击“检查更新”。中国大陆出口 IP 优先使用 GitHub 代理，失败回退直连。
+只检查正式 Release，不自动安装。概率文案和翻译维护见 [语言文件制作指南](Language.md)。
 
 ### 卸载
 
@@ -130,29 +115,42 @@ It is under active development and has mainly been tested with Niri/Shorin 26.04
 
 - Linux, Niri and Waybar with CFFI v2 support.
 - Python 3.11+, PyGObject (GTK 3/Gio), PyCairo, Pillow and gtk-layer-shell. File-manager integration uses Thunar.
-- Rust 1.87+ / Cargo, a C compiler, Make, pkg-config and development files for GTK 3, gtk-layer-shell and json-glib.
-- The desktop launcher uses a systemd user service. The default application menu uses Rofi; change it in `modules.jsonc` if needed.
+- Source builds only: Rust 1.87+ / Cargo, a C compiler, Make, pkg-config and development files for GTK 3, gtk-layer-shell and json-glib.
+- The desktop launcher uses a systemd user service. The application menu prefers fuzzel, then rofi, and supports a custom command.
 - Lyrics require Firefox with MPRIS enabled and music playing on `music.163.com`.
 
-The taskbar uses the bundled `vendor/niri-ipc`, a local source snapshot from Niri/Shorin 26.04 with extensions such as window minimization. Other Niri versions may require changes.
+The bundled IPC client accepts upstream window data and Shorin minimization extensions.
+When minimization is unsupported, the action falls back to focusing the window.
+Waybar still needs CFFI v2 support; real distribution compatibility requires verification.
 
 ### Build and install
 
-1. Install the [requirements](#requirements), then clone the repository using the commands in the [installation section](#构建与安装).
-2. Build the components using its expandable **Build commands** block. This step is required for a fresh installation. Stop an existing bottom taskbar with `mnws taskbar -S` before updating libraries.
-3. Install and start:
-
 ```sh
+git clone https://github.com/Haisairova-Official/MNWS.git
+cd MNWS
 ./install.sh
-./mnws layout apply --restart
-./mnws desktop -s
+mnws -s
 ```
+
+Follow the prompts to install missing dependencies, build components and choose a launcher.
+At the end, the installer offers Niri autostart for both components (default Y).
+Arch x86_64 users can skip Rust/Cargo and C compilation with the prebuilt archive;
+see the [Arch installation guide](docs/arch-install.md).
 
 Use `./mnws config` for settings and `./mnws check` to diagnose installation problems.
 The installer preserves existing settings and updates the app launcher command, backing up the original file as `.mnws-launcher.bak`. It prefers fuzzel, then rofi. If neither is available, choose to install fuzzel (default Y), enter a custom command (n), or cancel with Ctrl+C. Missing runtime dependencies and components trigger an offer to install or build them (default Y; n/Ctrl+C cancels), followed by another check. Automatic dependency installation supports apt, pacman and dnf; unavailable packages or outdated versions need manual attention.
 Keep the checkout. The installer uses `~/.local/bin` if already on PATH, otherwise offering `/usr/local/bin` (sudo may be required). Shell configuration and unrelated commands are preserved; uninstall removes only MNWS-owned links.
 
+For compatibility with reported Ubuntu builds, installation and layout generation write the single default `modules.jsonc` include as an absolute-path string in the configuration directory. Existing files are backed up as `.mnws-include-bak` before migration; custom references and multiple includes are preserved.
+
 See [installation details](docs/installation.md#build-and-install) for floating-window rules, autostart and integration with an existing Waybar configuration.
+
+### Language and updates
+
+Chinese display locales use Chinese; all other locales use English. Run `mnws --update` /
+`mnws -u`, or select **About → Check for updates** in settings. Mainland-China outbound
+IPs prefer a GitHub proxy, with direct access as fallback. Checks report stable Releases
+without installing them. See [translation and weighted-message guide](Language.md).
 
 ### Uninstall
 

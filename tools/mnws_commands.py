@@ -1,4 +1,5 @@
 """Install command symlinks into an existing PATH directory."""
+from mnws_i18n import tr as _tr
 import os
 from pathlib import Path
 import shutil
@@ -21,7 +22,7 @@ def owned(path, relative, roots):
 def run(command, directory):
     if not os.access(directory, os.W_OK):
         if not shutil.which('sudo'):
-            raise RuntimeError('需要 sudo 才能修改 /usr/local/bin，请安装 sudo 或将 ~/.local/bin 加入 PATH 后重试。')
+            raise RuntimeError(_tr('需要 sudo 才能修改 /usr/local/bin，请安装 sudo 或将 ~/.local/bin 加入 PATH 后重试。'))
         command = ['sudo', *command]
     subprocess.run(command, check=True)
 
@@ -33,13 +34,13 @@ def install():
         directory = local
     else:
         if SYSTEM_BIN not in paths or not SYSTEM_BIN.is_dir():
-            raise RuntimeError('/usr/local/bin 不在 PATH 中或不存在。请先将 ~/.local/bin 加入 PATH 后重新安装。')
+            raise RuntimeError(_tr('/usr/local/bin 不在 PATH 中或不存在。请先将 ~/.local/bin 加入 PATH 后重新安装。'))
         while True:
-            answer = ask('~/.local/bin 不在 PATH 中。是否将命令链接安装到 /usr/local/bin（可能需要 sudo）？（Y/n/Ctrl+C）').lower()
+            answer = ask(_tr('~/.local/bin 不在 PATH 中。是否将命令链接安装到 /usr/local/bin（可能需要 sudo）？（Y/n/Ctrl+C）')).lower()
             if answer in ('', 'y'):
                 break
             if answer == 'n':
-                raise RuntimeError('已取消命令安装。请将 ~/.local/bin 加入 PATH 后重试。')
+                raise RuntimeError(_tr('已取消命令安装。请将 ~/.local/bin 加入 PATH 后重试。'))
         directory = SYSTEM_BIN
     data = read_inventory()
     roots = {ROOT, Path(data.get('root') or ROOT)}
@@ -47,7 +48,7 @@ def install():
     for name, relative in ENTRIES.items():
         path = directory / name
         if (path.exists() or path.is_symlink()) and not owned(path, relative, roots):
-            raise RuntimeError(f'已有非 MNWS 命令，未覆盖：{path}')
+            raise RuntimeError(''.join([_tr('已有非 MNWS 命令，未覆盖：'), f'{path}']))
     directory.mkdir(parents=True, exist_ok=True)
     for name, relative in ENTRIES.items():
         source, path = ROOT / relative, directory / name
@@ -66,18 +67,18 @@ def install():
     if str(directory) not in data['command_dirs']:
         data['command_dirs'].append(str(directory))
     save_inventory(data)
-    print(f'命令入口已安装到 {directory}。')
+    print(''.join([_tr('命令入口已安装到 '), f'{directory}', '。']))
     resolved = shutil.which('mnws')
     if resolved and Path(resolved).resolve() != (ROOT / 'mnws').resolve():
-        print(f'提示：PATH 中更靠前的命令遮挡了 MNWS：{resolved}；请使用 {directory}/mnws。')
+        print(''.join([_tr('提示：PATH 中更靠前的命令遮挡了 MNWS：'), f'{resolved}', _tr('；请使用 '), f'{directory}', '/mnws。']))
 
 
 if __name__ == '__main__':
     try:
         install()
     except (KeyboardInterrupt, EOFError):
-        print('\n已取消。', file=sys.stderr)
+        print(_tr('\n已取消。'), file=sys.stderr)
         raise SystemExit(130)
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
-        print(f'命令安装未完成：{error}', file=sys.stderr)
+        print(''.join([_tr('命令安装未完成：'), f'{error}']), file=sys.stderr)
         raise SystemExit(1)

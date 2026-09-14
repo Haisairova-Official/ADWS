@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import mnws_health as health
+from mnws_i18n import tr as _tr
 import mnws_layout as layout
 import mnws_runtime as runtime
 
@@ -58,6 +59,7 @@ class InstallationTests(unittest.TestCase):
         target = folder / 'config-bottom.jsonc'
         self.assertTrue(target.is_file())
         self.assertFalse(target.is_symlink())
+        self.assertEqual(layout.parse_jsonc(target.read_text())['include'], str(folder / 'modules.jsonc'))
         self.assertFalse((self.home / '.config/waybar').exists())
         self.assertTrue((self.home / 'Desktop').is_dir())
         original = self.root / 'custom.jsonc'
@@ -115,7 +117,7 @@ class InstallationTests(unittest.TestCase):
     def test_check_reports_missing_files(self):
         with patch.dict(os.environ, self.env), patch.object(health, 'dependency_errors', return_value=[]), patch('sys.stderr', new_callable=io.StringIO) as errors:
             self.assertEqual(health.check(), 1)
-        self.assertIn('无法读取任务栏配置', errors.getvalue())
+        self.assertIn(_tr('无法读取任务栏配置'), errors.getvalue())
 
     def test_xdg_paths_match_all_tools(self):
         with patch.dict(os.environ, self.env):
@@ -128,6 +130,8 @@ class InstallationTests(unittest.TestCase):
         source = self.root / 'project'
         (source / 'src/niri-taskbar/target/release').mkdir(parents=True)
         shutil.copy2(ROOT / 'mnws', source / 'mnws')
+        (source / 'scripts').mkdir()
+        shutil.copy2(ROOT / 'scripts/mnws-i18n.sh', source / 'scripts/mnws-i18n.sh')
         artifact = source / 'src/niri-taskbar/target/release/libniri_taskbar.so'
         artifact.write_text('new library')
         old = self.libs / 'libniri_taskbar.so'

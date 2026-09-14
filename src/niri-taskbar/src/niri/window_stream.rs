@@ -17,8 +17,12 @@ impl WindowStream {
     pub(super) fn new(current_workspace_only: bool) -> Self {
         let (tx, rx) = async_channel::unbounded();
         std::thread::spawn(move || {
-            if let Err(e) = window_stream(tx, current_workspace_only) {
-                tracing::error!(%e, "Niri taskbar window stream error");
+            while !tx.is_closed() {
+                if let Err(e) = window_stream(tx.clone(), current_workspace_only) {
+                    tracing::error!(%e, "Niri taskbar window stream error; reconnecting");
+                }
+                if tx.is_closed() { break; }
+                std::thread::sleep(std::time::Duration::from_secs(2));
             }
         });
 
@@ -49,6 +53,10 @@ fn window_stream(tx: Sender<Snapshot>, current_workspace_only: bool) -> Result<(
                 }
             }
             Err(e) => {
+                if e.kind() == std::io::ErrorKind::InvalidData {
+                    tracing::warn!(%e, "Ignoring unsupported or malformed Niri event");
+                    continue;
+                }
                 tracing::error!(%e, "Niri IPC error reading from event stream");
                 return Err(Error::NiriIpc(e));
             }

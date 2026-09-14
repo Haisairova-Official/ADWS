@@ -1428,6 +1428,7 @@ pub struct Window {
     /// Whether this window is currently minimized.
     ///
     /// Minimized windows remain on their workspace but are hidden from the layout until restored.
+    #[serde(default)]
     pub is_minimized: bool,
     /// Position- and size-related properties of the window.
     pub layout: WindowLayout,

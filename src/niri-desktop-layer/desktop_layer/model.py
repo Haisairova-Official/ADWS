@@ -5,6 +5,7 @@ never interpreted by a shell here; application launching belongs to GIO.
 """
 
 from __future__ import annotations
+from .i18n import tr as _tr
 
 import json
 import os
@@ -79,14 +80,14 @@ def _optional_bool(keyfile: GLib.KeyFile, key: str) -> bool:
 
 def _validate_link_uri(uri: str) -> str:
     if not uri or any(character.isspace() or ord(character) < 32 for character in uri):
-        raise ValueError("链接 URL 为空或包含未转义的空白字符")
+        raise ValueError(_tr('链接 URL 为空或包含未转义的空白字符'))
     parts = urlsplit(uri)
     if parts.scheme.lower() not in _LINK_SCHEMES:
-        raise ValueError("链接仅支持 file、http、https、trash、computer 和 network 协议")
+        raise ValueError(_tr('链接仅支持 file、http、https、trash、computer 和 network 协议'))
     if parts.scheme.lower() in {"http", "https"} and not parts.hostname:
-        raise ValueError("网页链接缺少主机名")
+        raise ValueError(_tr('网页链接缺少主机名'))
     if parts.scheme.lower() == "file" and not parts.path.startswith("/"):
-        raise ValueError("文件链接必须使用绝对路径")
+        raise ValueError(_tr('文件链接必须使用绝对路径'))
     return uri
 
 
@@ -94,18 +95,18 @@ def _desktop_entry(path: Path) -> Entry | None:
     entry = Entry(path, path.stem, _theme("application-x-desktop"), "application")
     try:
         if not path.is_file():
-            raise ValueError("启动器不是普通文件，或符号链接的目标不存在")
+            raise ValueError(_tr('启动器不是普通文件，或符号链接的目标不存在'))
         if path.stat().st_size > _MAX_DESKTOP_BYTES:
-            raise ValueError("启动器文件超过 1 MiB")
+            raise ValueError(_tr('启动器文件超过 1 MiB'))
         keyfile = GLib.KeyFile.new()
         keyfile.load_from_file(str(path), GLib.KeyFileFlags.NONE)
         if not keyfile.has_group(_GROUP):
-            raise ValueError("缺少 [Desktop Entry] 段")
+            raise ValueError(_tr('缺少 [Desktop Entry] 段'))
         if _optional_bool(keyfile, "Hidden") or _optional_bool(keyfile, "NoDisplay"):
             return None
         name = keyfile.get_locale_string(_GROUP, "Name", None).strip()
         if not name:
-            raise ValueError("启动器缺少名称")
+            raise ValueError(_tr('启动器缺少名称'))
         entry.name = name
         icon_name = _optional_string(keyfile, "Icon")
         if icon_name:
@@ -122,12 +123,12 @@ def _desktop_entry(path: Path) -> Entry | None:
         elif kind == "Application":
             command = _optional_string(keyfile, "Exec")
             if not command.strip() and not _optional_bool(keyfile, "DBusActivatable"):
-                raise ValueError("应用启动器缺少 Exec")
+                raise ValueError(_tr('应用启动器缺少 Exec'))
             # Construction parses the desktop format, but never starts an app.
             if Gio.DesktopAppInfo.new_from_filename(str(path)) is None:
-                raise ValueError("GIO 无法读取启动器，或所需程序未安装")
+                raise ValueError(_tr('GIO 无法读取启动器，或所需程序未安装'))
         else:
-            raise ValueError("仅支持 Type=Application 和 Type=Link 启动器")
+            raise ValueError(_tr('仅支持 Type=Application 和 Type=Link 启动器'))
     except (GLib.Error, OSError, ValueError, UnicodeError, RuntimeError) as exc:
         entry.error = str(exc)
         entry.icon = _theme("dialog-warning")
@@ -139,7 +140,7 @@ def _file_entry(path: Path) -> Entry:
     entry = Entry(path, path.name, _theme("folder" if kind == "directory" else "text-x-generic"), kind)
     try:
         if path.is_symlink() and not path.exists():
-            entry.error = "符号链接的目标不存在"
+            entry.error = _tr('符号链接的目标不存在')
             entry.icon = _theme("dialog-warning")
             return entry
         file = Gio.File.new_for_path(str(path))
@@ -169,13 +170,13 @@ def _populate_metadata(entry: Entry) -> None:
     if metadata is not None:
         entry.size = 0 if entry.kind == "directory" else metadata.st_size
         entry.modified = metadata.st_mtime
-    labels = {"directory": "文件夹", "application": "应用快捷方式", "link": "链接"}
-    entry.type_name = labels.get(entry.kind, "文件")
+    labels = {"directory": _tr('文件夹'), "application": _tr('应用快捷方式'), "link": _tr('链接')}
+    entry.type_name = labels.get(entry.kind, _tr('文件'))
     if entry.kind == "file":
         try:
             content_type, _uncertain = Gio.content_type_guess(entry.path.name, None)
             if content_type:
-                entry.type_name = Gio.content_type_get_description(content_type) or "文件"
+                entry.type_name = Gio.content_type_get_description(content_type) or _tr('文件')
         except (GLib.Error, ValueError, UnicodeError):
             pass
 
@@ -205,7 +206,7 @@ def sort_entries(
     for descending order as well.  No entry or input list is modified.
     """
     if sort_by not in {"name", "type", "size", "modified"}:
-        raise ValueError("未知排序方式：" + str(sort_by))
+        raise ValueError(_tr('未知排序方式：') + str(sort_by))
 
     def key(entry):
         name = (_natural_key(entry.name), entry.name.casefold(), entry.name,
@@ -271,7 +272,7 @@ def _executable_text(path: Path) -> bool:
 def open_in_thunar(uri: str, context=None) -> bool:
     app = Gio.DesktopAppInfo.new("thunar.desktop")
     if app is None:
-        raise EntryLaunchError("未找到 Thunar，请先安装 thunar")
+        raise EntryLaunchError(_tr('未找到 Thunar，请先安装 thunar'))
     return app.launch_uris([uri], context)
 
 
@@ -322,7 +323,7 @@ def launch_entry(entry: Entry, context=None, allow_untrusted: bool = False) -> b
     if path.suffix.lower() == ".desktop" and not path.is_dir():
         current = _desktop_entry(path)
         if current is None:
-            raise EntryLaunchError("启动器已被隐藏")
+            raise EntryLaunchError(_tr('启动器已被隐藏'))
         if current.error:
             raise EntryLaunchError(current.error)
         if current.kind == "application":
@@ -331,21 +332,21 @@ def launch_entry(entry: Entry, context=None, allow_untrusted: bool = False) -> b
                 return open_in_thunar(location, context)
             app = Gio.DesktopAppInfo.new_from_filename(str(path))
             if app is None:
-                raise EntryLaunchError("无法读取应用启动器")
+                raise EntryLaunchError(_tr('无法读取应用启动器'))
             if not allow_untrusted and not _installed_launcher(path) and not os.access(path, os.X_OK):
-                raise UntrustedLauncher(f"尚未信任启动器：{current.name}")
+                raise UntrustedLauncher(''.join([_tr('尚未信任启动器：'), f'{current.name}']))
             return app.launch([], context)
         if _folder_uri(current.uri):
             return open_in_thunar(current.uri, context)
         return Gio.AppInfo.launch_default_for_uri(current.uri, context)
     if not path.exists():
-        raise EntryLaunchError("文件不存在，或符号链接的目标不存在")
+        raise EntryLaunchError(_tr('文件不存在，或符号链接的目标不存在'))
     if path.is_dir():
         return open_in_thunar(path.as_uri(), context)
     if _executable_text(path):
         editor = Gio.AppInfo.get_default_for_type("text/plain", False)
         if editor is None:
-            raise EntryLaunchError("没有默认文本编辑器，无法安全打开可执行脚本")
+            raise EntryLaunchError(_tr('没有默认文本编辑器，无法安全打开可执行脚本'))
         return editor.launch([Gio.File.new_for_path(str(path))], context)
     return Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(str(path)).get_uri(), context)
 

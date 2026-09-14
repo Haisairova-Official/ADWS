@@ -11,6 +11,7 @@ actual compositor pointer routing requires a separate live layer smoke test.
 """
 
 from __future__ import annotations
+from desktop_layer.i18n import tr as _tr, chinese
 
 import itertools
 import json
@@ -203,12 +204,12 @@ class DesktopGuiTests(unittest.TestCase):
 
             menu = view.make_menu(str(first))
             self.assertIsInstance(menu, self.Gtk.Menu)
-            self.assertIsInstance(self.menu_item(menu, "查看", "中等图标"), self.Gtk.RadioMenuItem)
-            self.assertTrue(self.menu_item(menu, "查看", "中等图标").get_active())
-            self.assertTrue(self.menu_item(menu, "排序方式", "名称").get_active())
-            self.assertTrue(self.menu_item(menu, "排序方式", "文件夹优先").get_active())
-            self.menu_item(menu, "打开选中的 2 项")
-            self.menu_item(menu, "属性")
+            self.assertIsInstance(self.menu_item(menu, _tr('查看'), _tr('中等图标')), self.Gtk.RadioMenuItem)
+            self.assertTrue(self.menu_item(menu, _tr('查看'), _tr('中等图标')).get_active())
+            self.assertTrue(self.menu_item(menu, _tr('排序方式'), _tr('名称')).get_active())
+            self.assertTrue(self.menu_item(menu, _tr('排序方式'), _tr('文件夹优先')).get_active())
+            self.menu_item(menu, (_tr('打开选中的 ') + '2' + _tr(' 项')))
+            self.menu_item(menu, _tr('属性'))
             menu.destroy()
             # Merely opening a context menu must not change layout or preferences.
             self.assertFalse(self.state.exists())
@@ -222,50 +223,50 @@ class DesktopGuiTests(unittest.TestCase):
             view.button_release(view.area, self.event(destination, kind=self.Gdk.EventType.BUTTON_RELEASE))
             self.assertTrue(application.positions)
             view.selection.add(str(second))
-            self.activate_menu(view, "排序方式", "大小")
+            self.activate_menu(view, _tr('排序方式'), _tr('大小'))
             self.assertEqual(cfg.sort_by, "size")
             self.assertEqual(application.positions, {}, "sorting must discard manual cell overrides")
             self.assertEqual(view.selection, {str(first), str(second)})
             assert_order(view, [folder, second, picture, first])
 
-            self.activate_menu(view, "排序方式", "项目类型")
+            self.activate_menu(view, _tr('排序方式'), _tr('项目类型'))
             self.assertEqual(cfg.sort_by, "type")
             self.assertEqual(application.entries[0].path, folder)
             typed_paths = [entry.path for entry in application.entries]
             self.assertEqual(abs(typed_paths.index(first) - typed_paths.index(second)), 1,
                              "files of the same type must be adjacent")
-            self.activate_menu(view, "排序方式", "名称")
+            self.activate_menu(view, _tr('排序方式'), _tr('名称'))
             self.assertEqual(cfg.sort_by, "name")
             assert_order(view, [folder, picture, first, second])
-            self.activate_menu(view, "排序方式", "修改日期")
+            self.activate_menu(view, _tr('排序方式'), _tr('修改日期'))
             self.assertEqual(cfg.sort_by, "modified")
             assert_order(view, [folder, first, picture, second])
-            self.activate_menu(view, "排序方式", "递减")
+            self.activate_menu(view, _tr('排序方式'), _tr('递减'))
             self.assertTrue(cfg.sort_descending)
             assert_order(view, [folder, second, picture, first])
-            self.activate_menu(view, "排序方式", "文件夹优先")
+            self.activate_menu(view, _tr('排序方式'), _tr('文件夹优先'))
             self.assertFalse(cfg.folders_first)
             assert_order(view, [second, picture, folder, first])
 
-            self.activate_menu(view, "查看", "小图标")
+            self.activate_menu(view, _tr('查看'), _tr('小图标'))
             self.assertEqual((cfg.icon_size, cfg.cell_width, cfg.cell_height), (32, 96, 92))
             self.assertTrue(all(rect[2:] == (96, 92) for rect in view.rects.values()))
-            self.activate_menu(view, "查看", "大图标")
+            self.activate_menu(view, _tr('查看'), _tr('大图标'))
             self.assertEqual((cfg.icon_size, cfg.cell_width, cfg.cell_height), (64, 132, 124))
             self.assertTrue(all(rect[2:] == (132, 124) for rect in view.rects.values()))
             self.assertTrue(any(self.render(view)), "resized icons must still render")
-            self.activate_menu(view, "查看", "显示隐藏文件")
+            self.activate_menu(view, _tr('查看'), _tr('显示隐藏文件'))
             self.assertTrue(cfg.show_hidden)
             assert_order(view, [second, hidden, picture, folder, first])
             self.assertEqual(view.selection, {str(first), str(second)})
 
             # The menu opens a usable modal properties dialog for the selected group.
-            self.activate_menu(view, "属性", key=str(first))
+            self.activate_menu(view, _tr('属性'), key=str(first))
             dialogs = [window for window in self.Gtk.Window.list_toplevels()
                        if isinstance(window, self.Gtk.Dialog) and window.get_transient_for() is view]
             self.assertEqual(len(dialogs), 1)
             dialog = dialogs[0]
-            self.assertEqual(dialog.get_title(), "属性")
+            self.assertEqual(dialog.get_title(), _tr('属性'))
             self.assertTrue(dialog.get_visible())
             destroyed = []
             dialog.connect("destroy", lambda *_: destroyed.append(True))
@@ -295,10 +296,10 @@ class DesktopGuiTests(unittest.TestCase):
             assert_order(view, [second, hidden, picture, folder, first])
             self.assertTrue(all(rect[2:] == (132, 124) for rect in view.rects.values()))
             menu = view.make_menu(None)
-            for labels in (("排序方式", "修改日期"), ("排序方式", "递减"),
-                           ("查看", "大图标"), ("查看", "显示隐藏文件")):
+            for labels in ((_tr('排序方式'), _tr('修改日期')), (_tr('排序方式'), _tr('递减')),
+                           (_tr('查看'), _tr('大图标')), (_tr('查看'), _tr('显示隐藏文件'))):
                 self.assertTrue(self.menu_item(menu, *labels).get_active())
-            self.assertFalse(self.menu_item(menu, "排序方式", "文件夹优先").get_active())
+            self.assertFalse(self.menu_item(menu, _tr('排序方式'), _tr('文件夹优先')).get_active())
             menu.destroy()
             self.launch.assert_not_called()
             view.close()
@@ -330,7 +331,7 @@ class DesktopGuiTests(unittest.TestCase):
             view = application.views[0]
             keys = [str(path) for path in launchers]
             view.selection = set(reversed(keys))
-            self.activate_menu(view, "打开选中的 3 项", key=keys[0])
+            self.activate_menu(view, (_tr('打开选中的 ') + '3' + _tr(' 项')), key=keys[0])
             first_dialog = view.launch_dialog
             self.assertIsInstance(first_dialog, self.Gtk.MessageDialog)
             self.assertIn(keys[0], first_dialog.get_property("secondary-text"))
@@ -657,10 +658,10 @@ class DesktopGuiTests(unittest.TestCase):
                 items = {item.get_label(): item for item in menu.get_children()
                          if not isinstance(item, self.Gtk.SeparatorMenuItem)}
                 with self.assertLogs("desktop-layer", level="INFO") as logs:
-                    items["打开终端"].activate()
-                self.assertTrue(any("菜单操作：打开终端" in line for line in logs.output))
+                    items[_tr('打开终端')].activate()
+                self.assertTrue(any((_tr('菜单操作：%s') % _tr('打开终端')) in line for line in logs.output))
                 terminal.assert_called_once()
-            exit_item = items["退出桌面图标"]
+            exit_item = items[_tr('退出桌面图标')]
             self.module.apply_menu_palette(menu, self.Config())
             self.assertTrue(exit_item.get_style_context().has_class("desktop-exit"))
             with patch.object(application, "quit") as quit_app:
@@ -668,7 +669,7 @@ class DesktopGuiTests(unittest.TestCase):
                 quit_app.assert_not_called()
                 dialog = view.exit_dialog
                 self.assertIsNotNone(dialog)
-                self.assertIn("桌面右键功能将失效", dialog.get_property("secondary-text"))
+                self.assertIn(('桌面右键功能将失效' if chinese() else 'desktop context menu will stop working'), dialog.get_property("secondary-text"))
                 entries = [w for w in dialog.get_content_area().get_children() if isinstance(w, self.Gtk.Entry)]
                 import shlex
                 command = shlex.split(entries[0].get_text())
@@ -719,7 +720,7 @@ class DesktopGuiTests(unittest.TestCase):
             self.assertEqual(view.area.get_opacity(), 0.0)
             menu = view.make_menu(next(iter(view.rects)))
             labels = [child.get_label() for child in menu.get_children() if not isinstance(child, self.Gtk.SeparatorMenuItem)]
-            self.assertEqual(labels, ["显示桌面图标", "打开终端", "打开桌面文件夹"])
+            self.assertEqual(labels, [_tr('显示桌面图标'), _tr('打开终端'), _tr('打开桌面文件夹')])
             menu.destroy()
             with patch.object(view, "popup") as popup:
                 event = SimpleNamespace(button=3, x=20, y=20)

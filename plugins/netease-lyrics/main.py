@@ -27,6 +27,18 @@ OBJECT_PATH = "/org/mpris/MediaPlayer2"
 SETTINGS = {}
 
 
+_EN = {'♫ 等待网易云': '♫ Waiting for NetEase', '在 Firefox 的网易云音乐中播放歌曲，歌词会自动跟随。': 'Play a song on NetEase Music in Firefox to follow its lyrics.', '正在获取歌词': 'Loading lyrics', '未找到匹配版本的歌词': 'No matching lyrics found', '暂无同步歌词': 'No synchronized lyrics available', '歌词暂时无法获取': 'Lyrics temporarily unavailable', '纯音乐': 'Instrumental', '已暂停': 'Paused', '正在播放': 'Playing', '前奏 / 间奏': 'Intro / interlude', '浏览器尚未提供播放进度': 'The browser has not provided playback position yet', '连续输出变更后的面板状态': 'Stream changed panel states', '读取一次当前状态并退出': 'Read the current state once and exit', '显示连接与歌词匹配摘要': 'Show connection and lyrics matching summary'}
+
+# This plugin also runs from extracted .mplg packages without the host's imports.
+def _tr(text):
+    locale = os.environ.get('LC_ALL') or os.environ.get('LC_MESSAGES') or os.environ.get('LANG') or 'C'
+    if locale.split('.')[0].upper() not in ('C', 'POSIX'):
+        language = (os.environ.get('LANGUAGE') or locale).split(':')[0]
+        if language.lower().startswith('zh'):
+            return text
+    return _EN.get(text, text)
+
+
 def parse_lrc(text: str) -> list[tuple[float, str]]:
     offset = OFFSET.search(text)
     shift = int(offset[1]) / 1000 if offset else 0.0
@@ -245,22 +257,22 @@ def fit_text(text: str, cells: int = 38) -> str:
 
 def render(track: dict | None, lyrics: dict | None) -> dict:
     if not track or track["status"] == "Stopped":
-        return {"text": "♫ 等待网易云", "primary": "♫ 等待网易云", "secondary": "", "class": "idle", "alt": "idle",
-                "tooltip": "在 Firefox 的网易云音乐中播放歌曲，歌词会自动跟随。"}
+        return {"text": _tr('♫ 等待网易云'), "primary": _tr('♫ 等待网易云'), "secondary": "", "class": "idle", "alt": "idle",
+                "tooltip": _tr('在 Firefox 的网易云音乐中播放歌曲，歌词会自动跟随。')}
     title = track["title"] + " · " + " / ".join(track["artists"])
     state = lyrics.get("state", "loading") if lyrics else "loading"
-    descriptions = {"loading": "正在获取歌词", "unmatched": "未找到匹配版本的歌词",
-                    "unavailable": "暂无同步歌词", "error": "歌词暂时无法获取", "instrumental": "纯音乐"}
+    descriptions = {"loading": _tr('正在获取歌词'), "unmatched": _tr('未找到匹配版本的歌词'),
+                    "unavailable": _tr('暂无同步歌词'), "error": _tr('歌词暂时无法获取'), "instrumental": _tr('纯音乐')}
     line, translation = "", ""
     if lyrics and state == "ready" and track["position"] is not None:
         position = track["position"] + float(SETTINGS.get("offset_ms", 0)) / 1000
         _, line = current_line(lyrics["lines"], position)
         _, translation = current_line(lyrics["translation"], position)
     paused = track["status"] == "Paused"
-    status = "已暂停" if paused else "正在播放"
-    message = line or descriptions.get(state, "前奏 / 间奏")
+    status = _tr('已暂停') if paused else _tr('正在播放')
+    message = line or descriptions.get(state, _tr('前奏 / 间奏'))
     if track["position"] is None:
-        message = "浏览器尚未提供播放进度"
+        message = _tr('浏览器尚未提供播放进度')
     tooltip = "\n".join(part for part in (title, status, message, translation if line and translation != line else "") if part)
     return {"text": html.escape(("Ⅱ " if paused else "♫ ") + fit_text(line or track["title"])),
             "primary": ("Ⅱ " if paused else "") + (line or "♫ " + track["title"]),
@@ -270,9 +282,9 @@ def render(track: dict | None, lyrics: dict | None) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output-json", action="store_true", help="连续输出变更后的面板状态")
-    parser.add_argument("--once", action="store_true", help="读取一次当前状态并退出")
-    parser.add_argument("--diagnose", action="store_true", help="显示连接与歌词匹配摘要")
+    parser.add_argument("--output-json", action="store_true", help=_tr('连续输出变更后的面板状态'))
+    parser.add_argument("--once", action="store_true", help=_tr('读取一次当前状态并退出'))
+    parser.add_argument("--diagnose", action="store_true", help=_tr('显示连接与歌词匹配摘要'))
     parser.add_argument("--settings-json", default="{}")
     args = parser.parse_args(argv)
     global SETTINGS
@@ -291,6 +303,7 @@ def main(argv=None) -> int:
         return 0
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     key, future, lyrics, previous = None, None, None, None
+    last_emit = 0.0
     try:
         while True:
             track = player.snapshot()
@@ -309,9 +322,10 @@ def main(argv=None) -> int:
             if track and lyrics and lyrics.get("expires", 0) <= time.time() and future is None:
                 future = executor.submit(fetch_lyrics, track)
             payload = json.dumps(render(track, lyrics), ensure_ascii=False)
-            if payload != previous:
+            if payload != previous or time.monotonic() - last_emit >= 15:
                 print(payload, flush=True)
                 previous = payload
+                last_emit = time.monotonic()
             time.sleep(0.25 if track and track["status"] == "Playing" else 1.0)
     except (BrokenPipeError, KeyboardInterrupt):
         return 0

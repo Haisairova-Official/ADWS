@@ -6,6 +6,7 @@ which is also where the supplied callback is invoked.
 """
 
 from __future__ import annotations
+from .i18n import tr as _tr
 
 import errno
 import json
@@ -59,7 +60,7 @@ class OverviewWatcher:
         if self._path:
             self._connect()
         else:
-            LOG.debug("NIRI_SOCKET 未设置，概览状态监听已停用")
+            LOG.debug(_tr('NIRI_SOCKET 未设置，概览状态监听已停用'))
         return self
 
     def close(self):
@@ -106,7 +107,7 @@ class OverviewWatcher:
             except BlockingIOError:
                 return
             if not sent:
-                raise OSError("Niri IPC 请求发送失败")
+                raise OSError(_tr('Niri IPC 请求发送失败'))
             self._pending = self._pending[sent:]
 
     def _io_ready(self, _channel, condition):
@@ -130,13 +131,13 @@ class OverviewWatcher:
                     except BlockingIOError:
                         break
                     if not chunk:
-                        raise OSError("Niri IPC 连接已关闭")
+                        raise OSError(_tr('Niri IPC 连接已关闭'))
                     remaining -= len(chunk)
                     self._feed(chunk)
             if self._closed:
                 return False
             if condition & (GLib.IOCondition.HUP | GLib.IOCondition.ERR | GLib.IOCondition.NVAL):
-                raise OSError("Niri IPC 连接已断开")
+                raise OSError(_tr('Niri IPC 连接已断开'))
         except (OSError, ValueError) as exc:
             self._disconnected(str(exc), from_watch=True)
             return False
@@ -154,21 +155,21 @@ class OverviewWatcher:
             boundary = self._buffer.find(b"\n")
             if boundary < 0:
                 if len(self._buffer) > _MAX_LINE_BYTES:
-                    raise ValueError("Niri IPC 消息超过大小限制")
+                    raise ValueError(_tr('Niri IPC 消息超过大小限制'))
                 return
             if boundary > _MAX_LINE_BYTES:
-                raise ValueError("Niri IPC 消息超过大小限制")
+                raise ValueError(_tr('Niri IPC 消息超过大小限制'))
             raw = bytes(self._buffer[:boundary])
             del self._buffer[:boundary + 1]
             try:
                 event = json.loads(raw)
             except (ValueError, UnicodeError, RecursionError):
-                LOG.debug("忽略无法解析的 Niri IPC 消息")
+                LOG.debug(_tr('忽略无法解析的 Niri IPC 消息'))
                 continue
             if not isinstance(event, dict):
                 continue
             if "Err" in event:
-                raise ValueError("Niri 拒绝 EventStream 请求")
+                raise ValueError(_tr('Niri 拒绝 EventStream 请求'))
             state = event.get("OverviewOpenedOrClosed")
             if isinstance(state, dict) and type(state.get("is_open")) is bool:
                 self._retry_index = 0
@@ -181,7 +182,7 @@ class OverviewWatcher:
         try:
             self.callback(state)
         except Exception:
-            LOG.exception("概览状态回调失败")
+            LOG.exception(_tr('概览状态回调失败'))
 
     def _drop_socket(self, from_watch=False):
         if self._watch:
@@ -205,11 +206,11 @@ class OverviewWatcher:
         if self._closed or self._retry_source:
             return
         if self._retry_index >= len(_RETRY_DELAYS_MS):
-            LOG.warning("概览监听无法连接 Niri，重试次数已用尽：%s", reason)
+            LOG.warning(_tr('概览监听无法连接 Niri，重试次数已用尽：%s'), reason)
             return
         delay = _RETRY_DELAYS_MS[self._retry_index]
         self._retry_index += 1
-        LOG.debug("概览监听连接中断，%d 毫秒后重试：%s", delay, reason)
+        LOG.debug(_tr('概览监听连接中断，%d 毫秒后重试：%s'), delay, reason)
         self._retry_source = GLib.timeout_add(delay, self._retry)
 
     def _retry(self):

@@ -1,3 +1,16 @@
+# NCMLyricsBar 1.0.1 — Plugin API v1.0 Reference Plugin
+
+ID: `org.AkiACG_Community.NCMLyricsBar`
+
+跟随系统配色时，原文使用主题前景、译文使用有区分度的强调色，
+分隔线使用主题混色。取消旧的所有文字直接继承同色的方法；
+手动指定颜色仍然生效。此行为由 MNWS 1.25 的原生 rows renderer 提供，
+仅更新插件包而不更新宿主动态库不会改变颜色。
+
+Theme mode uses foreground for the original line, a distinct accent for the
+translation, and a theme-derived separator. Manual colors remain supported.
+This requires the updated MNWS 1.25 native renderer, not just the plugin archive.
+
 # 网易云歌词
 
 MNWS 任务栏插件，从 Firefox 的 MPRIS 媒体会话读取网易云音乐当前曲目和播放位置。

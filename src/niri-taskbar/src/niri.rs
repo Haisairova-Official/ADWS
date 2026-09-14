@@ -39,6 +39,12 @@ impl Niri {
     #[tracing::instrument(level = "TRACE", err)]
     pub fn toggle_window_minimized(&self, id: u64) -> Result<(), Error> {
         let reply = request(Request::Action(Action::ToggleWindowMinimized { id: Some(id) }))?;
+        if let Err(message) = &reply {
+            if message.contains("unknown variant") && message.contains("ToggleWindowMinimized") {
+                // Upstream Niri has no minimization action; focusing is universally supported.
+                return self.activate_window(id);
+            }
+        }
         reply::typed!(Handled, reply)
     }
 
@@ -69,6 +75,7 @@ impl Niri {
                     Ok(_) => (),
                     Err(e) => {
                         tracing::error!(%e, "Niri IPC error reading from event stream");
+                        if e.kind() != std::io::ErrorKind::InvalidData { break; }
                     }
                 }
             }
@@ -82,12 +89,12 @@ impl Niri {
 #[tracing::instrument(level = "TRACE", err)]
 fn request(request: Request) -> Result<Reply, Error> {
     let action = matches!(&request, Request::Action(_));
-    if action { tracing::info!(?request, "窗口操作请求"); }
+    if action { tracing::info!(?request, "{}", crate::i18n::text("窗口操作请求", "Window action requested")); }
     let result = socket().and_then(|mut socket| socket.send(request).map_err(Error::NiriIpc));
     if action {
         match &result {
-            Ok(reply) => tracing::info!(?reply, "窗口操作响应"),
-            Err(error) => tracing::error!(%error, "窗口操作失败"),
+            Ok(reply) => tracing::info!(?reply, "{}", crate::i18n::text("窗口操作响应", "Window action response")),
+            Err(error) => tracing::error!(%error, "{}", crate::i18n::text("窗口操作失败", "Window action failed")),
         }
     }
     result

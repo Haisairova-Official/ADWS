@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """mnws-layout GUI — 任务栏组件与插件管理窗口（由 mnws layout gui 调用）"""
 from __future__ import annotations
+from mnws_i18n import tr as _tr
 
 import json
 from pathlib import Path
@@ -16,6 +17,8 @@ SLOT_ORDER = {"left": 0, "center": 1, "right": 2}
 
 
 def _gtk():
+    from mnws_i18n import prepare_gtk_language
+    prepare_gtk_language()
     import gi
     gi.require_version("Gtk", "3.0")
     gi.require_version("Gdk", "3.0")
@@ -32,20 +35,19 @@ class LayoutWindow:
         self.layout_file = Path(layout_file) if layout_file else None
         self.rows = []
 
-        self.window = Gtk.Window(title="任务栏组件与插件 — MNWS")
+        self.window = Gtk.Window(title=_tr('任务栏组件与插件 — MNWS'))
         self.window.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.window.set_default_size(820, 620)
         self.window.set_border_width(12)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.window.add(outer)
 
-        heading = Gtk.Label(label="任务栏布局", xalign=0)
+        heading = Gtk.Label(label=_tr('任务栏布局'), xalign=0)
         heading.get_style_context().add_class("title")
         outer.pack_start(heading, False, False, 0)
 
         sub = Gtk.Label(
-            label="内置组件（开始按钮 / 工作区 / 窗口图标 / 时钟）与 .mplg 插件都按“位置 + 顺序”独立加载。\n"
-                  ".mplg 直接丢进插件目录即可被发现，这里负责开关、排序与宽度。",
+            label=_tr('内置组件（开始按钮 / 工作区 / 窗口图标 / 时钟）与 .mplg 插件都按“位置 + 顺序”独立加载。\n.mplg 直接丢进插件目录即可被发现，这里负责开关、排序与宽度。'),
             xalign=0,
         )
         sub.get_style_context().add_class("dim-label")
@@ -53,13 +55,13 @@ class LayoutWindow:
         outer.pack_start(sub, False, False, 0)
 
         icon_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        icon_row.pack_start(Gtk.Label(label="开始按钮图标 / 文字："), False, False, 0)
+        icon_row.pack_start(Gtk.Label(label=_tr('开始按钮图标 / 文字：')), False, False, 0)
         self.start_mode = Gtk.ComboBoxText()
-        self.start_mode.append("custom", "自定义图标 / 文字")
-        self.start_mode.append("distro", "系统发行版 Logo")
+        self.start_mode.append("custom", _tr('自定义图标 / 文字'))
+        self.start_mode.append("distro", _tr('系统发行版 Logo'))
         icon_row.pack_start(self.start_mode, False, False, 0)
         self.start_label = Gtk.Entry()
-        self.start_label.set_placeholder_text("例如：开始、Apps、☰、🚀；留空恢复默认")
+        self.start_label.set_placeholder_text(_tr('例如：开始、Apps、☰、🚀；留空恢复默认'))
         icon_row.pack_start(self.start_label, True, True, 0)
         outer.pack_start(icon_row, False, False, 0)
         self.start_preview = Gtk.Label(xalign=0)
@@ -68,13 +70,13 @@ class LayoutWindow:
         self.start_label.connect("changed", lambda *_: self.update_start_preview())
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        add_btn = Gtk.Button(label="添加 .mplg…")
+        add_btn = Gtk.Button(label=_tr('添加 .mplg…'))
         add_btn.connect("clicked", self.on_add_plugin)
-        refresh_btn = Gtk.Button(label="刷新")
+        refresh_btn = Gtk.Button(label=_tr('刷新'))
         refresh_btn.connect("clicked", lambda _b: self.reload())
-        reset_btn = Gtk.Button(label="恢复默认布局")
+        reset_btn = Gtk.Button(label=_tr('恢复默认布局'))
         reset_btn.connect("clicked", self.on_reset)
-        open_dir_btn = Gtk.Button(label="打开插件目录")
+        open_dir_btn = Gtk.Button(label=_tr('打开插件目录'))
         open_dir_btn.connect("clicked", self.on_open_plugin_dir)
         toolbar.pack_start(add_btn, False, False, 0)
         toolbar.pack_start(refresh_btn, False, False, 0)
@@ -95,11 +97,11 @@ class LayoutWindow:
 
         footer = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
         footer.set_halign(Gtk.Align.END)
-        save_btn = Gtk.Button(label="保存布局")
+        save_btn = Gtk.Button(label=_tr('保存布局'))
         save_btn.connect("clicked", lambda _b: self.save_layout(restart=False))
-        apply_btn = Gtk.Button(label="应用并重启任务栏")
+        apply_btn = Gtk.Button(label=_tr('应用并重启任务栏'))
         apply_btn.connect("clicked", lambda _b: self.save_layout(restart=True))
-        close_btn = Gtk.Button(label="关闭")
+        close_btn = Gtk.Button(label=_tr('关闭'))
         close_btn.connect("clicked", lambda _b: self.window.destroy())
         footer.pack_end(close_btn, False, False, 0)
         footer.pack_end(apply_btn, False, False, 0)
@@ -149,7 +151,7 @@ class LayoutWindow:
         box.pack_start(label_box, True, True, 0)
 
         slot_combo = Gtk.ComboBoxText()
-        for value, label in (("left", "左侧"), ("center", "中间"), ("right", "右侧")):
+        for value, label in (("left", _tr('左侧')), ("center", _tr('中间')), ("right", _tr('右侧'))):
             slot_combo.append(value, label)
         slot_combo.set_active_id(entry.get("slot", "left"))
         slot_combo.connect("changed", lambda combo, e=entry: self.change_slot(e, combo.get_active_id()))
@@ -158,25 +160,25 @@ class LayoutWindow:
         width_spin = Gtk.SpinButton.new_with_range(0, 512, 4)
         width_spin.set_digits(0)
         width_spin.set_value(float(entry.get("width", 0) or 0))
-        width_spin.set_tooltip_text("像素宽度；0 = 自适应")
+        width_spin.set_tooltip_text(_tr('像素宽度；0 = 自适应'))
         width_spin.set_sensitive(bool(entry.get("editable_width", False)))
         box.pack_start(width_spin, False, False, 0)
 
         up = Gtk.Button(label="↑")
-        up.set_tooltip_text("上移")
+        up.set_tooltip_text(_tr('上移'))
         up.connect("clicked", lambda _b, e=entry: self.move_row(e, -1))
         down = Gtk.Button(label="↓")
-        down.set_tooltip_text("下移")
+        down.set_tooltip_text(_tr('下移'))
         down.connect("clicked", lambda _b, e=entry: self.move_row(e, 1))
         box.pack_start(up, False, False, 0)
         box.pack_start(down, False, False, 0)
 
         if entry.get("kind") == "plugin":
             if entry.get("manifest", {}).get("settingsSchema"):
-                settings_btn = Gtk.Button(label="设置…")
+                settings_btn = Gtk.Button(label=_tr('设置…'))
                 settings_btn.connect("clicked", lambda _b, e=entry: self.on_plugin_settings(e))
                 box.pack_start(settings_btn, False, False, 0)
-            remove_btn = Gtk.Button(label="移除")
+            remove_btn = Gtk.Button(label=_tr('移除'))
             remove_btn.connect("clicked", lambda _b, e=entry: self.on_remove_plugin(e))
             box.pack_start(remove_btn, False, False, 0)
 
@@ -212,7 +214,7 @@ class LayoutWindow:
                 "kind": "builtin",
                 "key": builtin_id,
                 "name": info["name"],
-                "subtitle": "内置 · %s" % info["module"],
+                "subtitle": _tr('内置 · %s') % info["module"],
                 "enabled": bool(stored.get("enabled",
                                            builtin_id in ("start", "windows", "clock"))),
                 "slot": stored.get("slot", info["slot"]) or info["slot"],
@@ -239,8 +241,8 @@ class LayoutWindow:
             plugin_rows.append({
                 "kind": "plugin",
                 "key": package_id,
-                "name": manifest.get("name", package_id),
-                "subtitle": "插件 · %s v%s · %s" % (
+                "name": _tr(manifest.get("name", package_id)),
+                "subtitle": _tr('插件 · %s v%s · %s') % (
                     package_id, manifest.get("version", "?"), entry["file"].name),
                 "enabled": bool(stored.get("enabled", False)),
                 "slot": stored.get("slot", defaults["slot"]) or defaults["slot"],
@@ -259,7 +261,7 @@ class LayoutWindow:
             self._add_row(entry)
         if not self.rows:
             hint = Gtk.Label(
-                label="还没有 .mplg。点击“添加 .mplg…”选择一个，或把文件直接丢进\n%s"
+                label=_tr('还没有 .mplg。点击“添加 .mplg…”选择一个，或把文件直接丢进\n%s')
                       % plugin_dir(),
                 xalign=0,
             )
@@ -271,7 +273,7 @@ class LayoutWindow:
 
     def update_status(self, _layout=None):
         target = self.layout_file or layout_path()
-        self.status.set_text("布局：%s\n插件目录：%s" % (target, plugin_dir()))
+        self.status.set_text(_tr('布局：%s\n插件目录：%s') % (target, plugin_dir()))
 
     # ---------- 排序 / 增删 ----------
 
@@ -304,18 +306,18 @@ class LayoutWindow:
             import subprocess
             subprocess.Popen(["xdg-open", str(folder)], start_new_session=True)
         except OSError as exc:
-            self.show_message("无法打开目录", str(exc))
+            self.show_message(_tr('无法打开目录'), str(exc))
 
     def on_add_plugin(self, _button=None):
         Gtk = self.Gtk
         dialog = Gtk.FileChooserDialog(
-            title="添加 .mplg 插件", transient_for=self.window,
+            title=_tr('添加 .mplg 插件'), transient_for=self.window,
             action=Gtk.FileChooserAction.OPEN,
         )
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                            Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         filtr = Gtk.FileFilter()
-        filtr.set_name(".mplg 插件包")
+        filtr.set_name(_tr('.mplg 插件包'))
         filtr.add_pattern("*.mplg")
         dialog.add_filter(filtr)
         if dialog.run() == Gtk.ResponseType.OK:
@@ -323,12 +325,12 @@ class LayoutWindow:
             dialog.destroy()
             ok, errors, _ = mplg.validate_package(path)
             if not ok:
-                self.show_message("无法添加", "；".join(errors))
+                self.show_message(_tr('无法添加'), "；".join(errors))
                 return
             try:
                 mplg.copy_into(plugin_dir(), path)
             except OSError as exc:
-                self.show_message("无法添加", str(exc))
+                self.show_message(_tr('无法添加'), str(exc))
                 return
             self.reload()
         else:
@@ -342,16 +344,16 @@ class LayoutWindow:
         confirm = Gtk.MessageDialog(
             transient_for=self.window, modal=True, destroy_with_parent=True,
             message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.YES_NO,
-            text="移除插件？",
+            text=_tr('移除插件？'),
         )
         confirm.format_secondary_text(
-            "将删除扫描目录中的文件：\n%s\n\n若已应用到任务栏，需要重新应用布局。" % entry["file"])
+            _tr('将删除扫描目录中的文件：\n%s\n\n若已应用到任务栏，需要重新应用布局。') % entry["file"])
         if confirm.run() == Gtk.ResponseType.YES:
             confirm.destroy()
             try:
                 entry["file"].unlink()
             except OSError as exc:
-                self.show_message("删除失败", str(exc))
+                self.show_message(_tr('删除失败'), str(exc))
                 return
             self.reload()
         else:
@@ -362,10 +364,10 @@ class LayoutWindow:
         confirm = Gtk.MessageDialog(
             transient_for=self.window, modal=True, destroy_with_parent=True,
             message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.YES_NO,
-            text="恢复默认布局？",
+            text=_tr('恢复默认布局？'),
         )
         confirm.format_secondary_text(
-            "内置组件回到默认启用状态，已安装插件会保留但全部关闭。")
+            _tr('内置组件回到默认启用状态，已安装插件会保留但全部关闭。'))
         if confirm.run() != Gtk.ResponseType.YES:
             confirm.destroy()
             return
@@ -374,15 +376,17 @@ class LayoutWindow:
             defaults = json.loads(PROJECT_LAYOUT_PATH.read_text(encoding="utf-8"))
             save_layout(defaults, self.layout_file)
         except (OSError, ValueError) as exc:
-            self.show_message("恢复失败", str(exc))
+            self.show_message(_tr('恢复失败'), str(exc))
             return
         self.reload()
 
     def on_plugin_settings(self, entry):
-        from mnws_plugin_settings import SettingsDialog
+        from mnws_plugin_settings import SettingsDialog, validate_settings
+        from mnws_plugin_api import canonical_id
         dialog = SettingsDialog(self.window, entry["name"],
                                 entry["manifest"].get("settingsSchema", []),
-                                entry.get("settings", {}))
+                                entry.get("settings", {}),
+                                validator=validate_settings if canonical_id(entry['manifest']['id']) == 'org.AkiACG_Community.NCMLyricsBar' else None)
         values = dialog.run()
         if values is not None:
             entry["settings"] = values
@@ -395,9 +399,9 @@ class LayoutWindow:
         self.start_label.set_sensitive(not distro)
         if distro:
             name, glyph = mnws_layout.distro_logo()
-            self.start_preview.set_text(f"预览：{glyph}  · {name}（需 Nerd Fonts / Font Logos 字体支持）")
+            self.start_preview.set_text(''.join([_tr('预览：'), f'{glyph}', '  · ', f'{name}', _tr('（需 Nerd Fonts / Font Logos 字体支持）')]))
         else:
-            self.start_preview.set_text("预览：" + (self.start_label.get_text() or "Apps"))
+            self.start_preview.set_text(_tr('预览：') + (self.start_label.get_text() or "Apps"))
 
     def collect_layout(self) -> dict:
         layout = load_layout(self.layout_file)
@@ -443,16 +447,16 @@ class LayoutWindow:
             layout = self.collect_layout()
             path = save_layout(layout, self.layout_file)
         except (OSError, ValueError) as exc:
-            self.show_message("保存失败", str(exc))
+            self.show_message(_tr('保存失败'), str(exc))
             return False
-        text = "已保存布局：%s" % path
+        text = _tr('已保存布局：%s') % path
         if restart:
             ok, result = apply_layout(layout, restart=True)
             if not ok:
-                self.show_message("应用失败", result)
+                self.show_message(_tr('应用失败'), result)
                 return False
             text += "\n" + result
-        self.status.set_text("%s\n插件目录：%s" % (text, plugin_dir()))
+        self.status.set_text(_tr('%s\n插件目录：%s') % (text, plugin_dir()))
         return True
 
     def show_message(self, title, message):

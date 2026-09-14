@@ -155,11 +155,11 @@ impl Button {
                 return gtk::glib::Propagation::Proceed;
             }
 
-            tracing::info!(id = window_id, "打开窗口右键菜单");
+            tracing::info!(id = window_id, "{}", crate::i18n::text("打开窗口右键菜单", "Open window context menu"));
             let menu = gtk::Menu::new();
-            let focus = gtk::MenuItem::with_label("聚焦窗口");
-            let minimize = gtk::MenuItem::with_label("最小化 / 还原");
-            let close = gtk::MenuItem::with_label("关闭窗口");
+            let focus = gtk::MenuItem::with_label(crate::i18n::text("聚焦窗口", "Focus window"));
+            let minimize = gtk::MenuItem::with_label(crate::i18n::text("最小化 / 还原", "Minimize / restore"));
+            let close = gtk::MenuItem::with_label(crate::i18n::text("关闭窗口", "Close window"));
 
             let clicked_state = state.clone();
             focus.connect_activate(move |_| {

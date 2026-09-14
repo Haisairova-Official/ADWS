@@ -61,6 +61,15 @@ with tempfile.TemporaryDirectory() as temp:
     else:
         raise AssertionError("Invalid template accepted")
     dialog.dialog.destroy()
+    boolean = SettingsDialog(app.window, 'API types', [
+        {'key':'enabled','type':'boolean','default':True},
+        {'key':'fraction','type':'number','min':0,'max':1,'step':.1,'default':.5}], {})
+    boolean.dialog.show_all()
+    settle()
+    assert boolean.collect() == {'enabled': True, 'fraction': .5}
+    boolean.controls['enabled'][1].set_active(False)
+    assert boolean.collect()['enabled'] is False
+    boolean.dialog.destroy()
     app.window.disconnect_by_func(Gtk.main_quit)
     app.window.destroy()
     print("Settings persistence, controls, long-name ellipsis and button visibility passed.")

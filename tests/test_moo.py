@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import mnws_runtime as runtime
+from mnws_i18n import tr as _tr
 
 
 class MooTests(unittest.TestCase):
@@ -17,10 +18,10 @@ class MooTests(unittest.TestCase):
         return output.getvalue(), browser
 
     def test_plain_and_invalid(self):
-        self.assertEqual(self.output(['moo'])[0], '这里应该有个彩蛋吗？\n')
+        self.assertEqual(self.output(['moo'])[0], _tr('这里应该有个彩蛋吗？\n'))
         for args in (['moo', 'moo'], ['moo', '--help'], ['moo', '-v', '-v'], ['moo', '-vx'], ['desktop', 'moo'], ['-v', 'moo', 'extra']):
             output, browser = self.output(args)
-            self.assertEqual(output, '不，不是这样用的。\n')
+            self.assertEqual(output, _tr('不，不是这样用的。\n'))
             browser.assert_not_called()
 
     def test_both_orders_and_separate_final_steps(self):
@@ -30,7 +31,7 @@ class MooTests(unittest.TestCase):
         for count in (1, 2, 3, 4, 5, 6, 7, 8, 100):
             for args in (['moo', '-' + 'v' * count], ['-' + 'v' * count, 'moo']):
                 output, browser = self.output(args)
-                expected = messages[count - 1] + '\n' if count <= 6 else '' if count == 7 else '喜欢吗？\n'
+                expected = _tr(messages[count - 1]) + '\n' if count <= 6 else '' if count == 7 else _tr('喜欢吗？') + '\n'
                 self.assertEqual(output, expected)
                 if count == 7:
                     browser.assert_called_once()

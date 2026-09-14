@@ -1,9 +1,12 @@
 """Schema-driven settings dialog for MNWS plugins."""
 from __future__ import annotations
+from mnws_i18n import tr as _tr
 
 import string
 import urllib.parse
 
+from mnws_i18n import prepare_gtk_language
+prepare_gtk_language()
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
@@ -15,33 +18,31 @@ def validate_settings(values: dict) -> None:
         return
     template = values.get("api_url", "").strip()
     if not template:
-        raise ValueError("选择自定义 API 后，请填写地址。")
+        raise ValueError(_tr('选择自定义 API 后，请填写地址。'))
     allowed = {"id", "title", "artist", "album", "duration"}
     for _, field, spec, conversion in string.Formatter().parse(template):
         if field is not None and (field not in allowed or spec or conversion):
-            raise ValueError("地址模板只支持 {id}、{title}、{artist}、{album} 和 {duration}。")
+            raise ValueError(_tr('地址模板只支持 {id}、{title}、{artist}、{album} 和 {duration}。'))
     parsed = urllib.parse.urlparse(template.format_map(dict.fromkeys(allowed, "test")))
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ValueError("API 地址必须是完整的 HTTP 或 HTTPS 地址。")
+        raise ValueError(_tr('API 地址必须是完整的 HTTP 或 HTTPS 地址。'))
 
 
 class SettingsDialog:
-    def __init__(self, parent, name, schema, values):
+    def __init__(self, parent, name, schema, values, validator=None):
         self.schema = schema
+        self.validator = validator
         self.values = dict(values)
         self.controls = {}
-        self.dialog = Gtk.Dialog(title=name + "设置", transient_for=parent,
+        self.dialog = Gtk.Dialog(title=name + _tr('设置'), transient_for=parent,
                                  modal=True, destroy_with_parent=True)
         self.dialog.set_default_size(620, 620)
-        self.dialog.add_button("取消", Gtk.ResponseType.CANCEL)
-        self.dialog.add_button("保存并应用", Gtk.ResponseType.OK)
+        self.dialog.add_button(_tr('取消'), Gtk.ResponseType.CANCEL)
+        self.dialog.add_button(_tr('保存并应用'), Gtk.ResponseType.OK)
         self.dialog.set_default_response(Gtk.ResponseType.OK)
         content = self.dialog.get_content_area()
         content.set_border_width(16)
         content.set_spacing(10)
-        intro = Gtk.Label(label="字号随任务栏高度自动调整，原文与译文保持 3:2。", xalign=0)
-        intro.set_line_wrap(True)
-        content.pack_start(intro, False, False, 0)
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         content.pack_start(scroll, True, True, 0)
@@ -51,13 +52,13 @@ class SettingsDialog:
         for field in schema:
             key, kind = field["key"], field.get("type", "string")
             value = values.get(key, field.get("default", ""))
-            label = Gtk.Label(label=field.get("label", key), xalign=0)
+            label = Gtk.Label(label=_tr(field.get("label", key)), xalign=0)
             label.set_line_wrap(True)
             label.set_max_width_chars(20)
             grid.attach(label, 0, row, 1, 1)
             if kind in ("font", "color"):
                 box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                follow = Gtk.CheckButton(label="跟随主题")
+                follow = Gtk.CheckButton(label=_tr('跟随主题'))
                 follow.set_active(not value)
                 if kind == "font":
                     control = Gtk.FontButton()
@@ -77,10 +78,15 @@ class SettingsDialog:
                 box.pack_start(follow, False, False, 0)
                 widget = box
                 self.controls[key] = (kind, control, follow)
+            elif kind == "boolean":
+                control = Gtk.CheckButton()
+                control.set_active(bool(value))
+                widget = control
+                self.controls[key] = (kind, control, None)
             elif kind == "choice":
                 control = Gtk.ComboBoxText()
                 for choice, caption in field.get("choices", []):
-                    control.append(choice, caption)
+                    control.append(choice, _tr(caption))
                 control.set_active_id(str(value))
                 widget = control
                 self.controls[key] = (kind, control, None)
@@ -99,7 +105,7 @@ class SettingsDialog:
             grid.attach(widget, 1, row, 1, 1)
             row += 1
             if field.get("hint"):
-                hint = Gtk.Label(label=field["hint"], xalign=0)
+                hint = Gtk.Label(label=_tr(field["hint"]), xalign=0)
                 hint.set_line_wrap(True)
                 hint.set_max_width_chars(44)
                 hint.get_style_context().add_class("dim-label")
@@ -120,11 +126,16 @@ class SettingsDialog:
                 result[key] = control.get_rgba().to_string()
             elif kind == "choice":
                 result[key] = control.get_active_id()
+            elif kind == "boolean":
+                result[key] = control.get_active()
             elif kind == "number":
-                result[key] = control.get_value_as_int()
+                result[key] = control.get_value()
             else:
                 result[key] = control.get_text().strip()
-        validate_settings(result)
+        from mnws_plugin_api import settings
+        result = settings({'settingsSchema': self.schema}, result)
+        if self.validator is not None:
+            self.validator(result)
         return result
 
     def run(self):

@@ -1,0 +1,16 @@
+{
+  "plugin.name": "NCMLyricsBar 网易云歌词",
+  "plugin.description": "Firefox 网易云同步双语歌词：原文、细分隔线、译文。",
+  "settings.font_family.label": "歌词字体",
+  "settings.primary_color.label": "原文颜色",
+  "settings.secondary_color.label": "译文颜色",
+  "settings.separator_color.label": "分隔线颜色",
+  "settings.offset_ms.label": "同步偏移（毫秒，正数提前）",
+  "settings.api_mode.label": "歌词来源",
+  "settings.api_url.label": "API 地址模板",
+  "settings.api_url.hint": "支持 {id}、{title}、{artist}、{album}、{duration}；参数会自动编码。",
+  "settings.lyric_path.label": "JSON 原文字段",
+  "settings.lyric_path.hint": "例如 lrc.lyric 或 syncedLyrics；接口直接返回 LRC 文本时无需填写。",
+  "settings.translation_path.label": "JSON 译文字段",
+  "settings.translation_path.hint": "例如 tlyric.lyric；没有翻译可留空。"
+}

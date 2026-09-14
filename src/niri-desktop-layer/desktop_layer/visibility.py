@@ -1,4 +1,5 @@
 """Follow the existing Waybar visibility marker without changing its script."""
+from .i18n import tr as _tr
 from pathlib import Path
 import logging
 from gi.repository import Gio, GLib
@@ -56,7 +57,7 @@ class MarkerVisibility:
             self.monitor = Gio.File.new_for_path(str(self.marker)).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
             self.monitor.connect("changed", self.changed)
         except GLib.Error as error:
-            LOG.warning("无法监听任务栏状态 %s: %s", self.marker, error.message)
+            LOG.warning(_tr('无法监听任务栏状态 %s: %s'), self.marker, error.message)
         self.sync()
         return self
 

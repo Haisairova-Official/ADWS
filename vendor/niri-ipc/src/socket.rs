@@ -93,7 +93,9 @@ impl Socket {
         let mut buf = String::new();
         move || {
             buf.clear();
-            stream.read_line(&mut buf)?;
+            if stream.read_line(&mut buf)? == 0 {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Niri event stream closed"));
+            }
             let event = serde_json::from_str(&buf)?;
             Ok(event)
         }

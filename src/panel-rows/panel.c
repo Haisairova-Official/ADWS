@@ -1,3 +1,5 @@
+#include <signal.h>
+#include "../mnws-i18n.h"
 /* Waybar CFFI v2 renderer for panel.rows-v1: primary / separator / secondary. */
 #include <gtk/gtk.h>
 #include <json-glib/json-glib.h>
@@ -24,6 +26,9 @@ typedef struct {
     gchar *font_family;
     GdkRGBA colors[2];
     gboolean has_color[2];
+    gboolean has_separator_color;
+    GtkCssProvider *theme_separator;
+    gchar *theme_separator_css;
 } Panel;
 
 typedef struct { GtkBox parent; Panel *panel; } MnwsRows;
@@ -38,18 +43,67 @@ static int measure(PangoLayout *layout, PangoFontDescription *font, int size) {
     return height;
 }
 
+static GdkRGBA blend(GdkRGBA a, GdkRGBA b, double amount) {
+    return (GdkRGBA){a.red * amount + b.red * (1-amount),
+        a.green * amount + b.green * (1-amount),
+        a.blue * amount + b.blue * (1-amount), 1};
+}
+
+static double color_distance(GdkRGBA a, GdkRGBA b) {
+    double r=a.red-b.red, g=a.green-b.green, b1=a.blue-b.blue;
+    return r*r+g*g+b1*b1;
+}
+
+static GdkRGBA theme_color(Panel *p, int index) {
+    GtkStyleContext *context = gtk_widget_get_style_context(p->box);
+    GdkRGBA foreground, background, accent;
+    gtk_style_context_get_color(context, GTK_STATE_FLAG_NORMAL, &foreground);
+    // Resolve theme roles, never a fixed application palette.
+    background = foreground;
+    if (!gtk_style_context_lookup_color(context, "theme_bg_color", &background))
+        background = (GdkRGBA){1-foreground.red, 1-foreground.green, 1-foreground.blue, 1};
+    accent = foreground;
+    if (!gtk_style_context_lookup_color(context, "accent_color", &accent))
+        gtk_style_context_lookup_color(context, "theme_selected_bg_color", &accent);
+    if (color_distance(accent, background) < color_distance(foreground, background)*0.3)
+        accent = blend(foreground, accent, .65);
+    if (color_distance(accent, foreground) < .04)
+        accent = blend(foreground, background, .72);
+    if (index == 0) return foreground;
+    if (index == 1) return accent;
+    return blend(accent, background, .55);
+}
+
 static void font_size(Panel *p, GtkWidget *label, int size, int index) {
     PangoAttrList *attrs = pango_attr_list_new();
     pango_attr_list_insert(attrs, pango_attr_size_new_absolute(size));
     if (p->font_family && *p->font_family)
         pango_attr_list_insert(attrs, pango_attr_family_new(p->font_family));
-    if (p->has_color[index]) {
-        GdkRGBA color = p->colors[index];
+    {
+        GdkRGBA color = p->has_color[index] ? p->colors[index] : theme_color(p, index);
         pango_attr_list_insert(attrs, pango_attr_foreground_new(color.red * 65535, color.green * 65535, color.blue * 65535));
         pango_attr_list_insert(attrs, pango_attr_foreground_alpha_new(color.alpha * 65535));
     }
     gtk_label_set_attributes(GTK_LABEL(label), attrs);
     pango_attr_list_unref(attrs);
+    if (!p->has_separator_color && index == 1) {
+        GdkRGBA color = theme_color(p, 2);
+        gchar *rgba = gdk_rgba_to_string(&color);
+        gchar *css = g_strdup_printf("separator { background-color: %s; opacity: 1; }", rgba);
+        if (g_strcmp0(css, p->theme_separator_css)) {
+            gtk_css_provider_load_from_data(p->theme_separator, css, -1, NULL);
+            g_free(p->theme_separator_css);
+            p->theme_separator_css = g_strdup(css);
+        }
+        g_free(css); g_free(rgba);
+    }
+}
+
+static void theme_changed(GtkWidget *widget, gpointer data) {
+    Panel *p = data;
+    if (p->disposed) return;
+    p->font_unit = 0;
+    gtk_widget_queue_resize(widget);
 }
 
 static void fit_height(Panel *p, int width, int height) {
@@ -118,6 +172,8 @@ static void panel_unref(gpointer data) {
     g_free(p->command);
     g_free(p->state);
     g_free(p->font_family);
+    g_clear_object(&p->theme_separator);
+    g_free(p->theme_separator_css);
     g_free(p);
 }
 
@@ -168,7 +224,7 @@ static void read_done(GObject *source, GAsyncResult *result, gpointer data) {
             update(p, line);
             read_next(p);
         } else {
-            gtk_label_set_text(GTK_LABEL(p->primary), "♫ 正在重新连接");
+            gtk_label_set_text(GTK_LABEL(p->primary), mnws_text("♫ 正在重新连接", "♫ Reconnecting"));
             gtk_widget_hide(p->secondary);
             gtk_widget_hide(p->separator);
             p->retry = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 5, start, panel_ref(p), panel_unref);
@@ -188,7 +244,7 @@ static gboolean start(gpointer data) {
     p->retry = 0;
     if (p->disposed) return G_SOURCE_REMOVE;
     g_clear_object(&p->stream);
-    if (p->process) g_subprocess_force_exit(p->process);
+    if (p->process) g_subprocess_send_signal(p->process, SIGTERM);
     g_clear_object(&p->process);
     gchar **argv = NULL;
     GError *error = NULL;
@@ -225,7 +281,7 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
         gtk_css_provider_load_from_data(css,
             ".mnws-rows label { min-height: 0; padding: 0; }"
             ".mnws-rows separator { min-height: 0; margin: 0; border: none;"
-            " background-color: currentColor; opacity: 0.3; }", -1, NULL);
+            " background-color: transparent; opacity: 1; }", -1, NULL);
         gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(css),
             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
         g_object_unref(css);
@@ -243,6 +299,10 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
     p->primary = label("primary");
     p->secondary = label("secondary");
     p->separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    p->theme_separator = gtk_css_provider_new();
+    gtk_style_context_add_provider(gtk_widget_get_style_context(p->separator),
+        GTK_STYLE_PROVIDER(p->theme_separator), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+    g_signal_connect(p->box, "style-updated", G_CALLBACK(theme_changed), p);
     gtk_widget_set_no_show_all(p->secondary, TRUE);
     gtk_widget_set_no_show_all(p->separator, TRUE);
     gtk_box_pack_start(GTK_BOX(p->box), gtk_box_new(GTK_ORIENTATION_VERTICAL, 0), TRUE, TRUE, 0);
@@ -250,7 +310,7 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
     gtk_box_pack_start(GTK_BOX(p->box), p->separator, FALSE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(p->box), p->secondary, FALSE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(p->box), gtk_box_new(GTK_ORIENTATION_VERTICAL, 0), TRUE, TRUE, 0);
-    gtk_label_set_text(GTK_LABEL(p->primary), "♫ 等待网易云");
+    gtk_label_set_text(GTK_LABEL(p->primary), mnws_text("♫ 等待网易云", "♫ Waiting for NetEase"));
     gtk_container_add(root, p->box);
     return p;
 }
@@ -287,6 +347,7 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
         else if (!strcmp(entries[i].key, "separator_color")) {
             GdkRGBA color;
             if (gdk_rgba_parse(&color, value)) {
+                p->has_separator_color = TRUE;
                 gchar *rgba = gdk_rgba_to_string(&color);
                 gchar *style = g_strdup_printf("separator { background-color: %s; opacity: 1; }", rgba);
                 GtkCssProvider *css = gtk_css_provider_new();
@@ -306,9 +367,10 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
 void wbcffi_deinit(void *instance) {
     Panel *p = instance;
     p->disposed = TRUE;
+    g_signal_handlers_disconnect_by_func(p->box, G_CALLBACK(theme_changed), p);
     ((MnwsRows *)p->box)->panel = NULL;
     if (p->retry) { g_source_remove(p->retry); p->retry = 0; }
     g_cancellable_cancel(p->cancel);
-    if (p->process) g_subprocess_force_exit(p->process);
+    if (p->process) g_subprocess_send_signal(p->process, SIGTERM);
     panel_unref(p);
 }

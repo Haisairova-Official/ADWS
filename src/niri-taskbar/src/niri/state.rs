@@ -269,3 +269,68 @@ impl Deref for Window {
         &self.window
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn upstream_window() -> serde_json::Value {
+        json!({"id": 1, "title": "Terminal", "app_id": "foot", "pid": 123,
+            "workspace_id": 10, "is_focused": true, "is_floating": false,
+            "is_urgent": false, "focus_timestamp": null,
+            "layout": {"pos_in_scrolling_layout": [1,1], "tile_size": [800.0,600.0],
+                "window_size": [800,600], "tile_pos_in_workspace_view": [0.0,0.0],
+                "window_offset_in_tile": [0.0,0.0]}})
+    }
+
+    #[test]
+    fn upstream_window_events_produce_taskbar_cards() {
+        for reverse in [false, true] {
+            let mut state = WindowSet::new(true);
+            let windows: Event = serde_json::from_value(json!({"WindowsChanged":{"windows":[upstream_window()]}})).unwrap();
+            let workspaces: Event = serde_json::from_value(json!({"WorkspacesChanged":{"workspaces":[{
+                "id":10,"idx":1,"name":null,"output":"DP-1","is_urgent":false,
+                "is_active":true,"is_focused":true,"active_window_id":1}]}})).unwrap();
+            let (first, second) = if reverse { (windows, workspaces) } else { (workspaces, windows) };
+            assert!(state.with_event(first).is_none());
+            let cards = state.with_event(second).unwrap();
+            assert_eq!(cards.len(), 1);
+            assert_eq!(cards[0].id, 1);
+            assert!(!cards[0].is_minimized);
+            assert_eq!(cards[0].output(), Some("DP-1"));
+            assert!(state.with_event(Event::WindowClosed {id:1}).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn shorin_minimized_field_remains_supported() {
+        let mut value = upstream_window();
+        value["is_minimized"] = json!(true);
+        assert!(serde_json::from_value::<NiriWindow>(value).unwrap().is_minimized);
+    }
+
+    #[test]
+    fn future_event_does_not_consume_following_window_event() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixListener;
+        let path = std::env::temp_dir().join(format!("mnws-ipc-test-{}.sock",std::process::id()));
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
+            writeln!(stream,"{{\"Ok\":\"Handled\"}}").unwrap();
+            writeln!(stream,"{{\"FutureEvent\":{{}}}}").unwrap();
+            writeln!(stream,"{{\"WindowClosed\":{{\"id\":1}}}}").unwrap();
+        });
+        let mut socket=niri_ipc::socket::Socket::connect_to(&path).unwrap();
+        socket.send(niri_ipc::Request::EventStream).unwrap().unwrap();
+        let mut next=socket.read_events();
+        assert_eq!(next().unwrap_err().kind(),std::io::ErrorKind::InvalidData);
+        assert!(matches!(next().unwrap(),Event::WindowClosed{id:1}));
+        assert_eq!(next().unwrap_err().kind(),std::io::ErrorKind::UnexpectedEof);
+        server.join().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+}

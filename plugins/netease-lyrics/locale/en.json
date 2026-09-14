@@ -1,0 +1,16 @@
+{
+  "plugin.name": "NCMLyricsBar NetEase Lyrics",
+  "plugin.description": "Synchronized bilingual NetEase lyrics from Firefox: original, thin separator and translation.",
+  "settings.font_family.label": "Lyrics font",
+  "settings.primary_color.label": "Original text color",
+  "settings.secondary_color.label": "Translation color",
+  "settings.separator_color.label": "Separator color",
+  "settings.offset_ms.label": "Timing offset (ms; positive means earlier)",
+  "settings.api_mode.label": "Lyrics source",
+  "settings.api_url.label": "API URL template",
+  "settings.api_url.hint": "Supports {id}, {title}, {artist}, {album} and {duration}; values are URL-encoded automatically.",
+  "settings.lyric_path.label": "JSON original lyrics field",
+  "settings.lyric_path.hint": "For example: lrc.lyric or syncedLyrics. Not needed for APIs returning plain LRC text.",
+  "settings.translation_path.label": "JSON translation field",
+  "settings.translation_path.hint": "For example: tlyric.lyric. Leave blank if there is no translation."
+}

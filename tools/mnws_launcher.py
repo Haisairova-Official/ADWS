@@ -1,4 +1,5 @@
 """Choose and configure the taskbar application launcher during installation."""
+from mnws_i18n import tr as _tr
 import argparse
 import json
 import os
@@ -20,17 +21,17 @@ def select_launcher():
     if shutil.which('rofi'):
         return 'rofi -show drun'
     while True:
-        answer = ask('未检测到启动器。是否安装 fuzzel（Y）或者自定义启动器参数（n）？（Y/n/Ctrl+C）').lower()
+        answer = ask(_tr('未检测到启动器。是否安装 fuzzel（Y）或者自定义启动器参数（n）？（Y/n/Ctrl+C）')).lower()
         if answer == 'n':
             while True:
-                command = ask('请输入完整启动命令（包含程序名和参数，Ctrl+C 取消）：')
+                command = ask(_tr('请输入完整启动命令（包含程序名和参数，Ctrl+C 取消）：'))
                 if command:
                     return command
-                print('启动命令不能为空。', file=sys.stderr)
+                print(_tr('启动命令不能为空。'), file=sys.stderr)
         elif answer in ('', 'y'):
             break
         else:
-            print('请输入 y 或 n。', file=sys.stderr)
+            print(_tr('请输入 y 或 n。'), file=sys.stderr)
     managers = [('apt-get', ['install', 'fuzzel']), ('dnf', ['install', 'fuzzel']),
                 ('pacman', ['-S', 'fuzzel']), ('zypper', ['install', 'fuzzel']),
                 ('apk', ['add', 'fuzzel'])]
@@ -41,13 +42,13 @@ def select_launcher():
             if os.geteuid() != 0:
                 sudo = shutil.which('sudo')
                 if not sudo:
-                    raise RuntimeError('缺少 sudo，请手动安装 fuzzel 后重试，或选择自定义启动器。')
+                    raise RuntimeError(_tr('缺少 sudo，请手动安装 fuzzel 后重试，或选择自定义启动器。'))
                 command.insert(0, sudo)
             result = subprocess.run(command, stdout=sys.stderr)
             if result.returncode or not shutil.which('fuzzel'):
-                raise RuntimeError('fuzzel 安装未成功，已停止 MNWS 安装。')
+                raise RuntimeError(_tr('fuzzel 安装未成功，已停止 MNWS 安装。'))
             return 'fuzzel'
-    raise RuntimeError('无法识别包管理器，请手动安装 fuzzel 后重试，或选择自定义启动器。')
+    raise RuntimeError(_tr('无法识别包管理器，请手动安装 fuzzel 后重试，或选择自定义启动器。'))
 
 
 def configure(path, command):
@@ -86,12 +87,12 @@ def main():
         elif args.apply:
             configure(*args.apply)
         else:
-            parser.error('需要 --select 或 --apply')
+            parser.error(_tr('需要 --select 或 --apply'))
     except (EOFError, KeyboardInterrupt):
-        print('\n已取消。', file=sys.stderr)
+        print(_tr('\n已取消。'), file=sys.stderr)
         return 130
     except (OSError, ValueError, RuntimeError) as error:
-        print(f'错误：{error}', file=sys.stderr)
+        print(''.join([_tr('错误：'), f'{error}']), file=sys.stderr)
         return 1
     return 0
 

@@ -1,0 +1,5 @@
+{
+  "plugin.name": "HelloWorld 示例",
+  "settings.greeting": "问候语",
+  "settings.enabled": "显示问候"
+}

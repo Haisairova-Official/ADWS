@@ -1,5 +1,6 @@
 """Natural Explorer-style ordering and read-only desktop metadata tests."""
 
+from desktop_layer.i18n import tr as _tr, chinese
 import os
 from pathlib import Path
 import tempfile
@@ -84,10 +85,10 @@ class MetadataTests(unittest.TestCase):
         content_type, _ = Gio.content_type_guess("notes2.txt", None)
         self.assertEqual(entries["notes2.txt"].type_name, Gio.content_type_get_description(content_type))
         self.assertEqual(entries["folder"].size, 0)
-        self.assertEqual(entries["folder"].type_name, "文件夹")
-        self.assertEqual(entries["app.desktop"].type_name, "应用快捷方式")
+        self.assertEqual(entries["folder"].type_name, _tr('文件夹'))
+        self.assertEqual(entries["app.desktop"].type_name, _tr('应用快捷方式'))
         self.assertEqual(entries["app.desktop"].size, app.stat().st_size)
-        self.assertEqual(entries["link.desktop"].type_name, "链接")
+        self.assertEqual(entries["link.desktop"].type_name, _tr('链接'))
         self.assertEqual(entries["link.desktop"].size, link.stat().st_size)
 
     def test_symlinks_use_target_metadata_and_broken_links_remain_visible(self):
@@ -107,7 +108,7 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(entries["broken.txt"].modified, broken.lstat().st_mtime)
         self.assertTrue(entries["broken.txt"].error)
         self.assertTrue(entries["missing.desktop"].error)
-        self.assertEqual(entries["missing.desktop"].type_name, "应用快捷方式")
+        self.assertEqual(entries["missing.desktop"].type_name, _tr('应用快捷方式'))
         self.assertEqual(len(sort_entries(list(entries.values()), "size")), 3)
 
     def test_disappearing_file_metadata_keeps_safe_defaults(self):

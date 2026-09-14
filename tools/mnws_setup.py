@@ -1,4 +1,5 @@
 """Interactive dependency repair and component build for installation."""
+from mnws_i18n import tr as _tr
 import os
 from pathlib import Path
 import shlex
@@ -24,24 +25,24 @@ def confirm(prompt):
             return True
         if answer == 'n':
             return False
-        print('请输入 y 或 n。')
+        print(_tr('请输入 y 或 n。'))
 
 
 def install_packages(programs=(), groups=()):
     manager = next((name for name in PACKAGES if shutil.which(name)), None)
     if not manager:
-        raise RuntimeError('暂不支持自动补齐此系统的依赖，请按 README 手动安装后重新运行 install.sh。')
+        raise RuntimeError(_tr('暂不支持自动补齐此系统的依赖，请按 README 手动安装后重新运行 install.sh。'))
     packages = list(programs)
     for group in groups:
         packages.extend(PACKAGES[manager][group])
     packages = list(dict.fromkeys(packages))
-    print('准备安装：' + ', '.join(packages))
-    if not confirm('是否补齐以上依赖？'):
-        raise RuntimeError('已取消安装；补齐依赖后可重新运行 install.sh。')
+    print(_tr('准备安装：') + ', '.join(packages))
+    if not confirm(_tr('是否补齐以上依赖？')):
+        raise RuntimeError(_tr('已取消安装；补齐依赖后可重新运行 install.sh。'))
     command = [manager, '-S' if manager == 'pacman' else 'install', *packages]
     if os.geteuid() != 0:
         if not shutil.which('sudo'):
-            raise RuntimeError('缺少 sudo，请由管理员安装以上软件包后重试。')
+            raise RuntimeError(_tr('缺少 sudo，请由管理员安装以上软件包后重试。'))
         command.insert(0, 'sudo')
     subprocess.run(command, check=True)
 
@@ -60,7 +61,7 @@ def atomic_install(source, target):
 
 
 def prepare():
-    print('欢迎安装 MNWS。我们会检查所需软件和组件，补齐前会先征求你的同意。')
+    print(_tr('欢迎安装 MNWS。我们会检查所需软件和组件，补齐前会先征求你的同意。'))
     errors = dependency_errors()
     if errors:
         print('\n'.join(errors))
@@ -68,17 +69,19 @@ def prepare():
         missing = ['systemd' if name == 'systemctl' else name for name in missing]
         groups = ['python'] if any('Python/GTK' in error for error in errors) else []
         if sys.version_info < (3, 11):
-            raise RuntimeError('需要 Python 3.11 或更新版本，请先通过系统的软件管理器升级 Python。')
+            raise RuntimeError(_tr('需要 Python 3.11 或更新版本，请先通过系统的软件管理器升级 Python。'))
         install_packages(missing, groups)
         errors = dependency_errors()
         if errors:
-            raise RuntimeError('补齐后仍有问题：\n' + '\n'.join(errors) + '\n请检查系统软件源和当前 Python 环境后重试。')
+            raise RuntimeError(_tr('补齐后仍有问题：\n') + '\n'.join(errors) + _tr('\n请检查系统软件源和当前 Python 环境后重试。'))
     library_dir = Path.home() / '.local/lib/waybar'
+    from mnws_prebuilt import install as install_prebuilt
+    install_prebuilt(ROOT, library_dir, confirm, atomic_install)
     missing = [name for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libmnws_panel.so') if not (library_dir / name).is_file()]
     if missing:
-        print('缺少组件：' + ', '.join(missing))
-        if not confirm('是否现在构建并安装这些组件？首次构建可能需要下载依赖。'):
-            raise RuntimeError('已取消安装；也可以按 README 手动构建后重新运行 install.sh。')
+        print(_tr('缺少组件：') + ', '.join(missing))
+        if not confirm(_tr('是否现在构建并安装这些组件？首次构建可能需要下载依赖。')):
+            raise RuntimeError(_tr('已取消安装；也可以按 README 手动构建后重新运行 install.sh。'))
         build_missing = any(not shutil.which(name) for name in ('cargo', 'rustc', 'cc', 'make', 'pkg-config'))
         if not build_missing:
             build_missing = subprocess.run(['pkg-config', '--exists', 'gtk+-3.0', 'gtk-layer-shell-0', 'json-glib-1.0']).returncode != 0
@@ -96,7 +99,7 @@ def prepare():
                 subprocess.run(['cc', '-shared', '-fPIC', '-O2', str(ROOT / 'src/niri-desktop-layer/integration/waybar-space.c'), '-o', str(output), *shlex.split(flags)], check=True)
                 atomic_install(output, library_dir / output.name)
     if check(preinstall=True):
-        raise RuntimeError('仍有配置问题需要处理，请按上面的提示修复后再次运行 install.sh；现有配置不会被强制覆盖。')
+        raise RuntimeError(_tr('仍有配置问题需要处理，请按上面的提示修复后再次运行 install.sh；现有配置不会被强制覆盖。'))
     return 0
 
 
@@ -104,10 +107,10 @@ def main():
     try:
         return prepare()
     except (EOFError, KeyboardInterrupt):
-        print('\n已取消。')
+        print(_tr('\n已取消。'))
         return 130
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
-        print(f'安装尚未完成：{error}\n解决问题后可重新运行 ./install.sh，已完成的步骤会保留。', file=sys.stderr)
+        print(''.join([_tr('安装尚未完成：'), f'{error}', _tr('\n解决问题后可重新运行 ./install.sh，已完成的步骤会保留。')]), file=sys.stderr)
         return 1
 
 

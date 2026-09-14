@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import mnws_setup as setup
+from mnws_i18n import tr as _tr
 
 
 class SetupTests(unittest.TestCase):
@@ -27,7 +28,7 @@ class SetupTests(unittest.TestCase):
 
     def test_recheck_stops_on_failure(self):
         with patch.object(setup, 'dependency_errors', return_value=['missing']), patch.object(setup, 'install_packages'), patch.object(setup.shutil, 'which', return_value='/bin/tool'):
-            with self.assertRaisesRegex(RuntimeError, '补齐后仍有问题'):
+            with self.assertRaisesRegex(RuntimeError, _tr('补齐后仍有问题')):
                 setup.prepare()
 
     def test_cancel(self):

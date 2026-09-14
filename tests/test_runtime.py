@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import mnws_runtime as runtime
+from mnws_i18n import tr as _tr
 
 
 class RuntimeTests(unittest.TestCase):
@@ -108,7 +109,7 @@ class RuntimeTests(unittest.TestCase):
         with patch.object(runtime, 'pids', return_value=[]), patch.object(runtime.Path, 'is_file', return_value=False), redirect_stderr(error), self.assertRaises(SystemExit) as caught:
             runtime.main(['taskbar', '-s'])
         self.assertEqual(caught.exception.code, 1)
-        self.assertIn('缺少任务栏配置', error.getvalue())
+        self.assertIn(_tr('缺少任务栏配置，请先运行 mnws install。\n'), error.getvalue())
 
     def test_help_aliases_do_not_touch_processes(self):
         import io
@@ -123,7 +124,7 @@ class RuntimeTests(unittest.TestCase):
                 find.assert_not_called()
                 results.append(output.getvalue())
             self.assertEqual(len(set(results)), 1)
-            self.assertIn('示例：', results[0])
+            self.assertIn(_tr('示例：'), results[0])
 
     def test_global_status_reports_both_components(self):
         import io

@@ -2,6 +2,7 @@
 """MNWS-Config — My Niri Workspace Solution 统一设置
 """
 from __future__ import annotations
+from mnws_i18n import tr as _tr
 
 import argparse
 import json
@@ -14,6 +15,8 @@ import sys
 import time
 from pathlib import Path
 
+from mnws_i18n import prepare_gtk_language
+prepare_gtk_language()
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
@@ -215,7 +218,7 @@ def start_desktop() -> tuple[bool, str]:
     daemon = desktop_daemon_script()
     state = desktop_state_path()
     if not daemon.exists():
-        return False, "找不到桌面图标层入口：%s" % daemon
+        return False, _tr('找不到桌面图标层入口：%s') % daemon
     env = {key: value for key, value in os.environ.items() if key != "GDK_BACKEND"}
     try:
         subprocess.Popen(
@@ -223,9 +226,9 @@ def start_desktop() -> tuple[bool, str]:
             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-        return True, "已提交桌面图标层启动"
+        return True, _tr('已提交桌面图标层启动')
     except OSError as exc:
-        return False, "启动失败：%s" % exc
+        return False, _tr('启动失败：%s') % exc
 
 
 def restart_desktop() -> tuple[bool, str]:
@@ -270,13 +273,13 @@ def toggle_taskbar_script() -> Path | None:
 def run_taskbar_toggle() -> tuple[bool, str]:
     script = toggle_taskbar_script()
     if script is None:
-        return False, "找不到 taskbar-toggle.sh"
+        return False, _tr('找不到 taskbar-toggle.sh')
     env = {key: value for key, value in os.environ.items() if key != "GDK_BACKEND"}
     try:
         subprocess.Popen([str(script)], env=env, start_new_session=True)
-        return True, "已发送任务栏切换信号"
+        return True, _tr('已发送任务栏切换信号')
     except OSError as exc:
-        return False, "运行失败：%s" % exc
+        return False, _tr('运行失败：%s') % exc
 
 
 def niri_config_path() -> Path:
@@ -309,11 +312,11 @@ def set_desktop_autostart(enabled: bool) -> tuple[bool, str]:
     """在 niri config.kdl 中加入/移除桌面图标层的 spawn-at-startup。"""
     path = niri_config_path()
     if not path.is_file():
-        return False, "找不到 niri 配置：%s" % path
+        return False, _tr('找不到 niri 配置：%s') % path
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        return False, "读取失败：%s" % exc
+        return False, _tr('读取失败：%s') % exc
     pattern = re.compile(
         r"(?ms)^[ \t]*// ==== MNWS 桌面图标层自启（自动生成）====[^\n]*\n.*?"
         r"^[ \t]*// ==== MNWS 桌面图标层自启 END ====[^\n]*\n?",
@@ -323,9 +326,9 @@ def set_desktop_autostart(enabled: bool) -> tuple[bool, str]:
         row.strip() == line for row in text.splitlines()
     )
     if enabled and was_enabled:
-        return True, "桌面图标层自启已经开启"
+        return True, _tr('桌面图标层自启已经开启')
     if not enabled and not was_enabled:
-        return True, "桌面图标层自启已经关闭"
+        return True, _tr('桌面图标层自启已经关闭')
     cleaned = pattern.sub("", text)
     cleaned = "\n".join(
         row for row in cleaned.splitlines() if row.strip() != line
@@ -341,10 +344,10 @@ def set_desktop_autostart(enabled: bool) -> tuple[bool, str]:
             shutil.copy2(path, backup)
         path.write_text(text.rstrip() + "\n", encoding="utf-8")
     except OSError as exc:
-        return False, "写入失败：%s" % exc
+        return False, _tr('写入失败：%s') % exc
     if enabled:
-        return True, "已写入 niri 自启：%s\n（下次登录生效；可立即运行 mnws restart desktop 启动）" % line
-    return True, "已从 niri 配置移除桌面图标层自启行。"
+        return True, _tr('已写入 niri 自启：%s\n（下次登录生效；可立即运行 mnws restart desktop 启动）') % line
+    return True, _tr('已从 niri 配置移除桌面图标层自启行。')
 
 
 def read_colors(path: Path) -> dict[str, str]:
@@ -565,12 +568,12 @@ def write_taskbar_font(font_family: str, font_size: float) -> Path:
 
 
 def arguments(argv=None):
-    parser = argparse.ArgumentParser(description="MNWS 统一设置")
+    parser = argparse.ArgumentParser(description=_tr('MNWS 统一设置'))
     parser.add_argument("--tab", choices=("desktop", "taskbar", "components", "about"), default=None)
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--restart-desktop", action="store_true", help="重启桌面图标层（不打开界面）")
+    parser.add_argument("--restart-desktop", action="store_true", help=_tr('重启桌面图标层（不打开界面）'))
     parser.add_argument("--autostart", choices=("status", "on", "off"), default=None,
-                        help="管理桌面图标层的 Niri 登录自启")
+                        help=_tr('管理桌面图标层的 Niri 登录自启'))
     return parser.parse_args(argv)
 
 
@@ -578,7 +581,13 @@ def row_widget(label_text: str, widget) -> Gtk.Box:
     box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
     label = Gtk.Label(label=label_text, xalign=0, width_chars=10)
     box.pack_start(label, False, False, 0)
-    box.pack_start(widget, True, True, 0)
+    if isinstance(widget, Gtk.Switch):
+        widget.set_hexpand(False)
+        widget.set_halign(Gtk.Align.START)
+        widget.set_valign(Gtk.Align.CENTER)
+        box.pack_start(widget, False, False, 0)
+    else:
+        box.pack_start(widget, True, True, 0)
     return box
 
 
@@ -620,7 +629,7 @@ def dialog_box() -> Gtk.Box:
 
 class ConfigWindow(Gtk.Window):
     def __init__(self, tab=None):
-        super().__init__(title="MNWS 设置 — My Niri Workspace Solution")
+        super().__init__(title=_tr('MNWS 设置 — My Niri Workspace Solution'))
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.set_default_size(600, 440)
         self.set_border_width(12)
@@ -631,19 +640,19 @@ class ConfigWindow(Gtk.Window):
         self.appearance_page = self.build_appearance_page()
         self.components_page = self.build_components_page()
         self.about_page = self.build_about_page()
-        self.notebook.append_page(self.appearance_page, Gtk.Label(label="外观"))
-        self.notebook.append_page(self.components_page, Gtk.Label(label="组件"))
-        self.notebook.append_page(self.about_page, Gtk.Label(label="关于"))
+        self.notebook.append_page(self.appearance_page, Gtk.Label(label=_tr('外观')))
+        self.notebook.append_page(self.components_page, Gtk.Label(label=_tr('组件')))
+        self.notebook.append_page(self.about_page, Gtk.Label(label=_tr('关于')))
         order = {"desktop": 0, "appearance": 0, "components": 1, "about": 2}
         if tab in order:
             self.notebook.set_current_page(order[tab])
         footer = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
         footer.set_halign(Gtk.Align.END)
-        apply = Gtk.Button(label="应用")
+        apply = Gtk.Button(label=_tr('应用'))
         apply.connect("clicked", self.apply_current)
-        ok = Gtk.Button(label="确定")
+        ok = Gtk.Button(label=_tr('确定'))
         ok.connect("clicked", self.apply_current_close)
-        close = Gtk.Button(label="关闭")
+        close = Gtk.Button(label=_tr('关闭'))
         close.connect("clicked", lambda _b: self.destroy())
         footer.pack_end(close, False, False, 0)
         footer.pack_end(ok, False, False, 0)
@@ -655,7 +664,7 @@ class ConfigWindow(Gtk.Window):
     def build_appearance_page(self):
         prefs = load_desktop_prefs()
         box = dialog_box()
-        title = Gtk.Label(label="桌面图标文字", xalign=0)
+        title = Gtk.Label(label=_tr('桌面图标文字'), xalign=0)
         title.get_style_context().add_class("title")
         box.pack_start(title, False, False, 0)
         self.family = Gtk.ComboBoxText.new_with_entry()
@@ -666,10 +675,10 @@ class ConfigWindow(Gtk.Window):
             self.family.set_active(fonts.index(prefs["font_family"]))
         else:
             self.family.set_entry_text(prefs["font_family"])
-        box.pack_start(row_widget("字体：", self.family), False, False, 0)
+        box.pack_start(row_widget(_tr('字体：'), self.family), False, False, 0)
         self.font_size = Gtk.SpinButton.new_with_range(8, 20, 1)
         self.font_size.set_value(prefs["font_size"])
-        box.pack_start(row_widget("字号：", self.font_size), False, False, 0)
+        box.pack_start(row_widget(_tr('字号：'), self.font_size), False, False, 0)
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         box.pack_start(separator, False, False, 6)
         self.icon_size = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 24, 96, 2)
@@ -678,23 +687,23 @@ class ConfigWindow(Gtk.Window):
         self.icon_size.set_value(float(prefs["icon_size"]))
         self.icon_size.set_draw_value(True)
         self.icon_size.set_value_pos(Gtk.PositionType.RIGHT)
-        box.pack_start(row_widget("图标大小：", self.icon_size), False, False, 0)
+        box.pack_start(row_widget(_tr('图标大小：'), self.icon_size), False, False, 0)
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         box.pack_start(separator, False, False, 6)
-        taskbar_title = Gtk.Label(label="底部任务栏文字", xalign=0)
+        taskbar_title = Gtk.Label(label=_tr('底部任务栏文字'), xalign=0)
         taskbar_title.get_style_context().add_class("title")
         box.pack_start(taskbar_title, False, False, 0)
         _, _, _, taskbar_family, taskbar_size = read_taskbar_overrides()
         self.taskbar_family, self.taskbar_font_size = make_font_controls(taskbar_family, taskbar_size)
-        box.pack_start(row_widget("字体：", self.taskbar_family), False, False, 0)
-        box.pack_start(row_widget("字号：", self.taskbar_font_size), False, False, 0)
+        box.pack_start(row_widget(_tr('字体：'), self.taskbar_family), False, False, 0)
+        box.pack_start(row_widget(_tr('字号：'), self.taskbar_font_size), False, False, 0)
         hint = Gtk.Label(
-            label="底部任务栏使用独立的字体/字号，顶部 waybar 与桌面图标文字不受影响。", xalign=0
+            label=_tr('底部任务栏使用独立的字体/字号，顶部 waybar 与桌面图标文字不受影响。'), xalign=0
         )
         hint.get_style_context().add_class("dim-label")
         hint.set_line_wrap(True)
         box.pack_start(hint, False, False, 0)
-        self.restart_desktop_check = Gtk.CheckButton(label="应用后立即重启桌面图标层")
+        self.restart_desktop_check = Gtk.CheckButton(label=_tr('应用后立即重启桌面图标层'))
         self.restart_desktop_check.set_active(True)
         box.pack_start(self.restart_desktop_check, False, False, 0)
         return box
@@ -726,7 +735,7 @@ class ConfigWindow(Gtk.Window):
             except (OSError, ValueError) as exc:
                 errors.append(str(exc))
         if errors:
-            self.show_message("保存失败", "\n".join(errors))
+            self.show_message(_tr('保存失败'), "\n".join(errors))
             return False
         if close_after:
             self.destroy()
@@ -737,59 +746,59 @@ class ConfigWindow(Gtk.Window):
 
     def build_components_page(self):
         box = dialog_box()
-        section = Gtk.Label(label="桌面图标层", xalign=0)
+        section = Gtk.Label(label=_tr('桌面图标层'), xalign=0)
         section.get_style_context().add_class("title")
         box.pack_start(section, False, False, 0)
         self.desktop_switch = Gtk.Switch()
         self.desktop_switch.set_active(not DESKTOP_MARKER.exists())
         self.desktop_switch.connect("state-set", self.on_desktop_switch)
-        box.pack_start(row_widget("显示桌面图标", self.desktop_switch), False, False, 0)
+        box.pack_start(row_widget(_tr('显示桌面图标'), self.desktop_switch), False, False, 0)
         self.desktop_autostart = Gtk.CheckButton(
-            label="随 Niri 登录自启（写入 niri config.kdl）")
+            label=_tr('随 Niri 登录自启（写入 niri config.kdl）'))
         self.desktop_autostart.set_active(desktop_autostart_enabled())
         self.desktop_autostart.connect("toggled", self.on_desktop_autostart)
         box.pack_start(self.desktop_autostart, False, False, 0)
-        self.desktop_status = Gtk.Label(label="状态：检测中…", xalign=0)
+        self.desktop_status = Gtk.Label(label=_tr('状态：检测中…'), xalign=0)
         box.pack_start(self.desktop_status, False, False, 0)
         desktop_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        restart = Gtk.Button(label="启动 / 重启")
+        restart = Gtk.Button(label=_tr('启动 / 重启'))
         restart.connect("clicked", self.action_restart_desktop)
-        stop = Gtk.Button(label="停止")
+        stop = Gtk.Button(label=_tr('停止'))
         stop.connect("clicked", self.action_stop_desktop)
         desktop_buttons.pack_start(restart, False, False, 0)
         desktop_buttons.pack_start(stop, False, False, 0)
         box.pack_start(desktop_buttons, False, False, 0)
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         box.pack_start(separator, False, False, 6)
-        section = Gtk.Label(label="底部任务栏", xalign=0)
+        section = Gtk.Label(label=_tr('底部任务栏'), xalign=0)
         section.get_style_context().add_class("title")
         box.pack_start(section, False, False, 0)
         self.taskbar_switch = Gtk.Switch()
         self.taskbar_switch.set_active(not TASKBAR_MARKER.exists())
         self.taskbar_switch.connect("state-set", self.on_taskbar_switch)
-        box.pack_start(row_widget("显示任务栏", self.taskbar_switch), False, False, 0)
-        self.taskbar_status = Gtk.Label(label="状态：检测中…", xalign=0)
+        box.pack_start(row_widget(_tr('显示任务栏'), self.taskbar_switch), False, False, 0)
+        self.taskbar_status = Gtk.Label(label=_tr('状态：检测中…'), xalign=0)
         box.pack_start(self.taskbar_status, False, False, 0)
         taskbar_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        restart_task = Gtk.Button(label="重启")
+        restart_task = Gtk.Button(label=_tr('重启'))
         restart_task.connect("clicked", self.action_restart_taskbar)
-        style_task = Gtk.Button(label="任务栏样式…")
+        style_task = Gtk.Button(label=_tr('任务栏样式…'))
         style_task.connect("clicked", self.action_open_taskbar_style)
-        layout_task = Gtk.Button(label="组件布局与插件…")
+        layout_task = Gtk.Button(label=_tr('组件布局与插件…'))
         layout_task.connect("clicked", self.action_open_layout)
         taskbar_buttons.pack_start(restart_task, False, False, 0)
         taskbar_buttons.pack_start(style_task, False, False, 0)
         taskbar_buttons.pack_start(layout_task, False, False, 0)
         box.pack_start(taskbar_buttons, False, False, 0)
         hint = Gtk.Label(
-            label="两个开关互相独立：桌面图标层使用 desktop-hidden 标记，任务栏使用 taskbar-hidden。",
+            label=_tr('两个开关互相独立：桌面图标层使用 desktop-hidden 标记，任务栏使用 taskbar-hidden。'),
             xalign=0,
         )
         hint.get_style_context().add_class("dim-label")
         hint.set_line_wrap(True)
         box.pack_start(hint, False, False, 0)
         self.refresh_statuses()
-        refresh = Gtk.Button(label="刷新状态")
+        refresh = Gtk.Button(label=_tr('刷新状态'))
         refresh.connect("clicked", lambda _b: self.refresh_statuses())
         box.pack_end(refresh, False, False, 0)
         return box
@@ -799,7 +808,7 @@ class ConfigWindow(Gtk.Window):
         if active and not desktop_pids():
             ok, text = start_desktop()
             if not ok:
-                self.show_message("组件", text)
+                self.show_message(_tr('组件'), text)
         GLib.timeout_add(300, self.refresh_statuses)
         return False
 
@@ -811,28 +820,28 @@ class ConfigWindow(Gtk.Window):
             self._autostart_syncing = True
             button.set_active(not button.get_active())
             self._autostart_syncing = False
-            self.show_message("自启设置失败", text)
+            self.show_message(_tr('自启设置失败'), text)
 
     def on_taskbar_switch(self, _switch, active: bool):
         if active == (not TASKBAR_MARKER.exists()):
             return False
         ok, text = run_taskbar_toggle()
         if not ok:
-            self.show_message("组件", text)
+            self.show_message(_tr('组件'), text)
         GLib.timeout_add(400, self.refresh_statuses)
         return False
 
     def refresh_statuses(self):
         desktop = desktop_pids()
         if desktop:
-            self.desktop_status.set_text("状态：运行中（PID %s）" % ", ".join(map(str, desktop)))
+            self.desktop_status.set_text(_tr('状态：运行中（PID %s）') % ", ".join(map(str, desktop)))
         else:
-            self.desktop_status.set_text("状态：未运行（开关仍会保留显示状态）")
+            self.desktop_status.set_text(_tr('状态：未运行（开关仍会保留显示状态）'))
         taskbar = taskbar_pids()
         if taskbar:
-            self.taskbar_status.set_text("状态：运行中（PID %s）" % ", ".join(map(str, taskbar)))
+            self.taskbar_status.set_text(_tr('状态：运行中（PID %s）') % ", ".join(map(str, taskbar)))
         else:
-            self.taskbar_status.set_text("状态：未运行")
+            self.taskbar_status.set_text(_tr('状态：未运行'))
         self.desktop_switch.set_active(not DESKTOP_MARKER.exists())
         self.taskbar_switch.set_active(not TASKBAR_MARKER.exists())
         self._autostart_syncing = True
@@ -842,17 +851,17 @@ class ConfigWindow(Gtk.Window):
 
     def action_restart_desktop(self, _button=None):
         ok, text = restart_desktop()
-        self.show_message("组件", text if ok else "操作失败：%s" % text)
+        self.show_message(_tr('组件'), text if ok else _tr('操作失败：%s') % text)
         GLib.timeout_add(400, self.refresh_statuses)
 
     def action_stop_desktop(self, _button=None):
         ok = stop_desktop()
-        self.show_message("组件", "桌面图标层已停止。" if ok else "停止超时，仍有进程在运行。")
+        self.show_message(_tr('组件'), _tr('桌面图标层已停止。') if ok else _tr('停止超时，仍有进程在运行。'))
         GLib.timeout_add(300, self.refresh_statuses)
 
     def action_restart_taskbar(self, _button=None):
         ok, text = restart_taskbar()
-        self.show_message("组件", text if ok else "操作失败：%s" % text)
+        self.show_message(_tr('组件'), text if ok else _tr('操作失败：%s') % text)
         GLib.timeout_add(400, self.refresh_statuses)
 
     def action_open_taskbar_style(self, _button=None):
@@ -861,30 +870,41 @@ class ConfigWindow(Gtk.Window):
     def action_open_layout(self, _button=None):
         script = PROJECT_ROOT / "tools/mnws_layout.py"
         if not script.exists():
-            self.show_message("布局设置", "找不到 %s" % script)
+            self.show_message(_tr('布局设置'), _tr('找不到 %s') % script)
             return
         env = {key: value for key, value in os.environ.items() if key != "GDK_BACKEND"}
         try:
             subprocess.Popen([sys.executable, str(script), "gui"], env=env,
                              start_new_session=True)
         except OSError as exc:
-            self.show_message("布局设置", "启动失败：%s" % exc)
+            self.show_message(_tr('布局设置'), _tr('启动失败：%s') % exc)
 
     def build_about_page(self):
         box = dialog_box()
         title = Gtk.Label(label="My Niri Workspace Solution (MNWS)", xalign=0)
         title.get_style_context().add_class("title")
         box.pack_start(title, False, False, 0)
+        self.update_button = Gtk.Button(label=_tr('检查更新'))
+        self.update_button.set_halign(Gtk.Align.START)
+        self.update_button.connect('clicked', self.check_updates)
+        box.pack_start(self.update_button, False, False, 0)
+        self.update_result = Gtk.Label(xalign=0, selectable=True)
+        self.update_result.set_line_wrap(True)
+        box.pack_start(self.update_result, False, False, 0)
+        self.update_link = Gtk.LinkButton.new_with_label('https://github.com/Haisairova-Official/MNWS/releases', _tr('打开发布页面'))
+        self.update_link.set_no_show_all(True)
+        self.update_link.set_halign(Gtk.Align.START)
+        box.pack_start(self.update_link, False, False, 0)
         prefs = load_desktop_prefs()
         info = [
-            ("项目目录", str(PROJECT_ROOT)),
-            ("底部任务栏配置", str(live_config_path())),
-            ("底部任务栏样式", str(live_style_path())),
-            ("桌面布局状态", str(desktop_state_path())),
-            ("桌面服务", str(desktop_service_script())),
-            ("字体", "%s / %dpx" % (prefs["font_family"], prefs["font_size"])),
-            ("桌面标记", str(DESKTOP_MARKER)),
-            ("任务栏标记", str(TASKBAR_MARKER)),
+            (_tr('项目目录'), str(PROJECT_ROOT)),
+            (_tr('底部任务栏配置'), str(live_config_path())),
+            (_tr('底部任务栏样式'), str(live_style_path())),
+            (_tr('桌面布局状态'), str(desktop_state_path())),
+            (_tr('桌面服务'), str(desktop_service_script())),
+            (_tr('字体'), "%s / %dpx" % (prefs["font_family"], prefs["font_size"])),
+            (_tr('桌面标记'), str(DESKTOP_MARKER)),
+            (_tr('任务栏标记'), str(TASKBAR_MARKER)),
         ]
         text = "\n".join("%s：%s" % (name, value) for name, value in info)
         label = Gtk.Label(label=text, xalign=0, yalign=0, selectable=True)
@@ -893,17 +913,35 @@ class ConfigWindow(Gtk.Window):
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         box.pack_start(separator, False, False, 6)
         help_text = (
-            "常用命令：\n"
-            "  mnws config           打开本设置\n"
-            "  mnws check            查看组件状态\n"
-            "  mnws restart taskbar  重启底部任务栏\n"
-            "  mnws restart desktop  重启桌面图标层\n"
-            "  mnws build-taskbar    重新编译任务栏模块"
+            _tr('常用命令：\n  mnws config           打开本设置\n  mnws check            查看组件状态\n  mnws restart taskbar  重启底部任务栏\n  mnws restart desktop  重启桌面图标层\n  mnws build-taskbar    重新编译任务栏模块')
         )
         help_label = Gtk.Label(label=help_text, xalign=0, yalign=0, selectable=True)
         help_label.set_line_wrap(True)
         box.pack_start(help_label, False, False, 0)
         return box
+
+    def check_updates(self, _button=None):
+        import threading
+        from mnws_update import check_update
+        self.update_button.set_sensitive(False)
+        self.update_result.set_text(_tr('正在检查更新…'))
+        self.update_link.hide()
+        def finish(result, error):
+            if not self.get_realized():
+                return False
+            self.update_button.set_sensitive(True)
+            self.update_result.set_text(error or result['text'])
+            if result and result['url']:
+                self.update_link.set_uri(result['url'])
+                self.update_link.show()
+            return False
+        def worker():
+            try:
+                result = check_update()
+                GLib.idle_add(finish, result, None)
+            except (OSError, ValueError, RuntimeError) as error:
+                GLib.idle_add(finish, None, str(error))
+        threading.Thread(target=worker, daemon=True).start()
 
     def show_message(self, title, message):
         dialog = Gtk.MessageDialog(
@@ -918,17 +956,17 @@ class ConfigWindow(Gtk.Window):
 
 class TaskbarStyleWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="任务栏样式 — MNWS")
+        super().__init__(title=_tr('任务栏样式 — MNWS'))
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.set_default_size(480, 430)
         self.set_border_width(14)
         box = dialog_box()
         self.add(box)
         use_theme, color, radius, font_family, font_size = read_taskbar_overrides()
-        style_title = Gtk.Label(label="任务栏背景", xalign=0)
+        style_title = Gtk.Label(label=_tr('任务栏背景'), xalign=0)
         style_title.get_style_context().add_class("title")
         box.pack_start(style_title, False, False, 0)
-        self.theme_background = Gtk.CheckButton(label="使用主题背景（跟随配色）")
+        self.theme_background = Gtk.CheckButton(label=_tr('使用主题背景（跟随配色）'))
         self.theme_background.set_active(use_theme)
         self.theme_background.connect("toggled", self.on_theme_toggled)
         box.pack_start(self.theme_background, False, False, 0)
@@ -938,35 +976,35 @@ class TaskbarStyleWindow(Gtk.Window):
             rgba = Gdk.RGBA()
             rgba.red, rgba.green, rgba.blue, rgba.alpha = color
             self.color_button.set_rgba(rgba)
-        box.pack_start(row_widget("背景颜色：", self.color_button), False, False, 0)
+        box.pack_start(row_widget(_tr('背景颜色：'), self.color_button), False, False, 0)
         self.radius = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 24, 1)
         self.radius.set_value(radius)
         self.radius.set_hexpand(True)
         self.radius.set_draw_value(True)
         self.radius.set_value_pos(Gtk.PositionType.RIGHT)
-        box.pack_start(row_widget("圆角半径：", self.radius), False, False, 0)
+        box.pack_start(row_widget(_tr('圆角半径：'), self.radius), False, False, 0)
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         box.pack_start(separator, False, False, 6)
-        font_title = Gtk.Label(label="任务栏文字", xalign=0)
+        font_title = Gtk.Label(label=_tr('任务栏文字'), xalign=0)
         font_title.get_style_context().add_class("title")
         box.pack_start(font_title, False, False, 0)
         self.family, self.font_size = make_font_controls(font_family, font_size)
-        box.pack_start(row_widget("字体：", self.family), False, False, 0)
-        box.pack_start(row_widget("字号：", self.font_size), False, False, 0)
-        hint = Gtk.Label(label="仅作用于底部任务栏，顶部 waybar 与桌面图标文字不受影响。", xalign=0)
+        box.pack_start(row_widget(_tr('字体：'), self.family), False, False, 0)
+        box.pack_start(row_widget(_tr('字号：'), self.font_size), False, False, 0)
+        hint = Gtk.Label(label=_tr('仅作用于底部任务栏，顶部 waybar 与桌面图标文字不受影响。'), xalign=0)
         hint.get_style_context().add_class("dim-label")
         hint.set_line_wrap(True)
         box.pack_start(hint, False, False, 0)
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         buttons.set_hexpand(True)
-        restore = Gtk.Button(label="恢复默认")
+        restore = Gtk.Button(label=_tr('恢复默认'))
         restore.connect("clicked", self.apply_restore)
         buttons.pack_start(restore, False, False, 0)
-        apply = Gtk.Button(label="应用")
+        apply = Gtk.Button(label=_tr('应用'))
         apply.connect("clicked", lambda _b: self.apply_style(close_after=False))
-        ok = Gtk.Button(label="确定")
+        ok = Gtk.Button(label=_tr('确定'))
         ok.connect("clicked", lambda _b: self.apply_style(close_after=True))
-        close = Gtk.Button(label="关闭")
+        close = Gtk.Button(label=_tr('关闭'))
         close.connect("clicked", lambda _b: self.destroy())
         buttons.pack_end(close, False, False, 0)
         buttons.pack_end(ok, False, False, 0)
@@ -1007,7 +1045,7 @@ class TaskbarStyleWindow(Gtk.Window):
         dialog = Gtk.MessageDialog(
             transient_for=self, modal=True, destroy_with_parent=True,
             message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK,
-            text="保存失败",
+            text=_tr('保存失败'),
         )
         dialog.format_secondary_text(text)
         dialog.run()
@@ -1025,7 +1063,7 @@ def main(argv=None):
         return 0 if ok else 1
     if args.autostart:
         if args.autostart == "status":
-            print("桌面图标层自启：%s" % ("已开启" if desktop_autostart_enabled() else "未开启"))
+            print(_tr('桌面图标层自启：%s') % (_tr('已开启') if desktop_autostart_enabled() else _tr('未开启')))
             return 0
         ok, text = set_desktop_autostart(args.autostart == "on")
         print(text)

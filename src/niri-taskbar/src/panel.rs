@@ -28,15 +28,15 @@ pub fn connect_panel_menu(toplevel: &gtk::Widget) {
         }
 
         let menu = gtk::Menu::new();
-        let style_item = gtk::MenuItem::with_label("任务栏样式设置… (MNWS)");
+        let style_item = gtk::MenuItem::with_label(crate::i18n::text("任务栏样式设置… (MNWS)", "Taskbar style settings… (MNWS)"));
         style_item.connect_activate(|_| {
-            tracing::info!("打开任务栏设置");
+            tracing::info!("{}", crate::i18n::text("打开任务栏设置", "Open taskbar settings"));
             open_mnws_config();
         });
         menu.append(&style_item);
-        let layout_item = gtk::MenuItem::with_label("组件与插件… (MNWS)");
+        let layout_item = gtk::MenuItem::with_label(crate::i18n::text("组件与插件… (MNWS)", "Components and plugins… (MNWS)"));
         layout_item.connect_activate(|_| {
-            tracing::info!("打开组件布局设置");
+            tracing::info!("{}", crate::i18n::text("打开组件布局设置", "Open component layout settings"));
             open_layout_gui();
         });
         menu.append(&layout_item);
@@ -71,7 +71,7 @@ fn open_mnws_config() {
     }
 
     let Some(tool) = candidates.into_iter().find(|path| path.exists()) else {
-        tracing::warn!("MNWS-Config 未找到（tools/mnws-config.py 或 ~/.local/bin/mnws-config）");
+        tracing::warn!("{}", crate::i18n::text("MNWS-Config 未找到（tools/mnws-config.py 或 ~/.local/bin/mnws-config）", "MNWS-Config not found (tools/mnws-config.py or ~/.local/bin/mnws-config)"));
         return;
     };
 
@@ -98,7 +98,7 @@ fn open_layout_gui() {
     }
 
     let Some(tool) = candidates.into_iter().find(|path| path.exists()) else {
-        tracing::warn!("MNWS 布局工具未找到（tools/mnws_layout.py 或 ~/.local/bin/mnws）");
+        tracing::warn!("{}", crate::i18n::text("MNWS 布局工具未找到（tools/mnws_layout.py 或 ~/.local/bin/mnws）", "MNWS layout tool not found (tools/mnws_layout.py or ~/.local/bin/mnws)"));
         return;
     };
 
@@ -116,6 +116,6 @@ fn open_layout_gui() {
             .spawn()
     };
     if let Err(e) = result {
-        tracing::warn!(%e, "cannot launch MNWS 组件布局");
+        tracing::warn!(%e, "{}", crate::i18n::text("cannot launch MNWS 组件布局", "Cannot launch MNWS component layout"));
     }
 }

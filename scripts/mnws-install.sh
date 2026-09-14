@@ -3,23 +3,24 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/mnws-i18n.sh"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/waybar"
 LOCAL_BIN="$HOME/.local/bin"
 
 # Offer dependency repair before changing user configuration.
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "缺少 Python 3，是否现在安装？（Y/n/Ctrl+C）"
-    read -r answer || { echo "已取消。"; exit 1; }
+    mnws_message "缺少 Python 3，是否现在安装？（Y/n/Ctrl+C）" "Python 3 is missing. Install it now? (Y/n/Ctrl+C)"
+    read -r answer || { mnws_message "已取消。" "Cancelled."; exit 1; }
     case "$answer" in
         ""|y|Y)
             if command -v apt-get >/dev/null; then packages=(apt-get install python3)
             elif command -v pacman >/dev/null; then packages=(pacman -S python)
             elif command -v dnf >/dev/null; then packages=(dnf install python3)
-            else echo "请使用系统软件管理器安装 Python 3.11+ 后重试。"; exit 1; fi
+            else mnws_message "请使用系统软件管理器安装 Python 3.11+ 后重试。" "Install Python 3.11+ using your system package manager, then retry."; exit 1; fi
             if [ "$EUID" -ne 0 ]; then packages=(sudo "${packages[@]}"); fi
-            "${packages[@]}" || { echo "Python 安装失败，请检查软件源后重试。"; exit 1; }
+            "${packages[@]}" || { mnws_message "Python 安装失败，请检查软件源后重试。" "Python installation failed. Check your package repositories and retry."; exit 1; }
             ;;
-        *) echo "已取消。"; exit 1 ;;
+        *) mnws_message "已取消。" "Cancelled."; exit 1 ;;
     esac
 fi
 python3 "$ROOT/tools/mnws_setup.py"
@@ -28,18 +29,20 @@ mkdir -p "$LOCAL_BIN" "$CONFIG_DIR"
 for file in config-bottom.jsonc style-bottom.css modules.jsonc colors.css; do
     target="$CONFIG_DIR/$file"
     if [ -e "$target" ] || [ -L "$target" ]; then
-        echo "保留现有配置: $target"
+        mnws_message "保留现有配置: $target" "Keeping existing configuration: $target"
     else
         cp "$ROOT/config/waybar/$file" "$target"
         python3 "$ROOT/tools/mnws_uninstall.py" --record-config "$target"
-        echo "已安装默认配置: $target"
+        mnws_message "已安装默认配置: $target" "Installed default configuration: $target"
     fi
 done
 
+python3 "$ROOT/tools/mnws_include.py" "$CONFIG_DIR/config-bottom.jsonc"
 python3 "$ROOT/tools/mnws_launcher.py" --apply "$CONFIG_DIR/modules.jsonc" "$LAUNCHER"
 python3 "$ROOT/tools/mnws_health.py" --init-desktop
 
 python3 "$ROOT/tools/mnws_commands.py"
 python3 "$ROOT/tools/mnws_uninstall.py" --record
 "$ROOT/mnws" -v
-echo "安装完成。运行 mnws-config 打开统一设置；运行 mnws desktop --start（或 -s）启动桌面。"
+mnws_message "安装完成。运行 mnws-config 打开统一设置；运行 mnws desktop --start（或 -s）启动桌面。" "Installation complete. Run mnws-config for settings or mnws -s to start desktop and taskbar."
+python3 "$ROOT/tools/mnws_autostart.py"

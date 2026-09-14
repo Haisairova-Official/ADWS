@@ -1,180 +1,151 @@
-# MPlg 插件包规范（MNWS Plugin Package）
+# MNWS Plugin API v1.0
 
-> 版本：v1 草案
-> 状态：任务栏 `panel` 接口已定稿；桌面 `desktop` 接口随桌面宿主演进
+MNWS 1.25 的任务栏插件接口。公开格式只支持 Python 任务栏插件；
+桌面 Widget、Service、Plasmoid、签名、沙箱、插件市场及自动更新不属于 v1.0。
+`.mplg` 是 ZIP，第三方使用下列接口即可接入，无需修改 MNWS Core。
 
-## 1. 一句话定义
-
-`.mplg` 本质上就是一个 **zip 压缩包**，包内至少包含：
+## 包结构与清单
 
 ```text
-my-plugin.mplg
-├── plugin.json      # 清单（唯一必需元数据）
-├── main.py          # 本体实现（示例，接口见下文）
-├── assets/          # 可选：图标、字体等资源
-└── README.md        # 可选
+MyPlugin/
+├── plugin.json
+├── main.py
+├── locale/          # 可选；插件自己的词典
+│   ├── zh.json
+│   └── en.json
+└── README.md
 ```
-
-MNWS 不规定开发者必须用任何特定语言；v1 提供 Python 面板插件接口，
-同时保留 `shell` / `binary` / 未来原生 GTK 的位置，由 `plugin.json` 声明。
-
-## 2. plugin.json 清单
 
 ```json
 {
-  "api": "mnws-plugin",
-  "apiVersion": 1,
-
-  "id": "org.mnws.hello",
-  "name": "Hello",
-  "version": "0.1.0",
-  "kind": "panel",
-
-  "language": "python",
+  "id": "org.example.HelloWorld",
+  "name": "plugin.name",
+  "version": "1.0.0",
   "entry": "main.py",
-  "interfaces": ["panel.json-v1"],
-
-  "author": "akizuki",
-  "description": "任务栏示例插件",
-  "license": "MIT",
-
-  "defaults": {
-    "slot": "right",
-    "width": 0,
-    "interval": 1.0
-  }
-}
-```
-
-### 2.1 字段
-
-| 字段 | 必需 | 说明 |
-| --- | --- | --- |
-| `api` | 是 | 固定 `"mnws-plugin"` |
-| `apiVersion` | 是 | 当前为 `1` |
-| `id` | 是 | 反向域名风格，小写：`org.mnws.hello` |
-| `name` | 是 | 显示名 |
-| `version` | 是 | `主.次.修订`，可带 `-pre` 后缀 |
-| `kind` | 是 | `panel` / `desktop` / `menu` / `utility` |
-| `language` | 是 | `python` / `shell` / `binary` |
-| `entry` | 是 | 相对包根的入口文件，禁止绝对路径与 `..` |
-| `interfaces` | 推荐 | 声明实现的宿主接口（见 §3） |
-| `author` / `email` / `homepage` | 否 | 开发者信息 |
-| `description` | 否 | 人类可读说明 |
-| `license` | 否 | SPDX 许可证标识 |
-| `defaults` | 否 | 宿主安装时的默认参数（可被用户在设置里覆盖） |
-
-### 2.2 defaults 约定
-
-- `slot`：`left` / `center` / `right`（面板位置）。
-- `width`：像素宽，`0` 表示自适应。
-- `interval`：刷新秒数；`0` 表示事件驱动/不自动刷新。
-- 其余键属于插件私有配置，宿主会原样透传给插件。
-
-## 3. 接口
-
-### 3.1 `panel.json-v1`（当前可用）
-
-插件入口通过命令行参数运行，往 **stdout 输出一行 JSON**：
-
-```bash
-python3 <插件目录>/main.py --output-json
-```
-
-输出示例：
-
-```json
-{"text":"👋","alt":"hello","class":"normal","tooltip":"Hello MNWS"}
-```
-
-支持的键：
-
-| 键 | 说明 |
-| --- | --- |
-| `text` | 显示文本（支持 Pango 标记） |
-| `tooltip` | 悬浮提示 |
-| `class` | CSS 类名，可切换状态样式 |
-| `alt` | 备用状态，宿主可用它做样式分支 |
-
-交互（点击/滚轮）由宿主统一接走；后续接口版本会增加
-`--click left|right|middle|scroll-up|scroll-down` 交互模式，
-当前 v1 只约定输出 JSON 的只读状态。
-
-### 3.2 `desktop.json-v1`（规划中）
-
-桌面小组件接口。MNWS 桌面层未来用进程外渲染或受限 GTK 容器托管；
-KDE Plasma 原生 `.plasmoid` 无法被 Python GTK 宿主直接加载，见 §6。
-
-## 4. 命名与安装位置
-
-- 构建产物：`<id>_<version>.mplg`，例如 `org.mnws.hello_0.1.0.mplg`。
-- 安装目录（可用环境变量 `MNWS_PLUGIN_DIR` 覆盖）：
-
-```text
-~/.local/share/mnws/plugins/
-├── installed.json            # 注册表
-├── archives/                 # 原始 .mplg 归档
-└── packages/<id>/<version>/  # 解包后的本体
-```
-
-- 插件只能写自己的包目录；不得在安装/更新时执行入口以外的代码。
-
-## 5. 任务栏组件模型
-
-任务栏不再把“开始按钮 / 工作区 / 窗口图标 / 时钟”当成魔法配置，而是统一的
-**内置组件表**，每个组件都有 `slot` 与 `order`：
-
-| 内置 id | 显示名 | 默认位置 |
-| --- | --- | --- |
-| `start` | 开始按钮 | 左 |
-| `workspaces` | 工作区 | 左（默认关闭，由用户开启） |
-| `windows` | 窗口图标（任务栏本体） | 左 |
-| `clock` | 时钟 | 右 |
-
-布局状态保存在 `taskbar-layout.json`：
-
-```json
-{
-  "apiVersion": 1,
-  "items": [
-    {"id": "start", "slot": "left", "order": 0, "enabled": true},
-    {"id": "windows", "slot": "left", "order": 1, "enabled": true},
-    {"id": "clock", "slot": "right", "order": 0, "enabled": true}
-  ],
-  "plugins": [
-    {"package": "org.mnws.hello", "slot": "right", "order": 1,
-     "enabled": false, "width": 0, "settings": {}}
+  "renderer": "panel.text-v1",
+  "mnws": {"api": 1, "minVersion": "1.25"},
+  "defaults": {"slot": "right", "width": 0, "interval": 5, "align": 0.5},
+  "settingsSchema": [
+    {"key": "greeting", "label": "settings.greeting", "type": "string", "default": "Hello MNWS"},
+    {"key": "enabled", "label": "settings.enabled", "type": "boolean", "default": true}
   ]
 }
 ```
 
-设置应用只改这份状态；宿主适配层根据它生成实际运行配置。
+必需：`id`、`name`、`version`、`entry`、`renderer`。可选：`description`、`mnws`、
+`defaults`、`settingsSchema` 及作者/许可证等说明。
 
-## 6. KDE 桌面小组件的现实约束
+- ID 至少两个以点分隔的非空段，允许 ASCII 字母、数字、下划线，区分大小写。
+  安装后以 ID 标识配置，不随显示名变化。
+- 插件版本采用 `主.次.修订`，可有预发布/构建后缀；多个已安装版本选择最高版本。
+- `entry` 为包内文件，禁止绝对路径、反斜杠、冒号、`.`、`..` 路径段与符号链接。
+- 不带阶段后缀的 minVersion（如 1.25）表示最低兼容版本系列，包括该系列预发布；显式 Release 则要求正式阶段。
+- 省略 `mnws` 等价于 `{"api":1,"minVersion":"1.25"}`；不支持的 API 或宿主版本过低会拒绝加载。
+- `slot` 为 left/center/right；width 为非负宽度，0 表示自动（rows 默认 420）；
+  align 为 0–1；interval 为非负秒数。text 的正间隔由 Waybar 定期执行，最小 0.5 秒。
+  interval=0 可用于长驻逐行输出；rows 使用长驻流，结束后宿主重试。
 
-KDE Plasma 6 的 plasmoid 是 QML + Plasma 框架组件，要求宿主提供
-`plasmoid` 上下文并实现 Plasma shell 协议。它不是“能嵌入任意 GTK 桌面”的格式：
+## 输出与生命周期
 
-- MNWS 桌面层（GTK3）**不能**直接加载 `.plasmoid`。
-- 可行的三条路线：
-  1. `plasmoidviewer --applet <id>` 单独跑一个普通窗口，再由 niri 固定为桌面浮窗
-     （体验最弱，无背景层语义，窗口会参与焦点/平铺管理）；
-  2. 用 KDE Frameworks 6 + QtQuick 写一个独立 plasmoid 宿主进程，走
-     `gtk-layer-shell` 之外的 Plasma 层协议（工程量大，属独立子项目）；
-  3. MNWS 自定义 `desktop.json-v1`：插件用 Python/GTK 实现，桌面层原生托管
-     （社区插件生态从零开始，但体验与当前架构一致）。
+新格式入口接收 `--settings-json '<JSON>'`，不会被追加旧的 `--output-json` 参数。
+工作目录为解包根目录。程序应使用 UTF-8，并将每条 JSON 独占一行、及时 flush。
+stdout 只能输出协议数据，stderr 用于日志；0 代表成功，非零代表失败。
 
-MNWS 对 KDE 的“兼容”先定义为第 3 条 + 可选的菜单/图标走 KDE 应用
-（kclock/korganizer 等），不伪装成能直接吃掉 plasmoid。
+`panel.text-v1`：
 
-## 7. 设置与双行渲染扩展
+```json
+{"text":"Hello MNWS","tooltip":"Example"}
+```
 
-插件可在清单中声明 `settingsSchema` 数组，每项包含 `key`、`label`、`type`、`default`，
-当前设置界面支持 `font`、`color`、`choice`、`number`、`url`、`string`。
-配置保存在布局条目的 `settings` 中；移动、保存布局时保留所有键。
-声明 schema 的插件收到 `--settings-json '<JSON>'`，可据此更改行为。
+`panel.rows-v1`：
 
-`panel.rows-v1` 在 `panel.json-v1` 基础上增加纯文本 `primary` 和 `secondary` 字段。
-适配器通过 `libmnws_panel.so` 将它们显示为原生 GTK 双行，自动省略过长文本。
-`secondary` 为空时隐藏译文和分隔线。渲染器读取 `font_family`、`primary_color`、
-`secondary_color`、`separator_color` 设置，留空继承主题。字体随实时分配高度测量，始终保持 3:2。
+```json
+{"primary":"僕らが見た光","secondary":"我们曾看见的光","tooltip":"Lyrics"}
+```
+
+text 必须有字符串 `text`；rows 必须有字符串 `primary`，`secondary` 可省略。
+可选 tooltip、alt 为字符串。rows 使用纯文本；text 继承 Waybar 的 Pango 标记支持，
+显示不可信文字前应转义。`class` 遵循 Waybar 的类名约定。
+
+长驻插件至少每 30 秒输出一条有效记录，即使数据未变化也应发送心跳。
+单行输出最多 1 MiB。无效 JSON、无输出、超时和异常退出会记录带插件 ID 前缀的错误，
+输出失败占位；不会把异常传播到其他插件。禁用并应用布局会停止对应运行组件。
+插件以当前用户权限运行；v1.0 不提供沙箱或权限隔离。
+
+## 设置
+
+支持 string、number、boolean、choice、color、font、url。
+设置键唯一，label/hint 可使用翻译键，default 是对应类型的 JSON 值。
+number 支持 min/max/step，默认范围 0–100、步长 1，保留小数；boolean 使用真正的 JSON 布尔值。
+choice 的 `choices` 为 `[["stored-value","label.key"], ...]`，值唯一，default 必须在列表内。
+缺失 default 时，字符串为空、boolean 为 false、number 为 min、choice 为首选项。
+
+宿主合并 schema 默认值与用户 settings，再传给插件。用户设置保存在
+`taskbar-layout.json`，不会写回 `.mplg`；未知私有设置键会保留。
+rows 的 font_family、primary_color、secondary_color、separator_color 为宿主渲染设置，
+空值使用系统主题；原文与译文大小保持 3:2，颜色分别使用前景与强调色，分隔线使用主题混色。
+
+## 插件语言文件
+
+`locale/zh.json` / `locale/en.json` 是字符串字典，例如：
+
+```json
+{"plugin.name":"HelloWorld 示例","settings.greeting":"问候语","settings.enabled":"显示问候"}
+```
+
+中文环境读取 zh，其他读取 en；缺文件或缺键直接显示原键。
+宿主翻译 name、description、设置 label/hint 和 choice 标签，不翻译设置值。
+插件输出文本由插件自行本地化。包内语言文件与 MNWS 根目录 `language/` 相互独立；
+宿主的加权 `_messages` 不是此版本插件词典的格式。
+
+## 命令与路径
+
+```sh
+mnws mplg init MyPlugin --id org.example.HelloWorld
+mnws mplg build MyPlugin
+mnws mplg validate org.example.HelloWorld_1.0.0.mplg
+mnws mplg install org.example.HelloWorld_1.0.0.mplg
+mnws mplg list
+mnws mplg inspect org.example.HelloWorld_1.0.0.mplg
+mnws mplg run org.example.HelloWorld --settings-json '{"enabled":true}'
+mnws mplg remove org.example.HelloWorld
+```
+
+安装目录：`$XDG_DATA_HOME/mnws/plugins/`（默认 `~/.local/share/mnws/plugins/`）；
+缓存目录：`$XDG_CACHE_HOME/mnws/plugins/<id>/<version>/`。
+可通过 MNWS_PLUGIN_DIR / MNWS_CACHE_DIR 覆盖。包先校验后解包，
+重复 ZIP 成员、越界路径、缺入口、非法语言文件、无效 schema 等会被拒绝。
+缓存使用包 SHA-256 和解包锁；删除缓存不影响安装包与设置。
+
+`remove <id>` 删除该 ID 的所有已安装版本；兼容旧的文件名删除方式，
+但不接受任意目录路径。正在显示的组件应在布局设置中禁用并应用，
+删除包后再次应用布局以卸载当前显示；布局里的设置保留便于重装。
+
+## 旧包与参考插件
+
+旧清单的 api/apiVersion/kind/language/interfaces 继续校验并兼容，
+`panel.json-v1` 对应新版文本 renderer；旧 Python 入口仍收到 `--output-json`。
+新插件应使用本文的简化格式，避免混用两种声明。
+
+参考插件：`org.AkiACG_Community.NCMLyricsBar`，版本 1.0.1。
+旧 ID `org.mnws.neteaselyrics` 在加载布局和扫描包时映射为新 ID，
+保留启用状态、分区、顺序和 settings；同时存在时只选一个版本，不重复显示。
+[HelloWorld](../plugins/sample/) 是最小示例，歌词插件是完整参考实现。
+
+## English quick reference
+
+Plugin API 1 supports Python panel plugins packaged as ZIP `.mplg` archives.
+Required manifest fields are id, name, version, entry and renderer. Renderers are
+`panel.text-v1` (text) and `panel.rows-v1` (primary/secondary). Omitted `mnws`
+means API 1 and minimum MNWS 1.25. IDs are case-sensitive dotted ASCII segments
+with letters, digits and underscores.
+
+The host passes `--settings-json`, starts the entry in the extracted package root,
+and validates UTF-8 JSON lines on stdout. Logs go to stderr. Emit at least once
+per 30 seconds while streaming; each line is limited to 1 MiB. Settings and user
+layout remain outside the archive. Plugins run with the user's permissions.
+
+Package dictionaries in `locale/zh.json` and `locale/en.json` translate manifest
+and schema labels; missing keys remain literal. The application `language/`
+catalogue is separate. Use `plugins/sample` as the minimal runnable example.
+Old manifests remain supported through a compatibility adapter.

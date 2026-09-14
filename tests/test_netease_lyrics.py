@@ -59,7 +59,7 @@ class LyricsTests(unittest.TestCase):
         self.assertEqual(lyrics.render(None, None)["class"], "idle")
         self.assertIn("Example", lyrics.render(self.track(), {"state": "error"})["text"])
         result = lyrics.render(self.track(position=None), {"state": "ready"})
-        self.assertIn("浏览器尚未提供播放进度", result["tooltip"])
+        self.assertIn(lyrics._tr("浏览器尚未提供播放进度"), result["tooltip"])
 
     def test_mixed_width_and_controls(self):
         self.assertEqual(lyrics.fit_text("中文abc", 5), "中文a…")

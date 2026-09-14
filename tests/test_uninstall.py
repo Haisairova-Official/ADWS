@@ -9,6 +9,7 @@ from contextlib import redirect_stdout
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import mnws_uninstall as removal
+from mnws_i18n import tr as _tr
 
 
 class UninstallTests(unittest.TestCase):
@@ -58,7 +59,7 @@ class UninstallTests(unittest.TestCase):
         for answers in ([''], ['n'], [EOFError()], ['y', EOFError()]):
             result, output, ask = self.run_answers(answers)
             self.assertEqual(result, 0)
-            self.assertIn('已取消。', output)
+            self.assertIn(_tr('已取消。'), output)
             self.assertTrue((self.home / '.local/bin/mnws').is_symlink())
             self.assertTrue(self.lib.exists())
             self.control.assert_not_called()
@@ -67,8 +68,8 @@ class UninstallTests(unittest.TestCase):
         result, output, ask = self.run_answers(['y', ''])
         self.assertEqual(result, 0)
         self.assertEqual([call.args[0] for call in ask.call_args_list],
-                         ['您真的要卸载mnws吗？（y/N）', '您需要保留配置文件便于以后使用吗？（Y/n）'])
-        self.assertEqual(output, '卸载中，感谢您的使用。\n')
+                         [_tr('您真的要卸载mnws吗？（y/N）'), _tr('您需要保留配置文件便于以后使用吗？（Y/n）')])
+        self.assertEqual(output, _tr('卸载中，感谢您的使用。\n'))
         self.assertFalse((self.home / '.local/bin/mnws').is_symlink())
         self.assertFalse(self.lib.exists())
         self.assertTrue((self.bar / 'config-bottom.jsonc').exists())

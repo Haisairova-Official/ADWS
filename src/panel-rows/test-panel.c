@@ -81,6 +81,29 @@ int main(int argc, char **argv) {
     settle();
     g_assert_cmpint(gtk_widget_get_allocated_width(window), ==, width);
     g_assert_cmpint(gtk_widget_get_allocated_height(window), <=, 36);
+    p->has_color[0] = p->has_color[1] = FALSE;
+    p->has_separator_color = FALSE;
+    const char *palettes[] = {
+        "@define-color theme_bg_color #181818; @define-color accent_color #80bfff; .mnws-rows {color: #eeeeee;}",
+        "@define-color theme_bg_color #ffffff; @define-color accent_color #2255aa; .mnws-rows {color: #111111;}",
+        "@define-color theme_bg_color #ffffff; @define-color accent_color #111111; .mnws-rows {color: #111111;}"
+    };
+    GtkCssProvider *palette = gtk_css_provider_new();
+    gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(palette), GTK_STYLE_PROVIDER_PRIORITY_USER + 1);
+    for (guint i=0; i<G_N_ELEMENTS(palettes); i++) {
+        gtk_css_provider_load_from_data(palette, palettes[i], -1, NULL);
+        settle();
+        GdkRGBA first = theme_color(p, 0), second = theme_color(p, 1), line = theme_color(p, 2);
+        g_assert_cmpfloat(color_distance(first, second), >, .01);
+        g_assert_cmpfloat(color_distance(second, line), >, .01);
+        PangoAttrIterator *it = pango_attr_list_get_iterator(gtk_label_get_attributes(GTK_LABEL(p->primary)));
+        PangoAttrColor *actual = (PangoAttrColor *)pango_attr_iterator_get(it, PANGO_ATTR_FOREGROUND);
+        g_assert(actual != NULL);
+        g_assert_cmpint(actual->color.red, ==, (guint16)(first.red*65535));
+        pango_attr_iterator_destroy(it);
+    }
+    gtk_style_context_remove_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(palette));
+    g_object_unref(palette);
     wbcffi_deinit(p);
     settle();
     gtk_widget_destroy(window);

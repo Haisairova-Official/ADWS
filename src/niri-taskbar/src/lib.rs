@@ -1,3 +1,4 @@
+mod i18n;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, btree_map::Entry},
     sync::{Arc, LazyLock, Mutex},

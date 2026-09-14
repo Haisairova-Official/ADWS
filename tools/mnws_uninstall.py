@@ -1,4 +1,5 @@
 """Interactive removal of MNWS-owned integration files, never desktop contents."""
+from mnws_i18n import tr as _tr
 import argparse
 import hashlib
 import json
@@ -39,6 +40,9 @@ def digest(path):
 
 
 def library_sources():
+    names = ('libniri_taskbar.so', 'libwaybar-space.so', 'libmnws_panel.so')
+    if (ROOT / 'prebuilt/manifest.json').is_file():
+        return {name: ROOT / 'prebuilt' / name for name in names}
     return {
         'libniri_taskbar.so': ROOT / 'src/niri-taskbar/target/release/libniri_taskbar.so',
         'libwaybar-space.so': ROOT / 'src/niri-desktop-layer/integration/libwaybar-space.so',
@@ -70,7 +74,7 @@ def ask(prompt, default):
             return True
         if answer in ('n', 'no'):
             return False
-        print('请输入 y 或 n。')
+        print(_tr('请输入 y 或 n。'))
 
 
 def remove_autostart():
@@ -79,7 +83,8 @@ def remove_autostart():
         return
     text = path.read_text()
     pattern = re.compile(r'(?ms)^[ \t]*// ==== MNWS 桌面图标层自启（自动生成）====[^\n]*\n.*?^[ \t]*// ==== MNWS 桌面图标层自启 END ====[^\n]*\n?')
-    cleaned = pattern.sub('', text)
+    from mnws_autostart import PATTERN
+    cleaned = PATTERN.sub('', pattern.sub('', text))
     launchers = {str(ROOT / 'src/niri-desktop-layer/start-desktop-layer')}
     previous_root = read_inventory().get('root')
     if isinstance(previous_root, str):
@@ -109,7 +114,7 @@ def remove_owned_files(keep_config):
                 if os.access(directory, os.W_OK):
                     path.unlink()
                 else:
-                    print(f'移除系统命令链接需要管理员权限：{path}')
+                    print(''.join([_tr('移除系统命令链接需要管理员权限：'), f'{path}']))
                     subprocess.run(['sudo', 'unlink', str(path)], check=True)
     for name, source in library_sources().items():
         path = Path.home() / '.local/lib/waybar' / name
@@ -144,14 +149,14 @@ def remove_owned_files(keep_config):
 
 def uninstall():
     try:
-        if not ask('您真的要卸载mnws吗？（y/N）', False):
-            print('已取消。')
+        if not ask(_tr('您真的要卸载mnws吗？（y/N）'), False):
+            print(_tr('已取消。'))
             return 0
-        keep_config = ask('您需要保留配置文件便于以后使用吗？（Y/n）', True)
+        keep_config = ask(_tr('您需要保留配置文件便于以后使用吗？（Y/n）'), True)
     except (EOFError, KeyboardInterrupt):
-        print('\n已取消。')
+        print(_tr('\n已取消。'))
         return 0
-    print('卸载中，感谢您的使用。', flush=True)
+    print(_tr('卸载中，感谢您的使用。'), flush=True)
     try:
         from mnws_runtime import main as control
         for component in ('desktop', 'taskbar'):
@@ -160,7 +165,7 @@ def uninstall():
         remove_autostart()
         remove_owned_files(keep_config)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
-        print(f'卸载未完成：{error}', file=sys.stderr)
+        print(''.join([_tr('卸载未完成：'), f'{error}']), file=sys.stderr)
         return 1
     return 0
 
