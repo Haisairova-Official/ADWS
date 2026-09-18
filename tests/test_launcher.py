@@ -6,9 +6,32 @@ import unittest
 from unittest.mock import patch, Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import mnws_launcher as launcher
+import mnws_layout as layout
 
 
 class LauncherTests(unittest.TestCase):
+    def test_layout_launcher_overrides_include_without_losing_icon(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'apps.jsonc').write_text(json.dumps({'custom/applauncher': {
+                'format': 'My Apps', 'on-click': 'old-launcher', 'tooltip': False}}))
+            for command in ['fuzzel', 'rofi -show drun', 'my-launcher --theme "my theme"']:
+                result = layout.render_waybar_config(
+                    {'builtins': [], 'plugins': [], 'options': {'start_launcher_command': command}}, available=[],
+                    base={'include': ['apps.jsonc']}, config_path=root / 'bar.jsonc')
+                self.assertEqual(result['custom/applauncher'], {
+                    'format': 'My Apps', 'on-click': command, 'tooltip': False})
+
+    def test_layout_without_launcher_setting_keeps_existing_command(self):
+        result = layout.render_waybar_config({'builtins': [], 'plugins': []}, available=[], base={
+            'custom/applauncher': {'on-click': 'existing --custom'}})
+        self.assertEqual(result['custom/applauncher']['on-click'], 'existing --custom')
+
+    def test_layout_rejects_empty_launcher(self):
+        with self.assertRaises(ValueError):
+            layout.render_waybar_config({'options': {'start_launcher_command': '  '}},
+                                        available=[], base={})
+
     def test_priority(self):
         with patch.object(launcher.shutil, 'which', return_value='/bin/present'):
             self.assertEqual(launcher.select_launcher(), 'fuzzel')

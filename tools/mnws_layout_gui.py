@@ -12,6 +12,7 @@ from mnws_layout import (BUILTIN_INFO, PROJECT_LAYOUT_PATH,
                          apply_layout)
 import mnws_layout
 import mnws_plugin as mplg
+from mnws_launcher import rofi_theme_command
 
 SLOT_ORDER = {"left": 0, "center": 1, "right": 2}
 
@@ -59,6 +60,7 @@ class LayoutWindow:
         self.start_mode = Gtk.ComboBoxText()
         self.start_mode.append("custom", _tr('自定义图标 / 文字'))
         self.start_mode.append("distro", _tr('系统发行版 Logo'))
+        self.start_mode.append("image", _tr('图片'))
         icon_row.pack_start(self.start_mode, False, False, 0)
         self.start_label = Gtk.Entry()
         self.start_label.set_placeholder_text(_tr('例如：开始、Apps、☰、🚀；留空恢复默认'))
@@ -68,6 +70,43 @@ class LayoutWindow:
         outer.pack_start(self.start_preview, False, False, 0)
         self.start_mode.connect("changed", lambda *_: self.update_start_preview())
         self.start_label.connect("changed", lambda *_: self.update_start_preview())
+        self.image_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.image_box.set_no_show_all(True)
+        self.start_images = {}
+        for key, caption in [("start_image", _tr('默认图片')), ("start_hover_image", _tr('悬停图片（可选）'))]:
+            row = Gtk.Box(spacing=8)
+            row.pack_start(Gtk.Label(label=caption), False, False, 0)
+            entry = Gtk.Entry()
+            entry.set_hexpand(True)
+            entry.connect("changed", lambda *_: self.check_start_images())
+            self.start_images[key] = entry
+            row.pack_start(entry, True, True, 0)
+            choose = Gtk.Button(label=_tr('选择图片…'))
+            choose.connect("clicked", self.choose_start_image, key)
+            row.pack_start(choose, False, False, 0)
+            self.image_box.pack_start(row, False, False, 0)
+        self.image_error = Gtk.Label(xalign=0)
+        self.image_error.set_line_wrap(True)
+        self.image_box.pack_start(self.image_error, False, False, 0)
+        outer.pack_start(self.image_box, False, False, 0)
+
+        launcher_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        launcher_row.pack_start(Gtk.Label(label=_tr('开始按钮启动器：')), False, False, 0)
+        self.launcher_mode = Gtk.ComboBoxText()
+        self.launcher_mode.append("fuzzel", "fuzzel")
+        self.launcher_mode.append("rofi", "rofi (-show drun)")
+        self.launcher_mode.append("custom", _tr('自定义命令'))
+        launcher_row.pack_start(self.launcher_mode, False, False, 0)
+        self.launcher_command = Gtk.Entry()
+        self.launcher_command.set_placeholder_text(_tr('输入启动器命令及参数，例如：wofi --show drun'))
+        launcher_row.pack_start(self.launcher_command, True, True, 0)
+        self.rofi_themed = False
+        self.rofi_theme_button = Gtk.Button(label=_tr('设置 rofi 为 MNWS 主题'))
+        self.rofi_theme_button.set_no_show_all(True)
+        self.rofi_theme_button.connect("clicked", self.on_rofi_theme)
+        launcher_row.pack_start(self.rofi_theme_button, False, False, 0)
+        self.launcher_mode.connect("changed", self.update_launcher_controls)
+        outer.pack_start(launcher_row, False, False, 0)
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         add_btn = Gtk.Button(label=_tr('添加 .mplg…'))
@@ -192,12 +231,23 @@ class LayoutWindow:
         layout = load_layout(self.layout_file)
         options = layout.get("options", {})
         try:
-            current = mnws_layout.launcher_definition().get("format", "Apps")
+            definition = mnws_layout.launcher_definition()
         except (OSError, ValueError):
-            current = "Apps"
+            definition = {}
+        current = definition.get("format", _tr('开始'))
+        command = options.get("start_launcher_command", definition.get("on-click", "fuzzel"))
+        command = command if isinstance(command, str) and command.strip() else "fuzzel"
+        self.rofi_themed = command.strip() == rofi_theme_command()
+        mode = {"fuzzel": "fuzzel", "rofi -show drun": "rofi",
+                rofi_theme_command(): "rofi"}.get(command.strip(), "custom")
+        self.launcher_command.set_text(options.get("start_launcher_custom", command if mode == "custom" else ""))
+        self.launcher_mode.set_active_id(mode)
+        self.update_launcher_controls()
         import html
         current = html.unescape(str(current)).replace("{{", "{").replace("}}", "}")
         self.start_label.set_text(options.get("start_label") or current)
+        for key, entry in self.start_images.items():
+            entry.set_text(str(options.get(key) or ""))
         self.start_mode.set_active_id(options.get("start_icon_mode", "custom"))
         self.update_start_preview()
         available = {item["manifest"]["id"]: item
@@ -394,14 +444,62 @@ class LayoutWindow:
 
     # ---------- 保存 ----------
 
+    def update_launcher_controls(self, *_):
+        mode = self.launcher_mode.get_active_id()
+        self.launcher_command.set_sensitive(mode == "custom")
+        self.rofi_theme_button.set_visible(mode == "rofi")
+
+    def on_rofi_theme(self, *_):
+        self.rofi_themed = True
+        self.status.set_text(_tr('已设置 MNWS rofi 主题，点击“应用并重启任务栏”生效。'))
+
     def update_start_preview(self):
         distro = self.start_mode.get_active_id() == "distro"
-        self.start_label.set_sensitive(not distro)
+        image = self.start_mode.get_active_id() == "image"
+        self.start_label.set_sensitive(not distro and not image)
+        if hasattr(self, "image_box"):
+            if image:
+                self.image_box.show()
+                for child in self.image_box.get_children():
+                    child.show_all()
+            else:
+                self.image_box.hide()
+            self.check_start_images()
         if distro:
             name, glyph = mnws_layout.distro_logo()
             self.start_preview.set_text(''.join([_tr('预览：'), f'{glyph}', '  · ', f'{name}', _tr('（需 Nerd Fonts / Font Logos 字体支持）')]))
         else:
-            self.start_preview.set_text(_tr('预览：') + (self.start_label.get_text() or "Apps"))
+            self.start_preview.set_text(_tr('预览：') + (self.start_label.get_text() or _tr('开始')))
+
+    def image_options(self):
+        return {"start_icon_mode": self.start_mode.get_active_id(),
+                **{key: entry.get_text().strip() for key, entry in self.start_images.items()}}
+
+    def check_start_images(self):
+        if not hasattr(self, "image_error"):
+            return
+        from gi.repository import GLib
+        try:
+            mnws_layout.validate_start_images(self.image_options())
+        except ValueError as exc:
+            self.image_error.set_markup('<span foreground="#e53935">' + GLib.markup_escape_text(str(exc)) + '</span>')
+        else:
+            self.image_error.set_text("")
+
+    def choose_start_image(self, _button, key):
+        Gtk = self.Gtk
+        dialog = Gtk.FileChooserDialog(title=_tr('选择图片…'), transient_for=self.window,
+                                       action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons(_tr('取消'), Gtk.ResponseType.CANCEL, _tr('确定'), Gtk.ResponseType.OK)
+        images = Gtk.FileFilter()
+        images.set_name(_tr('图片'))
+        images.add_pixbuf_formats()
+        dialog.add_filter(images)
+        if dialog.run() == Gtk.ResponseType.OK:
+            self.start_images[key].set_text(dialog.get_filename())
+        dialog.destroy()
+        if self.image_error.get_text():
+            self.show_message(_tr('图片错误'), self.image_error.get_text(), error=True)
 
     def collect_layout(self) -> dict:
         layout = load_layout(self.layout_file)
@@ -439,6 +537,16 @@ class LayoutWindow:
         layout["plugins"] = plugins
         layout.setdefault("options", {})["start_label"] = self.start_label.get_text().strip()
         layout["options"]["start_icon_mode"] = self.start_mode.get_active_id() or "custom"
+        images = self.image_options()
+        mnws_layout.validate_start_images(images)
+        layout["options"].update(images)
+        custom = self.launcher_command.get_text().strip()
+        command = {"fuzzel": "fuzzel", "rofi": rofi_theme_command() if self.rofi_themed else "rofi -show drun"}.get(
+            self.launcher_mode.get_active_id(), custom)
+        if not command or "\x00" in command:
+            raise ValueError(_tr('请输入启动器命令。'))
+        layout["options"]["start_launcher_command"] = command
+        layout["options"]["start_launcher_custom"] = custom
         layout["apiVersion"] = 1
         return layout
 
@@ -447,7 +555,7 @@ class LayoutWindow:
             layout = self.collect_layout()
             path = save_layout(layout, self.layout_file)
         except (OSError, ValueError) as exc:
-            self.show_message(_tr('保存失败'), str(exc))
+            self.show_message(_tr('保存失败'), str(exc), error=True)
             return False
         text = _tr('已保存布局：%s') % path
         if restart:
@@ -459,14 +567,18 @@ class LayoutWindow:
         self.status.set_text(_tr('%s\n插件目录：%s') % (text, plugin_dir()))
         return True
 
-    def show_message(self, title, message):
+    def show_message(self, title, message, error=False):
         Gtk = self.Gtk
         dialog = Gtk.MessageDialog(
             transient_for=self.window, modal=True, destroy_with_parent=True,
-            message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
+            message_type=Gtk.MessageType.ERROR if error else Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
             text=title,
         )
-        dialog.format_secondary_text(message)
+        if error:
+            from gi.repository import GLib
+            dialog.format_secondary_markup('<span foreground="#e53935">' + GLib.markup_escape_text(message) + '</span>')
+        else:
+            dialog.format_secondary_text(message)
         dialog.run()
         dialog.destroy()
 

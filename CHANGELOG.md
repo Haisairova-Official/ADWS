@@ -1,11 +1,6 @@
 # Changelog / 更新记录
 
-## NCMLyricsBar 1.0.2（待发布 / Unreleased）
-
-- 修复旧歌词插件暂停后被误判超时的问题；后台重连保留歌词，不显示重连提示。需要同步更新宿主执行器与原生 renderer。
-- Fix false timeouts when legacy lyrics plugins are paused; preserve lyrics during background reconnection without a reconnect label. Requires the updated host runner and native renderer.
-
-## 1.25 Pre-release — 2026-09-14
+## 1.25 Released — 2026-09-18
 
 ### 最新更新
 
@@ -30,7 +25,10 @@
 - 将网易云歌词Sample插件正式命名为 NCMLyricsBar，升级至 1.0.1，保留旧插件配置。
 - 优化了歌词的系统配色，原文、译文和分隔线终于不用挤一个颜色了。
 - 修复了上游 Niri 窗口数据兼容问题，补充事件容错和断线重连。
-- 提供 Arch Linux x86_64 的预构建安装包，安装时不再需要现场编译 Rust 和 C。（1.25 Pre-release）
+- 提供 Arch Linux x86_64 的预构建安装包，安装时不再需要现场编译 Rust 和 C。（Pre-release）
+- 修改了开始按钮的默认文字，提供了自定义icon功能。
+- 优化了任务栏稳定性，优化了MNWS系列命令稳定性。
+- 修复了特殊情况下任务栏变为英文的bug。（Released）
 
 ### Latest updates
 
@@ -55,12 +53,15 @@
 - Officially rename the NetEase lyrics Sample plugin to NCMLyricsBar, upgrade to 1.0.1 and preserve existing settings.
 - Improve system-theme lyrics colors: the original, translation and separator no longer have to share one color.
 - Fix upstream Niri window-data compatibility, with event tolerance and reconnection.
-- Provide a prebuilt Arch Linux x86_64 archive so installation no longer compiles Rust and C on the spot. (1.25 Pre-release)
+- Provide a prebuilt Arch Linux x86_64 archive so installation no longer compiles Rust and C on the spot. (Pre-release)
+- Change the default Start-button text and add custom icon support.
+- Improve taskbar stability and the reliability of the MNWS command suite.
+- Fix the taskbar unexpectedly switching to English under special circumstances. (Released)
 
 ### 验证范围 / Validation scope
 
-预发布版本；Arch、Ubuntu 裸 Niri 环境仍待实机复测。
-Pre-release: real-world verification on stock Niri under Arch and Ubuntu remains pending.
+已完成 Arch Linux 与 Ubuntu 的 Niri 环境实机测试。
+Tested in real Niri sessions on Arch Linux and Ubuntu.
 
 ## 1.23 H — 2026-09-09
 

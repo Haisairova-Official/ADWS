@@ -10,6 +10,10 @@ import sys
 import tempfile
 
 
+def rofi_theme_command():
+    return "rofi -show drun -theme-str 'mainbox { background-image: none; }'"
+
+
 def ask(prompt):
     print(prompt, end=' ', file=sys.stderr, flush=True)
     return input().strip()
@@ -57,8 +61,11 @@ def configure(path, command):
     path = Path(path).resolve(strict=True)
     original = path.read_text()
     data = parse_jsonc(original)
-    module = data.setdefault('custom/applauncher', {'format': 'Apps', 'tooltip': False})
-    if module.get('on-click') == command:
+    module = data.setdefault('custom/applauncher', {'format': _tr('开始'), 'tooltip': False})
+    previous_format = module.get('format')
+    if previous_format in (None, 'Apps', 'Start', '开始'):
+        module['format'] = _tr('开始')
+    if module.get('on-click') == command and module.get('format') == previous_format:
         return
     module['on-click'] = command
     # JSONC comments are retained in a backup; other settings retain their values.

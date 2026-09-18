@@ -9,6 +9,22 @@ import mnws_commands as commands
 
 
 class CommandTests(unittest.TestCase):
+    def test_zsh_login_path_persists_without_duplicates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            profile = home / '.profile'
+            profile.write_text('export EXISTING_SETTING=1\n')
+            with patch.dict(os.environ, {'HOME': directory, 'SHELL': '/bin/zsh', 'ZDOTDIR': directory}):
+                commands.persist_user_path()
+                commands.persist_user_path()
+                result = __import__('subprocess').run(
+                    ['/bin/sh', '-c', '. "$HOME/.zprofile"; . "$HOME/.zprofile"; printf "%s" "$PATH"'],
+                    env={**os.environ, 'PATH': '/usr/bin:/bin'}, capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout.split(':').count(str(home / '.local/bin')), 1)
+            self.assertIn('export EXISTING_SETTING=1', profile.read_text())
+            self.assertEqual(profile.read_text().count('# >>> MNWS'), 1)
+            self.assertEqual((home / '.profile.mnws-path.bak').read_text(), 'export EXISTING_SETTING=1\n')
+
     def test_link_and_repeat(self):
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)

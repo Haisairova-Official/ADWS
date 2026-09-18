@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import re
 import subprocess
 import time
 import sys
@@ -46,6 +47,37 @@ def pids(component):
 
 
 
+def taskbar_environment(environ=None, proc=Path('/proc')):
+    """Use the current compositor's locale, not a terminal/tool's overrides.
+
+    NIRI_SOCKET identifies the compositor PID even if several sessions exist.
+    Only locale variables are copied; display and other launch settings stay intact.
+    If the session cannot be identified/read, retain the caller's environment.
+    """
+    env = dict(os.environ if environ is None else environ)
+    env.pop('GDK_BACKEND', None)
+    match = re.fullmatch(r'niri\..+\.(\d+)\.sock', Path(env.get('NIRI_SOCKET', '')).name)
+    if not match:
+        return env
+    entry = proc / match.group(1)
+    try:
+        if entry.stat().st_uid != os.getuid() or (entry / 'comm').read_text().strip() != 'niri':
+            return env
+        session = dict(item.split('=', 1) for item in
+                       (entry / 'environ').read_bytes().decode(errors='replace').split('\0') if '=' in item)
+    except OSError:
+        return env
+    def is_locale(key):
+        return key in ('LANG', 'LANGUAGE') or key.startswith('LC_')
+    if not any(session.get(key) for key in ('LANG', 'LC_ALL', 'LC_MESSAGES')):
+        return env
+    for key in list(env):
+        if is_locale(key):
+            del env[key]
+    env.update((key, value) for key, value in session.items() if is_locale(key))
+    return env
+
+
 def start_taskbar(config, style):
     """Verify files and detect early exit; preserve startup errors in a log."""
     from mnws_health import validate_waybar, state_home
@@ -53,8 +85,7 @@ def start_taskbar(config, style):
     if errors:
         return False, '\n'.join(errors)
     log = state_home() / 'mnws/taskbar.log'
-    env = dict(os.environ)
-    env.pop('GDK_BACKEND', None)
+    env = taskbar_environment()
     try:
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open('ab') as output:
@@ -186,7 +217,7 @@ def main(argv=None, quiet=False):
         print(f'{args.component}: ' + (_tr('运行中，PID: ') + ', '.join(map(str, targets)) if targets else _tr('未运行')))
         return 0 if targets else 1
     if args.debug or args.restart:
-        env = dict(os.environ)
+        env = taskbar_environment() if args.component == 'taskbar' else dict(os.environ)
         env.pop('GDK_BACKEND', None)
         if args.debug:
             env['PYTHONUNBUFFERED'] = '1'

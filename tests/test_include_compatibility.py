@@ -54,7 +54,7 @@ class IncludeCompatibilityTests(unittest.TestCase):
             data = layout.load_layout()
             data['plugins'] = []
             data['builtins'] = [{'id': key, 'enabled': key == 'start'} for key in layout.BUILTIN_INFO]
-            data.setdefault('options', {})['start_label'] = 'Start'
+            data['options'] = {'start_label': 'Start'}
             with patch.object(layout, 'desktop_space_library_path', return_value=Path('/dev/null')):
                 rendered = layout.render_waybar_config(data, available=[], base={'include': ['modules.jsonc']}, config_path=config)
             self.assertEqual(rendered['include'], str(parent / 'modules.jsonc'))

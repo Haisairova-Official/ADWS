@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import pwd
 from mnws_launcher import ask
 from mnws_uninstall import read_inventory, save_inventory
 
@@ -13,6 +14,33 @@ SYSTEM_BIN = Path('/usr/local/bin')
 ENTRIES = {'mnws': 'mnws', 'mnws-config': 'tools/mnws-config.py',
            'taskbar-toggle.sh': 'scripts/taskbar-toggle.sh',
            'taskbar-state.sh': 'scripts/taskbar-state.sh'}
+
+PATH_BLOCK = '''# >>> MNWS user command PATH >>>
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+# <<< MNWS user command PATH <<<
+'''
+
+
+def persist_user_path():
+    """Do not rely on PATH inherited from the installer or an interactive shell."""
+    shell = Path(os.environ.get('SHELL') or pwd.getpwuid(os.getuid()).pw_shell).name
+    profiles = [Path.home() / '.profile']
+    if shell == 'zsh':
+        profiles.append(Path(os.environ.get('ZDOTDIR') or Path.home()) / '.zprofile')
+    elif shell == 'bash':
+        profiles.extend(p for p in [Path.home() / '.bash_profile', Path.home() / '.bash_login'] if p.exists())
+    for path in profiles:
+        text = path.read_text() if path.exists() else ''
+        if '# >>> MNWS user command PATH >>>' in text:
+            continue
+        if path.exists():
+            shutil.copy2(path, path.with_name(path.name + '.mnws-path.bak'))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('a') as stream:
+            stream.write('\n' + PATH_BLOCK)
 
 
 def owned(path, relative, roots):
@@ -50,6 +78,8 @@ def install():
         if (path.exists() or path.is_symlink()) and not owned(path, relative, roots):
             raise RuntimeError(''.join([_tr('已有非 MNWS 命令，未覆盖：'), f'{path}']))
     directory.mkdir(parents=True, exist_ok=True)
+    if directory == local:
+        persist_user_path()
     for name, relative in ENTRIES.items():
         source, path = ROOT / relative, directory / name
         source.chmod(source.stat().st_mode | 0o111)

@@ -11,6 +11,93 @@ static void settle(void) {
 
 int main(int argc, char **argv) {
     gtk_init(&argc, &argv);
+    MnwsStart *image_start = g_object_new(mnws_start_get_type(), NULL);
+    g_object_ref_sink(image_start);
+    image_start->normal = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 400, 100);
+    image_start->hover = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 400, 100);
+    image_start->label = g_strdup("Apps");
+    int image_width, image_height;
+    start_metrics(GTK_WIDGET(image_start), 40, &image_width, &image_height);
+    g_assert_cmpint(image_width, ==, image_height * 4);
+    start_metrics(GTK_WIDGET(image_start), 80, &image_width, &image_height);
+    g_assert_cmpint(image_width, ==, image_height * 4);
+    GdkEventCrossing crossing = { .type = GDK_ENTER_NOTIFY };
+    start_crossing(GTK_WIDGET(image_start), &crossing);
+    g_assert_true(image_start->inside);
+    crossing.type = GDK_LEAVE_NOTIFY;
+    start_crossing(GTK_WIDGET(image_start), &crossing);
+    g_assert_false(image_start->inside);
+    gdk_pixbuf_fill(image_start->normal, 0xff0000ff);
+    gdk_pixbuf_fill(image_start->hover, 0x0000ffff);
+    GtkWidget *start_window = gtk_offscreen_window_new();
+    gtk_widget_set_size_request(start_window, -1, 40);
+    gtk_container_add(GTK_CONTAINER(start_window), GTK_WIDGET(image_start));
+    gtk_widget_show_all(start_window);
+    settle();
+    GdkPixbuf *shot = gtk_offscreen_window_get_pixbuf(GTK_OFFSCREEN_WINDOW(start_window));
+    g_assert_nonnull(shot);
+    guchar *pixel = gdk_pixbuf_get_pixels(shot) + gdk_pixbuf_get_height(shot)/2 * gdk_pixbuf_get_rowstride(shot)
+        + gdk_pixbuf_get_width(shot)/2 * gdk_pixbuf_get_n_channels(shot);
+    g_assert_cmpint(pixel[0], ==, 255);
+    g_object_unref(shot);
+    crossing.type = GDK_ENTER_NOTIFY;
+    start_crossing(GTK_WIDGET(image_start), &crossing);
+    settle();
+    shot = gtk_offscreen_window_get_pixbuf(GTK_OFFSCREEN_WINDOW(start_window));
+    pixel = gdk_pixbuf_get_pixels(shot) + gdk_pixbuf_get_height(shot)/2 * gdk_pixbuf_get_rowstride(shot)
+        + gdk_pixbuf_get_width(shot)/2 * gdk_pixbuf_get_n_channels(shot);
+    g_assert_cmpint(pixel[2], ==, 255);
+    g_assert_cmpint(pixel[0], ==, 0);
+    g_object_unref(shot);
+    g_assert_true(gtk_widget_get_events(GTK_WIDGET(image_start)) & GDK_BUTTON_PRESS_MASK);
+    gchar *click_dir = g_dir_make_tmp("mnws-click-XXXXXX", NULL);
+    gchar *click_file = g_build_filename(click_dir, "activated", NULL);
+    gchar *quoted = g_shell_quote(click_file);
+    image_start->command = g_strdup_printf("printf x >> %s", quoted);
+    g_free(quoted);
+    GdkEvent *click = gdk_event_new(GDK_BUTTON_PRESS);
+    click->button.window = g_object_ref(gtk_widget_get_window(GTK_WIDGET(image_start)));
+    click->button.button = 1; click->button.x = 5; click->button.y = 5;
+    gtk_widget_event(GTK_WIDGET(image_start), click);
+    click->type = GDK_BUTTON_RELEASE;
+    gtk_widget_event(GTK_WIDGET(image_start), click);
+    settle();
+    gchar *activated = NULL;
+    g_assert_true(g_file_get_contents(click_file, &activated, NULL, NULL));
+    g_assert_cmpstr(activated, ==, "x");
+    g_free(activated);
+    // A stray release, or dragging outside after pressing, must not launch again.
+    gtk_widget_event(GTK_WIDGET(image_start), click);
+    click->type = GDK_BUTTON_PRESS;
+    gtk_widget_event(GTK_WIDGET(image_start), click);
+    click->type = GDK_BUTTON_RELEASE; click->button.x = -5;
+    gtk_widget_event(GTK_WIDGET(image_start), click);
+    settle();
+    g_assert_true(g_file_get_contents(click_file, &activated, NULL, NULL));
+    g_assert_cmpstr(activated, ==, "x");
+    g_free(activated);
+    // Image mode must run the configured right-click action, not an invented menu.
+    quoted = g_shell_quote(click_file);
+    image_start->right_command = g_strdup_printf("printf r >> %s", quoted);
+    image_start->middle_command = g_strdup_printf("printf m >> %s", quoted);
+    g_free(quoted);
+    for (guint button = 3; button >= 2; button--) {
+        click->type = GDK_BUTTON_PRESS; click->button.button = button; click->button.x = 5;
+        g_assert_true(gtk_widget_event(GTK_WIDGET(image_start), click));
+        click->type = GDK_BUTTON_RELEASE;
+        gtk_widget_event(GTK_WIDGET(image_start), click);
+        settle();
+    }
+    g_assert_true(g_file_get_contents(click_file, &activated, NULL, NULL));
+    g_assert_cmpstr(activated, ==, "xrm");
+    g_free(activated); gdk_event_free(click);
+    unlink(click_file); rmdir(click_dir); g_free(click_file); g_free(click_dir);
+    gtk_widget_destroy(start_window);
+    g_clear_object(&image_start->normal);
+    image_start->normal = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 1, 100);
+    start_metrics(GTK_WIDGET(image_start), 40, &image_width, &image_height);
+    g_assert_cmpint(image_width, >, 1);
+    g_object_unref(image_start);
     gchar *decoded = config_string("\"/usr/bin/python3 '/path with spaces/main.py' --output-json\"");
     gchar **parsed = NULL;
     g_assert(g_shell_parse_argv(decoded, NULL, &parsed, NULL));

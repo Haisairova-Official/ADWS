@@ -28,6 +28,7 @@ LAUNCHER="$(python3 "$ROOT/tools/mnws_launcher.py" --select)"
 mkdir -p "$LOCAL_BIN" "$CONFIG_DIR"
 for file in config-bottom.jsonc style-bottom.css modules.jsonc colors.css; do
     target="$CONFIG_DIR/$file"
+    python3 "$ROOT/tools/mnws_include.py" --detach-template "$target"
     if [ -e "$target" ] || [ -L "$target" ]; then
         mnws_message "保留现有配置: $target" "Keeping existing configuration: $target"
     else
@@ -43,6 +44,10 @@ python3 "$ROOT/tools/mnws_health.py" --init-desktop
 
 python3 "$ROOT/tools/mnws_commands.py"
 python3 "$ROOT/tools/mnws_uninstall.py" --record
+# Restore saved components and their menus after a fresh/reinstalled base config.
+if [ ! -L "$CONFIG_DIR/config-bottom.jsonc" ]; then
+    "$ROOT/mnws" layout apply
+fi
 "$ROOT/mnws" -v
 mnws_message "安装完成。运行 mnws-config 打开统一设置；运行 mnws desktop --start（或 -s）启动桌面。" "Installation complete. Run mnws-config for settings or mnws -s to start desktop and taskbar."
 python3 "$ROOT/tools/mnws_autostart.py"

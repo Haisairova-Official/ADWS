@@ -28,8 +28,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix='mnws-arch-package-') as temporary:
         stage = Path(temporary) / 'MNWS1.25_for_arch'
         stage.mkdir()
-        files = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
-        roots = {'config', 'docs', 'language', 'plugins', 'scripts', 'src', 'tools', 'vendor'}
+        # Release archives are reproducible: only committed source files are staged.
+        # Native binaries are injected explicitly below after their release builds.
+        files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
+        roots = {'config', 'docs', 'language', 'plugins', 'samples', 'scripts', 'src', 'tools', 'vendor'}
         top_files = {'mnws','install.sh','README.md','Language.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','build-info.json','.gitignore'}
         excluded = {'target','__pycache__','.cache','.git','state','node_modules'}
         hashes = {}

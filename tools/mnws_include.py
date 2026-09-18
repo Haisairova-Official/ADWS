@@ -23,6 +23,29 @@ def normalize_default_include(config, config_path):
     return True
 
 
+def detach_template_link(path):
+    """Detach old installer links into MNWS templates, never arbitrary user links."""
+    path = Path(path)
+    if not path.is_symlink() or not path.exists():
+        return False
+    target = path.resolve()
+    if (target.name != path.name or target.parent.name != 'waybar'
+            or target.parent.parent.name != 'config'
+            or not (target.parents[2] / 'tools/mnws_layout.py').is_file()
+            or not (target.parents[2] / 'mnws').is_file()):
+        return False
+    shutil.copy2(target, path.with_name(path.name + '.mnws-template-bak'))
+    fd, temporary = tempfile.mkstemp(prefix='.mnws-template-', dir=path.parent)
+    os.close(fd)
+    try:
+        shutil.copy2(target, temporary)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return True
+
+
 def update_installed_config(path):
     from mnws_layout import parse_jsonc
     path = Path(path).absolute()
@@ -74,7 +97,10 @@ def update_installed_config(path):
 if __name__ == '__main__':
     import sys
     try:
-        update_installed_config(sys.argv[1])
+        if sys.argv[1] == '--detach-template':
+            detach_template_link(sys.argv[2])
+        else:
+            update_installed_config(sys.argv[1])
     except (OSError, ValueError) as error:
         print(''.join([_tr('include 配置更新失败：'), f'{error}']), file=sys.stderr)
         raise SystemExit(1)

@@ -19,6 +19,7 @@ class UpdateTests(unittest.TestCase):
                     self.assertEqual(message('updates.none', rng=Mock(random=Mock(return_value=value))), second)
 
     def test_version_order(self):
+        self.assertEqual(update.version_key('1.25 Released'), update.version_key('1.25 Release'))
         self.assertLess(update.version_key('1.25 Pre-release'), update.version_key('1.25 Release'))
         self.assertEqual(update.version_key('v1.25-pre-release'), update.version_key('1.25 Pre-release'))
         self.assertLess(update.version_key('v1.2'), update.version_key('1.25 Release'))

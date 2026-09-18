@@ -59,6 +59,7 @@ class InstallationTests(unittest.TestCase):
         target = folder / 'config-bottom.jsonc'
         self.assertTrue(target.is_file())
         self.assertFalse(target.is_symlink())
+        self.assertIn('cffi/niri-taskbar', layout.parse_jsonc(target.read_text())['modules-left'])
         self.assertEqual(layout.parse_jsonc(target.read_text())['include'], str(folder / 'modules.jsonc'))
         self.assertFalse((self.home / '.config/waybar').exists())
         self.assertTrue((self.home / 'Desktop').is_dir())
@@ -82,6 +83,28 @@ class InstallationTests(unittest.TestCase):
         self.assertIn('libniri_taskbar.so', result.stdout)
         self.assertFalse((self.config / 'waybar').exists())
         self.assertFalse((self.home / '.local/bin/mnws').exists())
+
+    def test_old_template_links_are_detached_without_touching_source(self):
+        from mnws_include import detach_template_link
+        source_root = self.root / 'old-MNWS'
+        (source_root / 'tools').mkdir(parents=True)
+        (source_root / 'tools/mnws_layout.py').touch()
+        (source_root / 'mnws').touch()
+        source = source_root / 'config/waybar/config-bottom.jsonc'
+        source.parent.mkdir(parents=True)
+        source.write_text('{"height":36}')
+        target = self.root / 'config-bottom.jsonc'
+        target.symlink_to(source)
+        self.assertTrue(detach_template_link(target))
+        self.assertFalse(target.is_symlink())
+        target.write_text('{"height":55}')
+        self.assertEqual(source.read_text(), '{"height":36}')
+        target.unlink()
+        foreign = self.root / 'personal.jsonc'
+        foreign.write_text('{}')
+        target.symlink_to(foreign)
+        self.assertFalse(detach_template_link(target))
+        self.assertTrue(target.is_symlink())
 
     def test_broken_symlink_is_not_replaced(self):
         config, _ = self.config_files()

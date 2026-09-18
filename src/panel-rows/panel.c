@@ -12,8 +12,10 @@ typedef struct {
     void (*queue_update)(wbcffi_module *);
 } wbcffi_init_info;
 typedef struct { const char *key, *value; } wbcffi_config_entry;
+#include "start-image.h"
 
 typedef struct {
+    GtkWidget *start_image;
     gint refs;
     gboolean disposed;
     gboolean has_content;
@@ -334,6 +336,32 @@ static gchar *config_string(const char *value) {
     return result ? result : g_strdup(value);
 }
 void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entries, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        if (strcmp(entries[i].key, "start_image")) continue;
+        Panel *p = g_new0(Panel, 1);
+        MnwsStart *s = g_object_new(mnws_start_get_type(), NULL);
+        p->start_image = GTK_WIDGET(s);
+        for (size_t j = 0; j < count; j++) {
+            gchar *value = config_string(entries[j].value);
+            if (!strcmp(entries[j].key, "start_image")) s->normal = gdk_pixbuf_new_from_file(value, NULL);
+            else if (!strcmp(entries[j].key, "start_hover_image") && *value) s->hover = gdk_pixbuf_new_from_file(value, NULL);
+            else if (!strcmp(entries[j].key, "exec")) s->command = g_strdup(value);
+            else if (!strcmp(entries[j].key, "start_right_command")) s->right_command = g_strdup(value);
+            else if (!strcmp(entries[j].key, "start_middle_command")) s->middle_command = g_strdup(value);
+            else if (!strcmp(entries[j].key, "start_tooltip") && *value) gtk_widget_set_tooltip_text(GTK_WIDGET(s), value);
+            else if (!strcmp(entries[j].key, "start_label")) s->label = g_strdup(value);
+            g_free(value);
+        }
+        if (s->hover && (!s->normal || gdk_pixbuf_get_width(s->normal) != gdk_pixbuf_get_width(s->hover)
+                || gdk_pixbuf_get_height(s->normal) != gdk_pixbuf_get_height(s->hover))) {
+            g_warning("MNWS start: image dimensions differ; ignoring hover image");
+            g_clear_object(&s->hover);
+        }
+        gtk_container_add(info->get_root_widget(info->obj), p->start_image);
+        g_object_ref(p->start_image);
+        gtk_widget_show(p->start_image);
+        return p;
+    }
     const char *command = "", *name = "mnws-panel-rows";
     int width = 420;
     for (size_t i = 0; i < count; i++) {
@@ -372,6 +400,12 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
 
 void wbcffi_deinit(void *instance) {
     Panel *p = instance;
+    if (p->start_image) {
+        gtk_widget_destroy(p->start_image);
+        g_object_unref(p->start_image);
+        g_free(p);
+        return;
+    }
     p->disposed = TRUE;
     g_signal_handlers_disconnect_by_func(p->box, G_CALLBACK(theme_changed), p);
     ((MnwsRows *)p->box)->panel = NULL;

@@ -302,10 +302,8 @@ def desktop_autostart_enabled() -> bool:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return False
-    if AUTOSTART_BEGIN in text:
-        return True
-    return any(line.strip() == autostart_line()
-               for line in text.splitlines())
+    from mnws_autostart import desktop_enabled
+    return desktop_enabled(text)
 
 
 def set_desktop_autostart(enabled: bool) -> tuple[bool, str]:
@@ -317,33 +315,11 @@ def set_desktop_autostart(enabled: bool) -> tuple[bool, str]:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         return False, _tr('读取失败：%s') % exc
-    pattern = re.compile(
-        r"(?ms)^[ \t]*// ==== MNWS 桌面图标层自启（自动生成）====[^\n]*\n.*?"
-        r"^[ \t]*// ==== MNWS 桌面图标层自启 END ====[^\n]*\n?",
-    )
+    from mnws_autostart import set_desktop
     line = autostart_line()
-    was_enabled = AUTOSTART_BEGIN in text or any(
-        row.strip() == line for row in text.splitlines()
-    )
-    if enabled and was_enabled:
-        return True, _tr('桌面图标层自启已经开启')
-    if not enabled and not was_enabled:
-        return True, _tr('桌面图标层自启已经关闭')
-    cleaned = pattern.sub("", text)
-    cleaned = "\n".join(
-        row for row in cleaned.splitlines() if row.strip() != line
-    )
     try:
-        if enabled:
-            block = "\n\n%s\n%s\n%s\n" % (AUTOSTART_BEGIN, line, AUTOSTART_END)
-            text = cleaned.rstrip() + block
-        else:
-            text = cleaned
-        backup = path.with_suffix(path.suffix + ".mnws-bak")
-        if path.is_file():
-            shutil.copy2(path, backup)
-        path.write_text(text.rstrip() + "\n", encoding="utf-8")
-    except OSError as exc:
+        set_desktop(path, enabled)
+    except (OSError, ValueError) as exc:
         return False, _tr('写入失败：%s') % exc
     if enabled:
         return True, _tr('已写入 niri 自启：%s\n（下次登录生效；可立即运行 mnws restart desktop 启动）') % line

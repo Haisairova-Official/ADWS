@@ -9,6 +9,39 @@ from mnws_i18n import tr as _tr
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_taskbar_inherits_own_niri_session_locale(self):
+        import tempfile
+        from mnws_i18n import chinese
+        with tempfile.TemporaryDirectory() as temp:
+            proc = Path(temp)
+            entry = proc / '123'
+            entry.mkdir()
+            (entry / 'comm').write_text('niri\n')
+            caller = {'NIRI_SOCKET': '/run/user/1000/niri.wayland-1.123.sock',
+                      'LANG': 'zh_CN.UTF-8', 'LC_ALL': 'C.UTF-8',
+                      'LANGUAGE': 'en', 'WAYLAND_DISPLAY': 'wayland-1',
+                      'GDK_BACKEND': 'x11', 'MNWS_LOG_LEVEL': '6'}
+            for locale, expected in [('zh_CN.UTF-8', True), ('en_US.UTF-8', False)]:
+                (entry / 'environ').write_bytes(('LANG=' + locale + '\0SECRET=not-copied\0').encode())
+                result = runtime.taskbar_environment(caller, proc)
+                self.assertEqual(chinese(result), expected)
+                self.assertEqual(result['LANG'], locale)
+                self.assertNotIn('LC_ALL', result)
+                self.assertNotIn('LANGUAGE', result)
+                self.assertNotIn('SECRET', result)
+                self.assertNotIn('GDK_BACKEND', result)
+                self.assertEqual(result['WAYLAND_DISPLAY'], 'wayland-1')
+                self.assertEqual(result['MNWS_LOG_LEVEL'], '6')
+            self.assertEqual(caller['LC_ALL'], 'C.UTF-8')
+            (entry / 'comm').write_text('other-process')
+            self.assertEqual(runtime.taskbar_environment(caller, proc)['LC_ALL'], 'C.UTF-8')
+
+    def test_taskbar_locale_falls_back_without_session(self):
+        env = {'LANG': 'en_US.UTF-8', 'LC_MESSAGES': 'de_DE.UTF-8'}
+        self.assertEqual(runtime.taskbar_environment(env), env)
+        env['NIRI_SOCKET'] = '/run/user/1000/niri.wayland-1.99999999.sock'
+        self.assertEqual(runtime.taskbar_environment(env), env)
+
     def test_only_component_processes_match(self):
         self.assertTrue(runtime.matches('taskbar', ['waybar', '-c', '/a/config-bottom.jsonc']))
         self.assertTrue(runtime.matches('taskbar', ['/usr/bin/waybar', '--config=/a/config-bottom.jsonc']))

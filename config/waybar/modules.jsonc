@@ -1,6 +1,6 @@
 {
   "custom/applauncher": {
-    "format": "Apps",
+    "format": "Start",
     "tooltip": false,
     "on-click": "rofi -show drun"
   },

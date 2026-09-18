@@ -1,4 +1,4 @@
-# MNWS 1.25 Pre-release — Arch Linux x86_64
+# MNWS 1.25 Released — Arch Linux x86_64
 
 解压 `MNWS1.25_for_arch.zip`，进入解压目录并运行 `./install.sh`。
 安装包包含三个预构建原生组件，校验 SHA-256 后直接安装，不需要 Rust/Cargo 或 C 编译。

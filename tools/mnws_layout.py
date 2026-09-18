@@ -346,6 +346,28 @@ def distro_logo():
     return release.get("PRETTY_NAME", "Linux"), glyph
 
 
+def validate_start_images(options):
+    if options.get("start_icon_mode") != "image":
+        return
+    import gi
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf, GLib
+    sizes = []
+    for key in ("start_image", "start_hover_image"):
+        path = str(options.get(key) or "")
+        if not path and key == "start_hover_image":
+            continue
+        if not path:
+            raise ValueError(_tr('请选择开始按钮的默认图片。'))
+        try:
+            image = GdkPixbuf.Pixbuf.new_from_file(str(Path(path).expanduser()))
+        except GLib.Error as exc:
+            raise ValueError(_tr('无法读取开始按钮图片：%s') % path) from exc
+        sizes.append((image.get_width(), image.get_height()))
+    if len(sizes) == 2 and sizes[0] != sizes[1]:
+        raise ValueError(_tr('默认图片与悬停图片的尺寸必须完全一致。'))
+
+
 def launcher_definition(base=None, config_path=None):
     definition, visited = {}, set()
     def read(obj, parent):
@@ -363,6 +385,8 @@ def launcher_definition(base=None, config_path=None):
         if isinstance(value, dict):
             definition.update(value)
     read(base if base is not None else (read_live_config() or default_base_config()), (config_path or live_config_path()).parent)
+    if definition.get('format') in ('Apps', 'Start', '开始'):
+        definition['format'] = _tr('开始')
     return definition
 
 
@@ -384,14 +408,37 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
 
     options = layout.get("options", {}) if isinstance(layout.get("options"), dict) else {}
 
-    if "start_label" in options or options.get("start_icon_mode") == "distro":
+    if ("start_label" in options or options.get("start_icon_mode") == "distro"
+            or "start_launcher_command" in options):
         import html
         definition = launcher_definition(cfg, config_path)
-        text = distro_logo()[1] if options.get("start_icon_mode") == "distro" else str(options.get("start_label") or "Apps")
-        definition["format"] = html.escape(text).replace("{", "{{").replace("}", "}}")
+        if "start_label" in options or options.get("start_icon_mode") == "distro":
+            text = distro_logo()[1] if options.get("start_icon_mode") == "distro" else str(options.get("start_label") or _tr('开始'))
+            definition["format"] = html.escape(text).replace("{", "{{").replace("}", "}}")
+        if "start_launcher_command" in options:
+            command = options["start_launcher_command"]
+            if not isinstance(command, str) or not command.strip() or "\x00" in command:
+                raise ValueError(_tr('请输入启动器命令。'))
+            definition["on-click"] = command.strip()
         cfg["custom/applauncher"] = definition
 
     items = enabled_builtins(layout) + enabled_plugins(layout, available)
+    if options.get("start_icon_mode") == "image":
+        validate_start_images(options)
+        definition = launcher_definition(cfg, config_path)
+        cfg["cffi/start-button"] = {
+            "module_path": str(Path.home() / ".local/lib/waybar/libmnws_panel.so"),
+            "start_image": str(Path(options["start_image"]).expanduser().resolve()),
+            "start_hover_image": str(Path(options["start_hover_image"]).expanduser().resolve()) if options.get("start_hover_image") else "",
+            "exec": definition.get("on-click", "fuzzel"),
+            "start_right_command": definition.get("on-click-right", ""),
+            "start_middle_command": definition.get("on-click-middle", ""),
+            "start_tooltip": definition.get("tooltip-format", definition.get("format", "")) if definition.get("tooltip", True) else "",
+            "start_label": definition.get("format", _tr('开始')),
+        }
+        for item in items:
+            if item.get("id") == "start":
+                item["module"] = "cffi/start-button"
     slots = {"left": [], "center": [], "right": []}
     generated_modules: list[tuple[str, int]] = []
 
