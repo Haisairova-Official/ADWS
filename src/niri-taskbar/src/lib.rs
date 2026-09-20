@@ -36,6 +36,7 @@ mod niri;
 mod notify;
 mod output;
 mod panel;
+mod preview;
 mod process;
 mod state;
 mod scroll;

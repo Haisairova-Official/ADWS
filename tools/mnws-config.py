@@ -995,7 +995,7 @@ class TaskbarStyleWindow(Gtk.Window):
         rows_changed()
         box.pack_start(row_widget(_tr('应用窗口排列：'), self.window_rows), False, False, 0)
         self.panel_toggles = {}
-        for key, caption in [('group_windows', _tr('堆叠同一应用的窗口')), ('window_peek', _tr('悬停显示可选择的窗口列表')),  ('window_animations', _tr('窗口悬停与聚焦颜色渐变')), ('tab_animations', _tr('设置选项卡淡入淡出'))]:
+        for key, caption in [('group_windows', _tr('堆叠同一应用的窗口')), ('window_peek', _tr('悬停显示窗口画面预览')),  ('window_animations', _tr('窗口悬停与聚焦颜色渐变')), ('tab_animations', _tr('设置选项卡淡入淡出'))]:
             control = Gtk.CheckButton(label=caption)
             control.set_active(options[key])
             self.panel_toggles[key] = control

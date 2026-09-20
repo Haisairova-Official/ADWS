@@ -16,8 +16,7 @@ pub struct Button {
     button: gtk::Button,
     badge: gtk::DrawingArea,
     count: Rc<std::cell::Cell<usize>>,
-    #[cfg(test)]
-    pub(crate) hover_popup: RefCell<Option<gtk::Popover>>,
+    pub(crate) hover_popup: Rc<RefCell<Option<gtk::Popover>>>,
     #[cfg(test)]
     pub(crate) badge_test: gtk::DrawingArea,
     icon: gtk::Overlay,
@@ -79,7 +78,8 @@ impl Button {
             let style=widget.style_context();
             let bg=style.lookup_color("primary").or_else(||style.lookup_color("theme_selected_bg_color")).unwrap_or(gtk::gdk::RGBA::new(0.2,0.4,0.8,1.));
             let fg=style.lookup_color("on_primary").or_else(||style.lookup_color("theme_selected_fg_color")).unwrap_or(gtk::gdk::RGBA::new(1.,1.,1.,1.));
-            cr.set_source_rgba(bg.red(),bg.green(),bg.blue(),1.);cr.arc(size/2.,size/2.,size/2.,0.,std::f64::consts::TAU);let _=cr.fill();
+            cr.set_source_rgba(bg.red(),bg.green(),bg.blue(),1.);cr.arc(size/2.,size/2.,(size/2.-1.).max(1.),0.,std::f64::consts::TAU);let _=cr.fill_preserve();
+            cr.set_source_rgba(fg.red(),fg.green(),fg.blue(),1.);cr.set_line_width(2.);let _=cr.stroke();
             let text=if number.get()>99{"99+".to_string()}else{number.get().to_string()};
             cr.select_font_face("Sans",gtk::cairo::FontSlant::Normal,gtk::cairo::FontWeight::Bold);
             cr.set_font_size(size*if text.len()>2{0.38}else{0.58});
@@ -113,8 +113,7 @@ impl Button {
             button,
             #[cfg(test)]
             badge_test: badge.clone(),
-            #[cfg(test)]
-            hover_popup: RefCell::new(None),
+            hover_popup: Rc::new(RefCell::new(None)),
             badge,
             count,
             icon,
@@ -194,6 +193,15 @@ impl Button {
         let state = self.state.clone();
 
         let members = self.members.clone();
+        let press_state=state.clone();let press_members=members.clone();let popup=self.hover_popup.clone();
+        self.button.connect_button_press_event(move |_,event| {
+            if event.button()!=1{return gtk::glib::Propagation::Proceed;}
+            if let Some(p)=popup.borrow().as_ref(){p.hide();}
+            let id=press_members.borrow().first().map(|(id,_)|*id).unwrap_or(window_id);
+            if let Err(error)=press_state.niri().activate_window(id){tracing::warn!(%error,id,"focus on press failed");}
+            gtk::glib::Propagation::Stop
+        });
+        // Keep keyboard activation available; pointer presses are consumed above.
         self.button.connect_clicked(move |_| {
             let id = members.borrow().first().map(|(id,_)|*id).unwrap_or(window_id);
             if let Err(e) = state.niri().activate_window(id) {
@@ -205,7 +213,6 @@ impl Button {
     fn connect_hover_description(&self) {
         // A native popup outside the layer surface avoids clipped bottom-edge tooltips.
         let popup = gtk::Popover::new(Some(&self.button));
-        #[cfg(test)]
         self.hover_popup.replace(Some(popup.clone()));
         popup.set_modal(false);
         popup.set_position(match self.state.config().position() {
@@ -215,6 +222,11 @@ impl Button {
         popup.set_constrain_to(gtk::PopoverConstraint::None);
         let inside=Rc::new(std::cell::Cell::new(false));
         let generation=Rc::new(std::cell::Cell::new(0u64));
+        let capture=Rc::new(RefCell::new(None::<gtk::gio::Subprocess>));
+        let active=capture.clone();
+        popup.connect_hide(move |_|{if let Some(child)=active.borrow_mut().take(){child.send_signal(15);}});
+        let active=capture.clone();
+        popup.connect_destroy(move |_|{if let Some(child)=active.borrow_mut().take(){child.send_signal(15);}});
         let members=self.members.clone();let state=self.state.clone();
         let hovered=inside.clone();let weak=popup.downgrade();let serial=generation.clone();
         self.button.add_events(gtk::gdk::EventMask::ENTER_NOTIFY_MASK|gtk::gdk::EventMask::LEAVE_NOTIFY_MASK);
@@ -223,22 +235,36 @@ impl Button {
             hovered.set(true);
             serial.set(serial.get()+1);let ticket=serial.get();let serial=serial.clone();
             if weak.upgrade().is_some_and(|p|p.is_visible()){return gtk::glib::Propagation::Proceed;}
-            let hovered=hovered.clone();let weak=weak.clone();let members=members.clone();let state=state.clone();
+            let hovered=hovered.clone();let weak=weak.clone();let members=members.clone();let state=state.clone();let capture=capture.clone();
             gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(250),move || {
                 let Some(popup)=weak.upgrade() else{return};
                 if !hovered.get() || serial.get()!=ticket || popup.is_visible(){return;}
                 if let Some(child)=popup.child(){popup.remove(&child);}
-                let items=gtk::Box::new(gtk::Orientation::Vertical,4);items.set_border_width(8);
+                let peek=state.config().window_peek();
+                let items=gtk::Box::new(if peek{gtk::Orientation::Horizontal}else{gtk::Orientation::Vertical},6);items.set_border_width(8);
+                let mut images=Vec::new();
                 for (id,title) in members.borrow().iter() {
-                    let text=gtk::Label::new(Some(title));text.set_max_width_chars(48);text.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                    if state.config().window_peek() {
-                        let select=gtk::Button::new();select.add(&text);
-                        let state=state.clone();let id=*id;let weak=popup.downgrade();
-                        select.connect_clicked(move |_|{let _=state.niri().activate_window(id);if let Some(p)=weak.upgrade(){p.popdown();}});
-                        items.pack_start(&select,false,false,0);
-                    } else {items.pack_start(&text,false,false,0);}
+                    let text=gtk::Label::new(Some(title));text.set_max_width_chars(if peek{24}else{48});text.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                    let content=gtk::Box::new(gtk::Orientation::Vertical,6);
+                    if peek {
+                        let image=gtk::Image::from_icon_name(Some("application-x-executable"),gtk::IconSize::Dialog);
+                        image.set_size_request(240,150);content.pack_start(&image,false,false,0);
+                        let status=gtk::Label::new(Some(crate::i18n::text("正在加载预览…","Loading preview…")));
+                        content.pack_start(&status,false,false,0);images.push((*id,image,status));
+                    }
+                    content.pack_start(&text,false,false,0);
+                    let select=gtk::Button::new();select.add(&content);
+                    let state=state.clone();let id=*id;let weak=popup.downgrade();
+                    select.connect_clicked(move |_|{if let Some(p)=weak.upgrade(){p.hide();}let _=state.niri().activate_window(id);});
+                    items.pack_start(&select,false,false,0);
                 }
-                popup.add(&items);items.show_all();popup.show();
+                let scroll=gtk::ScrolledWindow::new(None::<&gtk::Adjustment>,None::<&gtk::Adjustment>);
+                scroll.set_policy(gtk::PolicyType::Automatic,gtk::PolicyType::Never);
+                scroll.set_propagate_natural_width(true);scroll.set_propagate_natural_height(true);
+                scroll.set_max_content_width(760);scroll.add(&items);
+                popup.add(&scroll);scroll.show_all();popup.show();
+                if peek{*capture.borrow_mut()=crate::preview::start(state.config().preview_helper(),images,&popup);}
+
             });
             gtk::glib::Propagation::Proceed
         });

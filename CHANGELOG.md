@@ -4,11 +4,14 @@
 
 开发中，尚未发布 / In development, not released.
 
+- 新增实时窗口缩略图预览，修复标题选择和单击最近窗口；数量角标增加 2px 外框。
+- Add live window thumbnails, clickable titles, single-click recent-window activation and 2px badge outlines.
+
 - 修复悬停提示层级与重复弹出，统一开始和时钟提示层级，并修正数量角标尺寸。
 - Fix tooltip stacking and repeated popups, including Start and Clock tooltips; correct count-badge sizing.
 
 - 完善圆形窗口数量角标、聚焦配色、悬停窗口列表和开始按钮渐变。（1.27-A）
-- Refine circular window counts, focus colors, hover window lists and start-button transitions. Live thumbnails remain pending.
+- Refine circular window counts, focus colors, hover window lists and start-button transitions. Live thumbnails are now supported through Niri ScreenCast.
 
 - 新增可选的窗口高亮过渡和设置选项卡淡入淡出，默认关闭。
 - 新增同应用窗口堆叠、数量标记及组内窗口菜单。

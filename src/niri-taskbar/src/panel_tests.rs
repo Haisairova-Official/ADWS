@@ -29,6 +29,23 @@ fn settle() {
 #[ignore = "requires an isolated GTK display"]
 fn panel_geometry_groups_and_colors() {
     gtk::init().unwrap();
+    use std::io::{BufRead,BufReader,Write};
+    use std::sync::atomic::{AtomicBool,Ordering};
+    let socket=std::env::temp_dir().join(format!("mnws-press-test-{}.sock",std::process::id()));
+    let listener=std::os::unix::net::UnixListener::bind(&socket).unwrap();listener.set_nonblocking(true).unwrap();
+    let old_socket=std::env::var_os("NIRI_SOCKET");unsafe{std::env::set_var("NIRI_SOCKET",&socket);}
+    let done=Arc::new(AtomicBool::new(false));let done_worker=done.clone();
+    let requests=Arc::new(Mutex::new(Vec::new()));let incoming=requests.clone();
+    let server=std::thread::spawn(move || {
+        while !done_worker.load(Ordering::Relaxed){
+            if let Ok((mut stream,_))=listener.accept(){
+                stream.set_read_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
+                let mut line=String::new();BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+                incoming.lock().unwrap().push(serde_json::from_str::<serde_json::Value>(&line).unwrap());
+                writeln!(stream,"{{\"Ok\":\"Handled\"}}").unwrap();
+            } else{std::thread::sleep(std::time::Duration::from_millis(5));}
+        }
+    });
     let base=gtk::CssProvider::new();
     base.load_from_path(concat!(env!("CARGO_MANIFEST_DIR"),"/../../config/waybar/style-bottom.css")).unwrap();
     gtk::StyleContext::add_provider_for_screen(&gtk::gdk::Screen::default().unwrap(),&base,gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -72,6 +89,24 @@ fn panel_geometry_groups_and_colors() {
                     for _ in 0..3 {let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);}
                     settle();settle();
                     assert_eq!(popup.child().unwrap(),content,"repeated crossing rebuilt popup");
+                    // One mouse press focuses the MRU window, even with the popup open.
+                    let mut press=gtk::gdk::Event::new(gtk::gdk::EventType::ButtonPress).downcast::<gtk::gdk::EventButton>().unwrap();
+                    press.as_mut().button=1;
+                    assert!(first.emit_by_name::<bool>("button-press-event",&[&*press]));
+                    assert!(!popup.is_visible());
+                    let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();settle();
+                    fn choices(widget:&gtk::Widget)->Vec<gtk::Button>{
+                        if let Ok(button)=widget.clone().downcast::<gtk::Button>(){return vec![button];}
+                        widget.clone().downcast::<gtk::Container>().map(|c|c.children().iter().flat_map(choices).collect()).unwrap_or_default()
+                    }
+                    let choices=choices(&popup.child().unwrap());assert_eq!(choices.len(),2,"title-only cards must be clickable");
+                    choices[1].emit_clicked();
+                    assert!(!popup.is_visible());
+                    let actions=requests.lock().unwrap();assert_eq!(actions.len(),2);
+                    assert_eq!(actions[0]["Action"]["FocusWindow"]["id"],2);
+                    assert_eq!(actions[1]["Action"]["FocusWindow"]["id"],1);drop(actions);
+                    let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();settle();
+
                     let leave=gtk::gdk::Event::new(gtk::gdk::EventType::LeaveNotify);
                     let _:bool=first.emit_by_name("leave-notify-event",&[&leave]);
                     let _:bool=popup.emit_by_name("enter-notify-event",&[&enter]);
@@ -100,4 +135,8 @@ fn panel_geometry_groups_and_colors() {
             }
         }
     }
+    done.store(true,Ordering::Relaxed);server.join().unwrap();
+    unsafe{if let Some(value)=old_socket{std::env::set_var("NIRI_SOCKET",value);}else{std::env::remove_var("NIRI_SOCKET");}}
+    std::fs::remove_file(socket).unwrap();
+
 }

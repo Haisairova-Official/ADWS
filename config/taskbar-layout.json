@@ -69,6 +69,7 @@
     "hover_color": "#241f31",
     "focus_color": "",
     "focus_text_color": "",
-    "urgent_color": ""
+    "urgent_color": "",
+    "window_peek": true
   }
 }
