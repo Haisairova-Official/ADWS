@@ -46,8 +46,11 @@ def geometry(config, options):
         config['position'] = values['position']
         config.pop('width' if not vertical else 'height', None)
         config['width' if vertical else 'height'] = values['thickness']
+        # Only the outer edge and bar ends need screen padding. An inward
+        # margin also enlarges the compositor's reserved area above the tiles.
+        inward = {'bottom': 'top', 'top': 'bottom', 'left': 'right', 'right': 'left'}[values['position']]
         for side in ('top', 'bottom', 'left', 'right'):
-            config['margin-' + side] = 8
+            config['margin-' + side] = 0 if side == inward else 8
     return values, vertical
 
 

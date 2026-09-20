@@ -52,3 +52,20 @@ class PanelOptionsTests(unittest.TestCase):
         for layer in ('bottom','background','top','overlay'):
             result=layout.render_waybar_config({'options':{},'plugins':[],'builtins':[]},available=[],base={'layer':layer})
             self.assertEqual(result['layer'],'overlay' if layer=='overlay' else 'top')
+
+    def test_inward_margin_stays_zero_after_apply_and_edge_changes(self):
+        cfg = {'position': 'bottom', 'height': 36,
+               'margin-top': 8, 'margin-bottom': 8,
+               'margin-left': 8, 'margin-right': 8}
+        for position, inward in [('bottom','top'), ('left','right'),
+                                 ('top','bottom'), ('right','left'), ('bottom','top')]:
+            for _ in range(2):
+                geometry(cfg, {'position': position, 'thickness': 36})
+                for side in ('top','bottom','left','right'):
+                    self.assertEqual(cfg['margin-' + side], 0 if side == inward else 8)
+
+    def test_legacy_geometry_is_unchanged_without_geometry_options(self):
+        cfg = {'position': 'bottom', 'height': 36, 'margin-bottom': 12}
+        original = cfg.copy()
+        geometry(cfg, {})
+        self.assertEqual(cfg, original)
