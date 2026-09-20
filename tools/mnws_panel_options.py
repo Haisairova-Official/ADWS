@@ -4,7 +4,7 @@ from mnws_i18n import tr as _tr
 
 DEFAULTS = {
     'position': 'bottom', 'thickness': 36, 'window_rows': 1,
-    'group_windows': True, 'window_animations': False, 'tab_animations': False,
+    'group_windows': True, 'window_peek': False, 'window_animations': False, 'tab_animations': False,
     'animation_duration': 280, 'hover_color': '', 'focus_color': '',
     'focus_text_color': '', 'urgent_color': '',
 }
@@ -19,7 +19,7 @@ def validate(options):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value or not low <= value <= high:
             raise ValueError(_tr('任务栏设置超出范围：%s') % key)
         result[key] = int(value)
-    for key in ('group_windows', 'window_animations', 'tab_animations'):
+    for key in ('group_windows', 'window_peek', 'window_animations', 'tab_animations'):
         if not isinstance(result[key], bool):
             raise ValueError(_tr('任务栏开关值无效：%s') % key)
     for key in ('hover_color', 'focus_color', 'focus_text_color', 'urgent_color'):
@@ -58,13 +58,15 @@ def styles(options):
         ('focus_color', '.niri-taskbar button.focused', 'background-color'),
         ('focus_text_color', '.niri-taskbar button.focused', 'color'),
         ('urgent_color', '.niri-taskbar button.urgent', 'background-color'),
-        ('hover_color', '.niri-taskbar button:hover', 'background-color'),
+        ('hover_color', '.niri-taskbar button:hover:not(.focused)', 'background-color'),
     ]:
         if values[key]:
             lines.append(f'{selector} {{ background-image: none; {prop}: {values[key]}; }}')
     transition = (f'background-color {values["animation_duration"]}ms cubic-bezier(0.4, 0, 0.2, 1), '
                   f'color {values["animation_duration"]}ms ease-in-out') if values['window_animations'] else 'none'
     lines.append(f'.niri-taskbar button {{ min-width: 0; min-height: 0; transition: {transition}; }}')
+    start_transition = f'background-color {values["animation_duration"]}ms ease-in-out, color {values["animation_duration"]}ms ease-in-out' if values['window_animations'] else 'none'
+    lines.append(f'#custom-applauncher {{ transition: {start_transition}; }}')
     if values['position'] in ('left', 'right'):
         lines.append('#clock, #custom-applauncher { min-width: 0; padding: 0.3em 0; }')
         lines.append('.niri-taskbar { padding: 0.35em 0; } .niri-taskbar button { padding: 0.55em 0.12em; }')

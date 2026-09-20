@@ -18,7 +18,7 @@ MNWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 
 ### 1.27-A 开发版（Pre-1.30）
 
-在“任务栏样式”中设置任务栏位置、厚度、窗口单排／双排、同应用窗口堆叠和独立配色。双排仅作用于应用窗口，其他组件仍为单排；左右竖栏对应双列。分组按钮显示窗口数量，左键选择组内窗口，右键管理窗口。
+在“任务栏样式”中设置任务栏位置、厚度、窗口单排／双排、同应用窗口堆叠和独立配色。双排仅作用于应用窗口，其他组件仍为单排；左右竖栏对应双列。分组按钮显示窗口数量，左键切回组内最近使用的窗口，右键管理窗口；可开启悬停窗口选择列表。
 
 窗口悬停／聚焦过渡和设置选项卡淡入淡出可分别开启，默认关闭。设置选项卡动效在重新打开设置后生效。原有歌词组件动效开关继续独立控制。当前为开发测试版本，尚未发布 1.30 安装包。
 
@@ -143,7 +143,7 @@ Version 1.25 has been tested with Niri on Arch Linux and Ubuntu. MNWS still reli
 
 ### 1.27-A development build (Pre-1.30)
 
-Taskbar Style now provides panel edge and thickness, one or two window rows, application grouping and independent state colors. Only application windows use two rows; other components remain in one row. Vertical panels use two columns. Group buttons show a window count; left-click chooses a window and right-click manages group members.
+Taskbar Style now provides panel edge and thickness, one or two window rows, application grouping and independent state colors. Only application windows use two rows; other components remain in one row. Vertical panels use two columns. Group buttons show a window count; left-click returns to the most recently used member and right-click manages group members. An optional hover list allows window selection.
 
 Window hover/focus transitions and settings-tab crossfades are independently optional and off by default. Reopen Settings to apply tab animation changes. The existing lyric animation switch remains independent. This is a development build; no 1.30 installation package has been published.
 

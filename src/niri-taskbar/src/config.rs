@@ -12,6 +12,10 @@ pub struct Config {
     #[serde(default)]
     vertical: bool,
     #[serde(default)]
+    position: String,
+    #[serde(default)]
+    window_peek: bool,
+    #[serde(default)]
     group_windows: bool,
     #[serde(default = "default_rows")]
     rows: u32,
@@ -33,7 +37,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { apps: Default::default(), vertical: false, group_windows: false,
+        Self { apps: Default::default(), vertical: false, position: String::new(), window_peek: false, group_windows: false,
             rows: default_rows(), thickness: default_thickness(), notifications: Default::default(),
             show_all_outputs: false, current_workspace_only: false, max_width: None, icon_zone_fraction: None }
     }
@@ -70,6 +74,8 @@ fn default_true() -> bool {
 }
 
 impl Config {
+    pub fn position(&self) -> &str { &self.position }
+    pub fn window_peek(&self) -> bool { self.window_peek }
     pub fn vertical(&self) -> bool { self.vertical }
     pub fn group_windows(&self) -> bool { self.group_windows }
     pub fn rows(&self) -> u32 { self.rows.clamp(1, 2) }

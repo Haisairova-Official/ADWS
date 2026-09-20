@@ -12,8 +12,8 @@ button.urgent {
   background: red;
 }
 
-button:hover {
+button:hover:not(.focused) {
   background: rgba(255, 255, 255, 0.8);
 }
 
-.mnws-window-count { font-size: 0.65em; font-weight: bold; padding: 0 0.15em; border-radius: 0.4em; background: @theme_selected_bg_color; color: @theme_selected_fg_color; }
+.mnws-window-count { font-size: 0.65em; font-weight: bold; min-width: 1.4em; min-height: 1.4em; padding: 0; border-radius: 999px; background: @theme_selected_bg_color; color: @theme_selected_fg_color; }

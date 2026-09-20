@@ -33,7 +33,7 @@ fn panel_geometry_groups_and_colors() {
     base.load_from_path(concat!(env!("CARGO_MANIFEST_DIR"),"/../../config/waybar/style-bottom.css")).unwrap();
     gtk::StyleContext::add_provider_for_screen(&gtk::gdk::Screen::default().unwrap(),&base,gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     let css=gtk::CssProvider::new();
-    css.load_from_data(b".niri-taskbar button {min-width:0; min-height:0; transition:none;} .niri-taskbar button.focused {background:#123456;} .niri-taskbar button:hover {background:#cc2244;}").unwrap();
+    css.load_from_data(b".niri-taskbar button {min-width:0; min-height:0; transition:none;} .niri-taskbar button.focused {background:#123456;} .niri-taskbar button:hover:not(.focused) {background:#cc2244;}").unwrap();
     gtk::StyleContext::add_provider_for_screen(&gtk::gdk::Screen::default().unwrap(),&css,gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     for vertical in [false,true] {
         for rows in [1,2] {
@@ -43,7 +43,7 @@ fn panel_geometry_groups_and_colors() {
                 grid.set_row_homogeneous(!vertical);
                 grid.set_column_homogeneous(vertical);
                 grid.style_context().add_class("niri-taskbar");
-                let window=gtk::OffscreenWindow::new();
+                let window=gtk::Window::new(gtk::WindowType::Toplevel);
                 window.add(&grid);
                 window.set_default_size(if vertical {64}else{320},if vertical {320}else{64});
                 let mut instance=Instance::new(State::new(config),grid.clone());
@@ -54,14 +54,14 @@ fn panel_geometry_groups_and_colors() {
                 let first=instance.buttons[&1].widget();
                 assert_eq!(first.style_context().has_class("focused"),grouped);
                 if grouped {
-                    assert_eq!(first.tooltip_text().unwrap(),"Window 1\nWindow 2");
+                    assert!(!first.has_tooltip());
                     #[allow(deprecated)]
                     let color: gtk::gdk::RGBA=first.style_context().style_property_for_state("background-color",gtk::StateFlags::NORMAL).get().unwrap();
                     assert!((color.red()-18.0/255.0).abs()<0.01,"custom focus color was overridden: {color:?}");
                 }
                 first.set_state_flags(gtk::StateFlags::PRELIGHT,false);settle();
                 let hover:gtk::gdk::RGBA=first.style_context().style_property_for_state("background-color",gtk::StateFlags::PRELIGHT).get().unwrap();
-                assert!((hover.red()-204.0/255.0).abs()<0.01,"hover color was overridden");
+                assert!((hover.red()-if grouped {18.0/255.0}else{204.0/255.0}).abs()<0.01,"hover color was overridden");
                 first.unset_state_flags(gtk::StateFlags::PRELIGHT);
                 for (i,id) in instance.displayed.iter().enumerate() {
                     let (x,y)=grouping::cell(i,rows,vertical);

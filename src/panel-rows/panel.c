@@ -678,7 +678,9 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
         p->start_image = GTK_WIDGET(s);
         for (size_t j = 0; j < count; j++) {
             gchar *value = config_string(entries[j].value);
-            if (!strcmp(entries[j].key, "vertical")) s->vertical = config_boolean(entries[j].value);
+            if (!strcmp(entries[j].key, "start_animations")) s->animations = config_boolean(entries[j].value);
+            else if (!strcmp(entries[j].key, "animation_duration")) s->fade_duration=CLAMP(atoi(value),80,1000);
+            else if (!strcmp(entries[j].key, "vertical")) s->vertical = config_boolean(entries[j].value);
             else if (!strcmp(entries[j].key, "start_image")) s->normal = gdk_pixbuf_new_from_file(value, NULL);
             else if (!strcmp(entries[j].key, "start_hover_image") && *value) s->hover = gdk_pixbuf_new_from_file(value, NULL);
             else if (!strcmp(entries[j].key, "exec")) s->command = g_strdup(value);

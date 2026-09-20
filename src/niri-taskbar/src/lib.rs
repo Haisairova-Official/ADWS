@@ -449,9 +449,10 @@ impl Instance {
         for group in &groups {
             for id in group { self.representatives.insert(*id,group[0]); }
             if let Some(button) = self.buttons.get(&group[0]) {
-                let members: Vec<_> = group.iter().filter_map(|id|visible.iter().find(|w| w.id==*id))
-                    .map(|w|(w.id,w.title.clone().unwrap_or_else(||w.app_id.clone().unwrap_or_default()))).collect();
-                button.set_group(members);
+                let mut member_windows: Vec<_> = group.iter().filter_map(|id|visible.iter().find(|w| w.id==*id))
+                    .collect();
+                member_windows.sort_by_key(|w|std::cmp::Reverse((w.is_focused,w.focus_timestamp.as_ref().map(|t|(t.secs,t.nanos)))));
+                button.set_group(member_windows.into_iter().map(|w|(w.id,w.title.clone().unwrap_or_else(||w.app_id.clone().unwrap_or_default()))).collect());
                 button.set_focus(visible.iter().any(|w|group.contains(&w.id) && w.is_focused));
             }
         }

@@ -3,7 +3,11 @@ typedef struct {
     GtkDrawingArea parent;
     GdkPixbuf *normal, *hover;
     gchar *command, *right_command, *middle_command, *label;
-    gboolean inside, vertical;
+    gboolean inside, vertical, animations;
+    double mix, from_mix;
+    gint64 fade_start;
+    guint fade_tick;
+    int fade_duration;
     guint pressed;
     int last_height;
 } MnwsStart;
@@ -63,25 +67,41 @@ static gboolean start_draw(GtkWidget *w, cairo_t *cr) {
         gtk_render_background(ctx, cr, 0, 0, width, height);
         gtk_render_frame(ctx, cr, 0, 0, width, height);
     }
-    GdkPixbuf *image = s->inside && s->hover ? s->hover : s->normal;
-    if (image) {
-        double scale = s->vertical ? (double)width/gdk_pixbuf_get_width(image) : (double)ih / gdk_pixbuf_get_height(image);
-        if (s->vertical) ih = (int)(scale*gdk_pixbuf_get_height(image));
-        double iw = scale * gdk_pixbuf_get_width(image);
-        cairo_save(cr);
-        cairo_translate(cr, (width-iw)/2, (height-ih)/2.0);
-        cairo_scale(cr, scale, scale);
-        gdk_cairo_set_source_pixbuf(cr, image, 0, 0);
-        cairo_paint(cr);
-        cairo_restore(cr);
+    double mix = s->animations ? s->mix : (s->inside ? 1. : 0.);
+    GdkPixbuf *images[] = {s->normal,s->hover};
+    for (int i=0;i<2;i++) {
+        GdkPixbuf *image=images[i];
+        if (!image) continue;
+        double alpha=s->hover ? (i==0 ? 1.-mix : mix) : 1.;
+        if (alpha<=0.) continue;
+        double scale = s->vertical ? (double)width/gdk_pixbuf_get_width(image) : (double)ih/gdk_pixbuf_get_height(image);
+        double iw=scale*gdk_pixbuf_get_width(image), image_height=scale*gdk_pixbuf_get_height(image);
+        cairo_save(cr);cairo_translate(cr,(width-iw)/2,(height-image_height)/2);
+        cairo_scale(cr,scale,scale);gdk_cairo_set_source_pixbuf(cr,image,0,0);
+        cairo_paint_with_alpha(cr,alpha);cairo_restore(cr);
     }
     return TRUE;
+}
+static gboolean start_fade(GtkWidget *w,GdkFrameClock *clock,gpointer data) {
+    (void)data;MnwsStart *s=(MnwsStart *)w;
+    double t=CLAMP((gdk_frame_clock_get_frame_time(clock)-s->fade_start)/(1000.*MAX(80,s->fade_duration)),0.,1.);
+    double eased=t*t*(3.-2.*t);
+    s->mix=s->from_mix+((s->inside?1.:0.)-s->from_mix)*eased;
+    gtk_widget_queue_draw(w);
+    if(t>=1.){s->fade_tick=0;return G_SOURCE_REMOVE;}
+    return G_SOURCE_CONTINUE;
 }
 static gboolean start_crossing(GtkWidget *w, GdkEventCrossing *event) {
     MnwsStart *s = (MnwsStart *)w;
     s->inside = event->type == GDK_ENTER_NOTIFY;
     if (s->inside) gtk_widget_set_state_flags(w, GTK_STATE_FLAG_PRELIGHT, FALSE);
     else gtk_widget_unset_state_flags(w, GTK_STATE_FLAG_PRELIGHT);
+    gboolean enabled=TRUE;g_object_get(gtk_widget_get_settings(w),"gtk-enable-animations",&enabled,NULL);
+    GdkFrameClock *clock=gtk_widget_get_frame_clock(w);
+    if(s->animations && enabled && clock && s->hover){
+        s->from_mix=s->mix;s->fade_start=gdk_frame_clock_get_frame_time(clock);
+        if(!s->fade_tick)s->fade_tick=gtk_widget_add_tick_callback(w,start_fade,NULL,NULL);
+    } else s->mix=s->inside?1.:0.;
     gtk_widget_queue_draw(w); return FALSE;
 }
 static gboolean start_press(GtkWidget *w, GdkEventButton *event) {
@@ -124,6 +144,7 @@ static void mnws_start_class_init(MnwsStartClass *klass) {
     G_OBJECT_CLASS(klass)->finalize=start_finalize;
 }
 static void mnws_start_init(MnwsStart *s) {
+    s->fade_duration=280;
     GtkWidget *w=GTK_WIDGET(s);
     gtk_widget_set_name(w,"custom-applauncher");
     gtk_widget_set_valign(w,GTK_ALIGN_FILL);

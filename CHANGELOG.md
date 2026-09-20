@@ -4,6 +4,9 @@
 
 开发中，尚未发布 / In development, not released.
 
+- 完善圆形窗口数量角标、聚焦配色、悬停窗口列表和开始按钮渐变。（1.27-A）
+- Refine circular window counts, focus colors, hover window lists and start-button transitions. Live thumbnails remain pending.
+
 - 新增可选的窗口高亮过渡和设置选项卡淡入淡出，默认关闭。
 - 新增同应用窗口堆叠、数量标记及组内窗口菜单。
 - 修复窗口按钮配色优先级，新增悬停、聚焦、文字与提醒颜色设置。

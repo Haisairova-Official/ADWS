@@ -75,7 +75,7 @@ impl Button {
 
         // Provide the base CSS for each button that users can then extend.
         BUTTON_CSS_PROVIDER.with(|provider| {
-            badge.style_context().add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION - 1);
+            badge.style_context().add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
             button
                 .style_context()
                 .add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION - 1);
@@ -98,6 +98,7 @@ impl Button {
         // Set up our event handlers. It's easier to do this with self already available.
         button.connect_click_handler(window.id);
         button.connect_context_menu(window.id);
+        button.connect_hover_description();
         button.connect_size_allocate(icon_path);
 
         button
@@ -108,7 +109,7 @@ impl Button {
         let caption = if count > 1 { count.to_string() } else { String::new() };
         self.badge.set_text(&caption);
         self.badge.set_visible(count>1);
-        self.button.set_tooltip_text(Some(&members.iter().map(|(_,title)|title.as_str()).collect::<Vec<_>>().join("\n")));
+        self.button.set_has_tooltip(false);
         *self.members.borrow_mut() = members;
     }
 
@@ -128,7 +129,7 @@ impl Button {
     /// Sets the window title.
     #[tracing::instrument(level = "TRACE")]
     pub fn set_title(&self, title: Option<&str>) {
-        self.button.set_tooltip_text(title);
+        self.button.set_has_tooltip(false);
 
         // Apply any app styling rules.
         if let Some(app_id) = &self.app_id {
@@ -166,23 +167,60 @@ impl Button {
         let state = self.state.clone();
 
         let members = self.members.clone();
-        self.button.connect_clicked(move |button| {
-            if members.borrow().len() > 1 {
-                let menu = gtk::Menu::new();
-                for (id,title) in members.borrow().iter() {
-                    let item = gtk::MenuItem::with_label(title);
-                    let state = state.clone();
-                    let id = *id;
-                    item.connect_activate(move |_| { let _ = state.niri().activate_window(id); });
-                    menu.append(&item);
-                }
-                show_menu(menu, Some(button));
-                return;
-            }
-            if let Err(e) = state.niri().activate_window(window_id) {
-                tracing::warn!(%e, id = window_id, "error trying to activate window");
+        self.button.connect_clicked(move |_| {
+            let id = members.borrow().first().map(|(id,_)|*id).unwrap_or(window_id);
+            if let Err(e) = state.niri().activate_window(id) {
+                tracing::warn!(%e, id, "error trying to activate window");
             }
         });
+    }
+
+    fn connect_hover_description(&self) {
+        // A native popup outside the layer surface avoids clipped bottom-edge tooltips.
+        let popup = gtk::Popover::new(Some(&self.button));
+        popup.set_modal(false);
+        popup.set_position(match self.state.config().position() {
+            "top"=>gtk::PositionType::Bottom,"left"=>gtk::PositionType::Right,
+            "right"=>gtk::PositionType::Left,_=>gtk::PositionType::Top,
+        });
+        popup.set_constrain_to(gtk::PopoverConstraint::None);
+        let inside=Rc::new(std::cell::Cell::new(false));
+        let members=self.members.clone();let state=self.state.clone();
+        let hovered=inside.clone();let weak=popup.downgrade();
+        self.button.add_events(gtk::gdk::EventMask::ENTER_NOTIFY_MASK|gtk::gdk::EventMask::LEAVE_NOTIFY_MASK);
+        self.button.connect_enter_notify_event(move |_,event| {
+            if event.detail()==gtk::gdk::NotifyType::Inferior{return gtk::glib::Propagation::Proceed;}
+            hovered.set(true);
+            let hovered=hovered.clone();let weak=weak.clone();let members=members.clone();let state=state.clone();
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(250),move || {
+                let Some(popup)=weak.upgrade() else{return};
+                if !hovered.get(){return;}
+                if let Some(child)=popup.child(){popup.remove(&child);}
+                let items=gtk::Box::new(gtk::Orientation::Vertical,4);items.set_border_width(8);
+                for (id,title) in members.borrow().iter() {
+                    let text=gtk::Label::new(Some(title));text.set_max_width_chars(48);text.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                    if state.config().window_peek() {
+                        let select=gtk::Button::new();select.add(&text);
+                        let state=state.clone();let id=*id;let weak=popup.downgrade();
+                        select.connect_clicked(move |_|{let _=state.niri().activate_window(id);if let Some(p)=weak.upgrade(){p.popdown();}});
+                        items.pack_start(&select,false,false,0);
+                    } else {items.pack_start(&text,false,false,0);}
+                }
+                popup.add(&items);items.show_all();popup.popup();
+            });
+            gtk::glib::Propagation::Proceed
+        });
+        let hovered=inside.clone();let weak=popup.downgrade();
+        self.button.connect_leave_notify_event(move |_,event| {
+            if event.detail()==gtk::gdk::NotifyType::Inferior{return gtk::glib::Propagation::Proceed;}
+            hovered.set(false);let hovered=hovered.clone();let weak=weak.clone();
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(200),move ||{if !hovered.get(){if let Some(p)=weak.upgrade(){p.popdown();}}});
+            gtk::glib::Propagation::Proceed
+        });
+        popup.add_events(gtk::gdk::EventMask::ENTER_NOTIFY_MASK|gtk::gdk::EventMask::LEAVE_NOTIFY_MASK);
+        let hovered=inside.clone();popup.connect_enter_notify_event(move |_,_|{hovered.set(true);gtk::glib::Propagation::Proceed});
+        popup.connect_leave_notify_event(move |p,e|{if e.detail()!=gtk::gdk::NotifyType::Inferior{inside.set(false);p.popdown();}gtk::glib::Propagation::Proceed});
+        self.button.connect_destroy(move |_|{unsafe{popup.destroy();}});
     }
 
     /// Opens a small context menu on right click (focus / minimize / close).
