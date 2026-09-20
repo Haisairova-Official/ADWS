@@ -2,28 +2,31 @@
 
 ## 1.27-A — 2026-09-20
 
-开发中，尚未发布 / In development, not released.
+开发分支 / Development branch: `Pre-1.30`.
 
-- 新增实时窗口缩略图预览，修复标题选择和单击最近窗口；数量角标增加 2px 外框。
-- Add live window thumbnails, clickable titles, single-click recent-window activation and 2px badge outlines.
+### 最新更新
 
-- 修复悬停提示层级与重复弹出，统一开始和时钟提示层级，并修正数量角标尺寸。
-- Fix tooltip stacking and repeated popups, including Start and Clock tooltips; correct count-badge sizing.
+Major 1.27    Minor：A    构建日期：2026-09-20
 
-- 完善圆形窗口数量角标、聚焦配色、悬停窗口列表和开始按钮渐变。（1.27-A）
-- Refine circular window counts, focus colors, hover window lists and start-button transitions. Live thumbnails are now supported through Niri ScreenCast.
+- 增加了大量可选动效，你的任务栏再也不无聊了。
+- 增加了大量配色选项。
+- 现在任务栏可以上下左右切换了。
+- 任务栏高度也可以自行设置了。（1.26）
+- 现在选项卡可以合并在一起节省空间了。
+- 现在选项卡可以peek视图切换了，就像Windows的DWM那样（A）
+- 修复了一些提示错位的bug。（1.27）
 
-- 新增可选的窗口高亮过渡和设置选项卡淡入淡出，默认关闭。
-- 新增同应用窗口堆叠、数量标记及组内窗口菜单。
-- 修复窗口按钮配色优先级，新增悬停、聚焦、文字与提醒颜色设置。
-- 新增四边位置和厚度设置；应用窗口可单排／双排，竖栏为单列／双列，其他组件保持一排。
-- 歌词组件、图片开始按钮和滚动区域适配竖栏。
+### Latest updates
 
-- Add optional window highlight transitions and settings-tab crossfades, disabled by default.
-- Group windows by application, with counts and per-window menus.
-- Fix color precedence and expose hover, focused, focused-text and urgent colors.
-- Configure all four edges and panel thickness; application windows support two rows or vertical columns while other components retain a single lane.
-- Adapt lyrics, image start buttons and scrolling to vertical panels.
+Major 1.27    Minor: A    Build date: 2026-09-20
+
+- Add plenty of optional animations—your taskbar will never be boring again.
+- Add many more color options.
+- The taskbar can now move to the top, bottom, left or right.
+- Taskbar height is now customizable. (1.26)
+- Window cards can now be grouped to save space.
+- Window cards now support Peek-style switching, like Windows DWM. (A)
+- Fix several misplaced-tooltip bugs. (1.27)
 
 ## 1.25 Released — 2026-09-18
 

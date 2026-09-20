@@ -18,6 +18,16 @@ MNWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 
 ### 1.27-A 开发版（Pre-1.30）
 
+Major 1.27    Minor：A    构建日期：2026-09-20
+
+- 增加了大量可选动效，你的任务栏再也不无聊了。
+- 增加了大量配色选项。
+- 现在任务栏可以上下左右切换了。
+- 任务栏高度也可以自行设置了。（1.26）
+- 现在选项卡可以合并在一起节省空间了。
+- 现在选项卡可以peek视图切换了，就像Windows的DWM那样（A）
+- 修复了一些提示错位的bug。（1.27）
+
 在“任务栏样式”中设置任务栏位置、厚度、窗口单排／双排、同应用窗口堆叠和独立配色。双排仅作用于应用窗口，其他组件仍为单排；左右竖栏对应双列。分组按钮显示窗口数量，左键切回组内最近使用的窗口，右键管理窗口；可开启悬停窗口画面预览，点击缩略图或标题可切换窗口。
 
 窗口悬停／聚焦过渡和设置选项卡淡入淡出可分别开启，默认关闭。设置选项卡动效在重新打开设置后生效。原有歌词组件动效开关继续独立控制。窗口画面预览需要 Niri 的录屏接口及 GStreamer PipeWire/PNG 插件；不支持时保留可点击的标题列表。当前为开发测试版本，尚未发布 1.30 安装包。
@@ -142,6 +152,16 @@ MNWS adds desktop icons, a bottom taskbar, unified settings and a plugin system 
 Version 1.25 has been tested with Niri on Arch Linux and Ubuntu. MNWS still relies on Niri, Waybar and distribution-provided system components; it does not aim to replace the window manager or the Linux user space.
 
 ### 1.27-A development build (Pre-1.30)
+
+Major 1.27    Minor: A    Build date: 2026-09-20
+
+- Add plenty of optional animations—your taskbar will never be boring again.
+- Add many more color options.
+- The taskbar can now move to the top, bottom, left or right.
+- Taskbar height is now customizable. (1.26)
+- Window cards can now be grouped to save space.
+- Window cards now support Peek-style switching, like Windows DWM. (A)
+- Fix several misplaced-tooltip bugs. (1.27)
 
 Taskbar Style now provides panel edge and thickness, one or two window rows, application grouping and independent state colors. Only application windows use two rows; other components remain in one row. Vertical panels use two columns. Group buttons show a window count; left-click returns to the most recently used member and right-click manages group members. Optional live window thumbnails allow selection by image or title.
 

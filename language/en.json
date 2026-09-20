@@ -714,5 +714,12 @@
   "完善圆形窗口数量角标、聚焦配色、悬停窗口列表和开始按钮渐变。（1.27-A）": "Refine circular window counts, focused colors, hover window lists and start-button transitions. (1.27-A)",
   "修复悬停提示层级与重复弹出，统一开始和时钟提示层级，并修正数量角标尺寸。（1.27-A）": "Fix tooltip layering and repeated popups, including Start and Clock tooltips, and correct count-badge sizing. (1.27-A)",
   "悬停显示窗口画面预览": "Show window thumbnails on hover",
-  "新增窗口画面缩略图预览，修复标题选择与单击最近窗口，并为数量角标添加 2px 外框。（1.27-A）": "Add live window thumbnails, fix title selection and single-click recent-window activation, and outline count badges by 2px. (1.27-A)"
+  "新增窗口画面缩略图预览，修复标题选择与单击最近窗口，并为数量角标添加 2px 外框。（1.27-A）": "Add live window thumbnails, fix title selection and single-click recent-window activation, and outline count badges by 2px. (1.27-A)",
+  "增加了大量可选动效，你的任务栏再也不无聊了。": "Add plenty of optional animations—your taskbar will never be boring again.",
+  "增加了大量配色选项。": "Add many more color options.",
+  "现在任务栏可以上下左右切换了。": "The taskbar can now move to the top, bottom, left or right.",
+  "任务栏高度也可以自行设置了。（1.26）": "Taskbar height is now customizable. (1.26)",
+  "现在选项卡可以合并在一起节省空间了。": "Window cards can now be grouped to save space.",
+  "现在选项卡可以peek视图切换了，就像Windows的DWM那样（A）": "Window cards now support Peek-style switching, like Windows DWM. (A)",
+  "修复了一些提示错位的bug。（1.27）": "Fix several misplaced-tooltip bugs. (1.27)"
 }
