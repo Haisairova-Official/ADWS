@@ -603,6 +603,35 @@ def dialog_box() -> Gtk.Box:
     return box
 
 
+class AnimatedPages(Gtk.Box):
+    """Notebook-compatible page API with a real GTK crossfade between pages."""
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        from mnws_layout import load_layout
+        from mnws_panel_options import validate
+        options = validate(load_layout().get('options', {}))
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE if options['tab_animations'] else Gtk.StackTransitionType.NONE)
+        self.stack.set_transition_duration(options['animation_duration'])
+        self.stack.set_homogeneous(True)
+        switcher = Gtk.StackSwitcher(stack=self.stack)
+        switcher.set_halign(Gtk.Align.CENTER)
+        self.pack_start(switcher, False, False, 0)
+        self.pack_start(self.stack, True, True, 0)
+        self.count = 0
+
+    def append_page(self, page, label):
+        page.show()
+        self.stack.add_titled(page, str(self.count), label.get_text())
+        self.count += 1
+
+    def get_current_page(self):
+        return int(self.stack.get_visible_child_name() or 0)
+
+    def set_current_page(self, index):
+        self.stack.set_visible_child_name(str(index))
+
+
 class ConfigWindow(Gtk.Window):
     def __init__(self, tab=None):
         super().__init__(title=_tr('MNWS 设置 — My Niri Workspace Solution'))
@@ -611,7 +640,7 @@ class ConfigWindow(Gtk.Window):
         self.set_border_width(12)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.add(outer)
-        self.notebook = Gtk.Notebook()
+        self.notebook = AnimatedPages()
         outer.pack_start(self.notebook, True, True, 0)
         self.appearance_page = self.build_appearance_page()
         self.components_page = self.build_components_page()
@@ -934,10 +963,61 @@ class TaskbarStyleWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title=_tr('任务栏样式 — MNWS'))
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-        self.set_default_size(480, 430)
+        self.set_default_size(580, 760)
         self.set_border_width(14)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.add(outer)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        outer.pack_start(scroll, True, True, 0)
         box = dialog_box()
-        self.add(box)
+        scroll.add(box)
+        from mnws_layout import load_layout
+        from mnws_panel_options import validate
+        self.panel_layout = load_layout()
+        options = validate(self.panel_layout.get('options', {}))
+        self.position = Gtk.ComboBoxText()
+        for key, caption in [('bottom', _tr('底部')), ('top', _tr('顶部')), ('left', _tr('左侧')), ('right', _tr('右侧'))]:
+            self.position.append(key, caption)
+        self.position.set_active_id(options['position'])
+        box.pack_start(row_widget(_tr('任务栏位置：'), self.position), False, False, 0)
+        self.thickness = Gtk.SpinButton.new_with_range(24, 160, 1)
+        self.thickness.set_value(options['thickness'])
+        box.pack_start(row_widget(_tr('高度 / 竖栏宽度：'), self.thickness), False, False, 0)
+        self.window_rows = Gtk.ComboBoxText()
+        self.window_rows.append('1', _tr('单排（竖栏单列）'))
+        self.window_rows.append('2', _tr('双排（竖栏双列）'))
+        self.window_rows.set_active_id(str(options['window_rows']))
+        def rows_changed(*_):
+            minimum = 48 if self.window_rows.get_active_id() == '2' else 24
+            self.thickness.set_range(minimum, 160)
+        self.window_rows.connect('changed', rows_changed)
+        rows_changed()
+        box.pack_start(row_widget(_tr('应用窗口排列：'), self.window_rows), False, False, 0)
+        self.panel_toggles = {}
+        for key, caption in [('group_windows', _tr('堆叠同一应用的窗口')), ('window_animations', _tr('窗口悬停与聚焦颜色渐变')), ('tab_animations', _tr('设置选项卡淡入淡出'))]:
+            control = Gtk.CheckButton(label=caption)
+            control.set_active(options[key])
+            self.panel_toggles[key] = control
+            box.pack_start(control, False, False, 0)
+        self.animation_duration = Gtk.SpinButton.new_with_range(80, 1000, 10)
+        self.animation_duration.set_value(options['animation_duration'])
+        box.pack_start(row_widget(_tr('动效时长（毫秒）：'), self.animation_duration), False, False, 0)
+        self.panel_colors = {}
+        for key, caption in [('hover_color', _tr('窗口悬停颜色：')), ('focus_color', _tr('聚焦窗口颜色：')), ('focus_text_color', _tr('聚焦窗口文字：')), ('urgent_color', _tr('需要关注的窗口：'))]:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            control = Gtk.ColorButton(use_alpha=True)
+            color_value = Gdk.RGBA()
+            color_value.parse(options[key] or '#808080')
+            control.set_rgba(color_value)
+            follow = Gtk.CheckButton(label=_tr('跟随主题'))
+            follow.set_active(not options[key])
+            control.set_sensitive(bool(options[key]))
+            follow.connect('toggled', lambda toggle, target=control: target.set_sensitive(not toggle.get_active()))
+            row.pack_start(control, True, True, 0)
+            row.pack_start(follow, False, False, 0)
+            self.panel_colors[key] = (control, follow)
+            box.pack_start(row_widget(caption, row), False, False, 0)
         use_theme, color, radius, font_family, font_size = read_taskbar_overrides()
         style_title = Gtk.Label(label=_tr('任务栏背景'), xalign=0)
         style_title.get_style_context().add_class("title")
@@ -967,7 +1047,7 @@ class TaskbarStyleWindow(Gtk.Window):
         self.family, self.font_size = make_font_controls(font_family, font_size)
         box.pack_start(row_widget(_tr('字体：'), self.family), False, False, 0)
         box.pack_start(row_widget(_tr('字号：'), self.font_size), False, False, 0)
-        hint = Gtk.Label(label=_tr('仅作用于底部任务栏，顶部 waybar 与桌面图标文字不受影响。'), xalign=0)
+        hint = Gtk.Label(label=_tr('仅作用于 MNWS 任务栏；竖栏以宽度作为厚度。其他组件始终保持单排。'), xalign=0)
         hint.get_style_context().add_class("dim-label")
         hint.set_line_wrap(True)
         box.pack_start(hint, False, False, 0)
@@ -985,7 +1065,7 @@ class TaskbarStyleWindow(Gtk.Window):
         buttons.pack_end(close, False, False, 0)
         buttons.pack_end(ok, False, False, 0)
         buttons.pack_end(apply, False, False, 0)
-        box.pack_end(buttons, False, False, 0)
+        outer.pack_end(buttons, False, False, 0)
         self.on_theme_toggled()
         self.connect("destroy", Gtk.main_quit)
         self.show_all()
@@ -995,15 +1075,28 @@ class TaskbarStyleWindow(Gtk.Window):
 
     def apply_style(self, _button=None, close_after: bool = False) -> bool:
         try:
+            from mnws_layout import load_layout, save_layout, apply_layout
+            from mnws_panel_options import validate
+            layout = load_layout()
+            options = dict(layout.get('options', {}))
+            options.update(position=self.position.get_active_id(), thickness=self.thickness.get_value_as_int(),
+                           window_rows=int(self.window_rows.get_active_id()), animation_duration=self.animation_duration.get_value_as_int())
+            options.update({key: control.get_active() for key, control in self.panel_toggles.items()})
+            options.update({key: '' if follow.get_active() else css_rgba(control.get_rgba()) for key, (control, follow) in self.panel_colors.items()})
+            validate(options)
+            layout['options'] = options
             color_text = css_rgba(self.color_button.get_rgba())
             family = (self.family.get_active_text() or "").strip()
             size = float(self.font_size.get_value())
             write_taskbar_overrides(
                 self.theme_background.get_active(), color_text, int(self.radius.get_value())
             )
-            _, _, _, current_family, current_size = read_taskbar_overrides()
-            if family and (family != current_family or abs(size - current_size) > 0.05):
+            if family:
                 write_taskbar_font(family, size)
+            ok, message = apply_layout(layout, restart=True)
+            if not ok:
+                raise ValueError(message)
+            save_layout(layout)
         except (OSError, ValueError) as exc:
             self.show_error(str(exc))
             return False
@@ -1013,7 +1106,16 @@ class TaskbarStyleWindow(Gtk.Window):
 
     def apply_restore(self, _button=None):
         try:
-            write_taskbar_overrides(True, "", 12, restore=True)
+            from mnws_panel_options import DEFAULTS
+            self.position.set_active_id(DEFAULTS['position'])
+            self.window_rows.set_active_id('1')
+            self.thickness.set_value(DEFAULTS['thickness'])
+            self.animation_duration.set_value(DEFAULTS['animation_duration'])
+            for key, control in self.panel_toggles.items(): control.set_active(DEFAULTS[key])
+            for _, follow in self.panel_colors.values(): follow.set_active(True)
+            self.theme_background.set_active(True)
+            self.radius.set_value(12)
+            self.apply_style()
         except OSError as exc:
             self.show_error(str(exc))
 

@@ -1,7 +1,7 @@
 {
   "id": "org.AkiACG_Community.NCMLyricsBar",
   "name": "plugin.name",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "entry": "main.py",
   "description": "plugin.description",
   "license": "MIT",
@@ -46,6 +46,13 @@
       "step": 50
     },
     {
+      "key": "experimental_other_platforms",
+      "label": "settings.experimental_other_platforms.label",
+      "type": "boolean",
+      "default": false,
+      "hint": "settings.experimental_other_platforms.hint"
+    },
+    {
       "key": "api_mode",
       "label": "settings.api_mode.label",
       "type": "choice",
@@ -84,6 +91,11 @@
     }
   ],
   "renderer": "panel.rows-v1",
+  "controls": [
+    "play-pause",
+    "previous",
+    "next"
+  ],
   "mnws": {
     "api": 1,
     "minVersion": "1.25"

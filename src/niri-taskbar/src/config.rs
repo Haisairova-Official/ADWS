@@ -5,10 +5,18 @@ use regex::Regex;
 use serde::{Deserialize, Deserializer};
 
 /// The taskbar configuration.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Config {
     #[serde(default)]
     apps: HashMap<String, Vec<AppConfig>>,
+    #[serde(default)]
+    vertical: bool,
+    #[serde(default)]
+    group_windows: bool,
+    #[serde(default = "default_rows")]
+    rows: u32,
+    #[serde(default = "default_thickness")]
+    thickness: u32,
     #[serde(default)]
     notifications: Notifications,
     #[serde(default)]
@@ -21,6 +29,14 @@ pub struct Config {
     /// 没有 max_width 时，图标栏可占底栏宽度的比例（0~1）。
     #[serde(default)]
     icon_zone_fraction: Option<f32>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { apps: Default::default(), vertical: false, group_windows: false,
+            rows: default_rows(), thickness: default_thickness(), notifications: Default::default(),
+            show_all_outputs: false, current_workspace_only: false, max_width: None, icon_zone_fraction: None }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,11 +62,18 @@ impl Default for Notifications {
     }
 }
 
+fn default_rows() -> u32 { 1 }
+fn default_thickness() -> u32 { 36 }
+
 fn default_true() -> bool {
     true
 }
 
 impl Config {
+    pub fn vertical(&self) -> bool { self.vertical }
+    pub fn group_windows(&self) -> bool { self.group_windows }
+    pub fn rows(&self) -> u32 { self.rows.clamp(1, 2) }
+    pub fn thickness(&self) -> u32 { self.thickness.clamp(24, 160) }
     /// Returns all possible CSS classes that a particular application might have set.
     pub fn app_classes(&self, app_id: &str) -> Vec<&str> {
         self.apps

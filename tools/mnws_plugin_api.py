@@ -9,6 +9,7 @@ from mnws_update import version_key, current_version
 
 ID = re.compile(r'[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+')
 TYPES = {'string', 'number', 'boolean', 'choice', 'color', 'font', 'url'}
+CONTROLS = {'play-pause', 'previous', 'next'}
 ALIASES = {'org.mnws.neteaselyrics': 'org.AkiACG_Community.NCMLyricsBar'}
 
 
@@ -87,6 +88,11 @@ def public_errors(manifest):
         if required > current: errors.append('MNWS version is below minVersion')
     except (ValueError, TypeError, AttributeError): errors.append('Invalid minVersion')
     if 'language' in manifest and manifest['language'] != 'python': errors.append('Plugin API 1 supports Python entries only')
+    controls = manifest.get('controls', [])
+    if (not isinstance(controls, list) or not all(isinstance(control, str) for control in controls)
+            or len(set(controls)) != len(controls)
+            or any(control not in CONTROLS for control in controls)):
+        errors.append('Invalid controls')
     defaults = manifest.get('defaults', {})
     if isinstance(defaults, dict):
         for key in ('width', 'interval'):

@@ -29,8 +29,9 @@ def validate_settings(values: dict) -> None:
 
 
 class SettingsDialog:
-    def __init__(self, parent, name, schema, values, validator=None):
+    def __init__(self, parent, name, schema, values, validator=None, animations=None):
         self.schema = schema
+        self.animations = animations
         self.validator = validator
         self.values = dict(values)
         self.controls = {}
@@ -43,6 +44,11 @@ class SettingsDialog:
         content = self.dialog.get_content_area()
         content.set_border_width(16)
         content.set_spacing(10)
+        if animations is not None:
+            self.animation_toggle = Gtk.CheckButton(label=_tr('启用动画（淡入淡出与宽度过渡）'))
+            self.animation_toggle.set_active(animations)
+            self.animation_toggle.set_tooltip_text(_tr('默认关闭。按钮淡入淡出；自适应宽度使用贝塞尔缓动，跟随系统动画设置。'))
+            content.pack_start(self.animation_toggle, False, False, 0)
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         content.pack_start(scroll, True, True, 0)
@@ -116,6 +122,8 @@ class SettingsDialog:
         content.pack_start(self.error, False, False, 0)
 
     def collect(self):
+        if self.animations is not None:
+            self.animations = self.animation_toggle.get_active()
         result = dict(self.values)
         for key, (kind, control, follow) in self.controls.items():
             if follow is not None and follow.get_active():

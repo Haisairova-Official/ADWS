@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Firefox/MPRIS lyrics; stream changed Waybar JSON lines to stdout."""
+"""Read-only browser/MPRIS lyrics; stream changed Waybar JSON lines to stdout."""
 from __future__ import annotations
 
 import argparse
@@ -24,10 +24,17 @@ OFFSET = re.compile(r"\[offset:([+-]?\d+)\]", re.I)
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "mnws/netease-lyrics-v2"
 PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
+MPRIS_PREFIX = "org.mpris.MediaPlayer2."
+EXPERIMENTAL_MUSIC_HOSTS = {
+    "open.spotify.com", "music.youtube.com", "music.apple.com",
+    "y.qq.com", "music.qq.com", "kugou.com", "www.kugou.com",
+    "kuwo.cn", "www.kuwo.cn", "soundcloud.com", "www.soundcloud.com",
+}
+EXPERIMENTAL_PLAYER_NAMES = ("spotify", "cider", "yesplaymusic", "applemusic")
 SETTINGS = {}
 
 
-_EN = {'♫ 等待网易云': '♫ Waiting for NetEase', '在 Firefox 的网易云音乐中播放歌曲，歌词会自动跟随。': 'Play a song on NetEase Music in Firefox to follow its lyrics.', '正在获取歌词': 'Loading lyrics', '未找到匹配版本的歌词': 'No matching lyrics found', '暂无同步歌词': 'No synchronized lyrics available', '歌词暂时无法获取': 'Lyrics temporarily unavailable', '纯音乐': 'Instrumental', '已暂停': 'Paused', '正在播放': 'Playing', '前奏 / 间奏': 'Intro / interlude', '浏览器尚未提供播放进度': 'The browser has not provided playback position yet', '连续输出变更后的面板状态': 'Stream changed panel states', '读取一次当前状态并退出': 'Read the current state once and exit', '显示连接与歌词匹配摘要': 'Show connection and lyrics matching summary'}
+_EN = {'♫ 等待网易云': '♫ Waiting for NetEase', '在支持 MPRIS 的浏览器中播放网易云音乐，歌词会自动跟随。': 'Play NetEase Music in an MPRIS-enabled browser to follow its lyrics.', '♫ 等待音乐': '♫ Waiting for music', '在支持 MPRIS 的音乐平台中播放歌曲，歌词会自动跟随。': 'Play music from a supported MPRIS service to follow its lyrics.', '正在获取歌词': 'Loading lyrics', '未找到匹配版本的歌词': 'No matching lyrics found', '暂无同步歌词': 'No synchronized lyrics available', '歌词暂时无法获取': 'Lyrics temporarily unavailable', '纯音乐': 'Instrumental', '已暂停': 'Paused', '正在播放': 'Playing', '前奏 / 间奏': 'Intro / interlude', '浏览器尚未提供播放进度': 'The browser has not provided playback position yet', '连续输出变更后的面板状态': 'Stream changed panel states', '读取一次当前状态并退出': 'Read the current state once and exit', '显示连接与歌词匹配摘要': 'Show connection and lyrics matching summary'}
 
 # This plugin also runs from extracted .mplg packages without the host's imports.
 def _tr(text):
@@ -195,7 +202,35 @@ def fetch_lyrics(track: dict) -> dict:
         return result
 
 
-class FirefoxPlayer:
+def mpris_player_names(names) -> list[str]:
+    return sorted(name for name in names if name.startswith(MPRIS_PREFIX))
+
+
+def is_netease_url(value) -> bool:
+    try:
+        hostname = urllib.parse.urlsplit(str(value)).hostname or ""
+    except ValueError:
+        return False
+    hostname = hostname.rstrip(".").lower()
+    return hostname == "music.163.com" or hostname.endswith(".music.163.com")
+
+
+def is_supported_source(player: str, url, experimental: bool = False) -> bool:
+    if is_netease_url(url):
+        return True
+    if not experimental:
+        return False
+    try:
+        hostname = (urllib.parse.urlsplit(str(url)).hostname or "").rstrip(".").lower()
+    except ValueError:
+        hostname = ""
+    if any(hostname == host or hostname.endswith("." + host) for host in EXPERIMENTAL_MUSIC_HOSTS):
+        return True
+    name = player.lower()
+    return any(token in name for token in EXPERIMENTAL_PLAYER_NAMES)
+
+
+class BrowserPlayer:
     def __init__(self):
         import gi
         gi.require_version("Gio", "2.0")
@@ -214,7 +249,7 @@ class FirefoxPlayer:
         if time.monotonic() >= self.refresh_at:
             names, = self.call("org.freedesktop.DBus", "/org/freedesktop/DBus",
                 "org.freedesktop.DBus", "ListNames", "()", ())
-            self.players = sorted(n for n in names if n.startswith("org.mpris.MediaPlayer2.firefox"))
+            self.players = mpris_player_names(names)
             self.refresh_at = time.monotonic() + 2
         candidates = []
         for player in self.players:
@@ -223,22 +258,39 @@ class FirefoxPlayer:
                     "GetAll", "(s)", (PLAYER_IFACE,))
                 meta = props.get("Metadata", {})
                 url = meta.get("xesam:url", "")
-                if urllib.parse.urlparse(url).hostname != "music.163.com":
-                    continue
                 title = meta.get("xesam:title", "")
                 if not title:
                     continue
+                artists = list(meta.get("xesam:artist", []))
+                duration = meta.get("mpris:length", 0) / 1_000_000
+                if not is_supported_source(player, url, bool(SETTINGS.get("experimental_other_platforms", False))):
+                    continue
                 position = props.get("Position")
                 candidates.append({"player": player, "title": title,
-                    "artists": list(meta.get("xesam:artist", [])),
+                    "artists": artists,
                     "album": meta.get("xesam:album", ""),
-                    "duration": meta.get("mpris:length", 0) / 1_000_000,
+                    "duration": duration,
                     "position": max(0, position / 1_000_000) if isinstance(position, int) else None,
                     "status": props.get("PlaybackStatus", "Stopped")})
             except self.GLib.Error:
                 self.refresh_at = 0
         candidates.sort(key=lambda t: t["status"] != "Playing")
         return candidates[0] if candidates else None
+
+    def control(self, action: str) -> bool:
+        track = self.snapshot()
+        if not track:
+            return False
+        method = {
+            "play-pause": "Pause" if track["status"] == "Playing" else "Play",
+            "previous": "Previous",
+            "next": "Next",
+        }[action]
+        try:
+            self.call(track["player"], OBJECT_PATH, PLAYER_IFACE, method, "()", ())
+        except self.GLib.Error:
+            return False
+        return True
 
 
 def fit_text(text: str, cells: int = 38) -> str:
@@ -257,8 +309,12 @@ def fit_text(text: str, cells: int = 38) -> str:
 
 def render(track: dict | None, lyrics: dict | None) -> dict:
     if not track or track["status"] == "Stopped":
-        return {"text": _tr('♫ 等待网易云'), "primary": _tr('♫ 等待网易云'), "secondary": "", "class": "idle", "alt": "idle",
-                "tooltip": _tr('在 Firefox 的网易云音乐中播放歌曲，歌词会自动跟随。')}
+        experimental = bool(SETTINGS.get("experimental_other_platforms", False))
+        waiting = '♫ 等待音乐' if experimental else '♫ 等待网易云'
+        tooltip = ('在支持 MPRIS 的音乐平台中播放歌曲，歌词会自动跟随。' if experimental
+                   else '在支持 MPRIS 的浏览器中播放网易云音乐，歌词会自动跟随。')
+        return {"text": _tr(waiting), "primary": _tr(waiting), "secondary": "", "class": "idle", "alt": "idle",
+                "tooltip": _tr(tooltip)}
     title = track["title"] + " · " + " / ".join(track["artists"])
     state = lyrics.get("state", "loading") if lyrics else "loading"
     descriptions = {"loading": _tr('正在获取歌词'), "unmatched": _tr('未找到匹配版本的歌词'),
@@ -285,13 +341,16 @@ def main(argv=None) -> int:
     parser.add_argument("--output-json", action="store_true", help=_tr('连续输出变更后的面板状态'))
     parser.add_argument("--once", action="store_true", help=_tr('读取一次当前状态并退出'))
     parser.add_argument("--diagnose", action="store_true", help=_tr('显示连接与歌词匹配摘要'))
+    parser.add_argument("--control", choices=("play-pause", "previous", "next"))
     parser.add_argument("--settings-json", default="{}")
     args = parser.parse_args(argv)
     global SETTINGS
     SETTINGS = json.loads(args.settings_json)
     if not isinstance(SETTINGS, dict):
         parser.error("settings must be a JSON object")
-    player = FirefoxPlayer()
+    player = BrowserPlayer()
+    if args.control:
+        return 0 if player.control(args.control) else 1
     if args.once or args.diagnose:
         track = player.snapshot()
         lyrics = fetch_lyrics(track) if track else None

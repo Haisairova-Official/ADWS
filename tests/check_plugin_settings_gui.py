@@ -43,11 +43,18 @@ with tempfile.TemporaryDirectory() as temp:
     labels = row["box"].get_children()[1].get_children()
     assert all(label.get_layout().is_ellipsized() for label in labels)
     assert app.collect_layout()["plugins"][0]["settings"] == settings
+    assert app.collect_layout()["plugins"][0]["animations"] is False
+    row["animations"] = True
+    assert app.collect_layout()["plugins"][0]["animations"] is True
     capture(app.window, "/tmp/mnws-layout-settings-preview.png")
-    dialog = SettingsDialog(app.window, "网易云歌词", manifest["settingsSchema"], settings)
+    dialog = SettingsDialog(app.window, "网易云歌词", manifest["settingsSchema"], settings, animations=False)
     dialog.dialog.show_all()
     settle()
     values = dialog.collect()
+    assert dialog.animations is False
+    dialog.animation_toggle.set_active(True)
+    assert "animations" not in dialog.collect()  # Host setting must not leak into plugin settings.
+    assert dialog.animations is True
     assert values["font_family"] == "Sans"
     assert values["primary_color"].startswith("rgb")
     assert values["interval"] == 0

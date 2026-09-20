@@ -2,19 +2,28 @@ use waybar_cffi::gtk::{self as gtk, prelude::*};
 
 /// Request the icons' natural width while allowing GTK to shrink the viewport
 /// before taking space from the other modules. Never set a content-sized minimum.
-pub fn create(content: &gtk::Box, max_width: Option<u32>) -> gtk::ScrolledWindow {
+#[allow(dead_code)] // Used by standalone examples.
+pub fn create(content: &impl IsA<gtk::Widget>, max_width: Option<u32>) -> gtk::ScrolledWindow {
+    create_oriented(content, max_width, false)
+}
+
+pub fn create_oriented(content: &impl IsA<gtk::Widget>, max_width: Option<u32>, vertical: bool) -> gtk::ScrolledWindow {
     let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
     scroll.style_context().add_class("niri-taskbar-scroll");
-    scroll.set_policy(gtk::PolicyType::External, gtk::PolicyType::Never);
-    scroll.set_propagate_natural_width(true);
+    scroll.set_policy(if vertical { gtk::PolicyType::Never } else { gtk::PolicyType::External },
+                      if vertical { gtk::PolicyType::External } else { gtk::PolicyType::Never });
+    scroll.set_propagate_natural_height(vertical);
+    scroll.set_min_content_height(0);
+    scroll.set_propagate_natural_width(!vertical);
     scroll.set_min_content_width(0);
     scroll.set_hexpand(false);
     if let Some(width) = max_width {
-        scroll.set_max_content_width(width.min(i32::MAX as u32) as i32);
+        if vertical { scroll.set_max_content_height(width.min(i32::MAX as u32) as i32); }
+        else { scroll.set_max_content_width(width.min(i32::MAX as u32) as i32); }
     }
     scroll.add(content);
     scroll.add_events(gtk::gdk::EventMask::SCROLL_MASK | gtk::gdk::EventMask::SMOOTH_SCROLL_MASK);
-    scroll.connect_scroll_event(|widget, event| {
+    scroll.connect_scroll_event(move |widget, event| {
         let (dx, dy) = match event.direction() {
             gtk::gdk::ScrollDirection::Up => (0.0, -1.0),
             gtk::gdk::ScrollDirection::Down => (0.0, 1.0),
@@ -23,7 +32,7 @@ pub fn create(content: &gtk::Box, max_width: Option<u32>) -> gtk::ScrolledWindow
             _ => event.delta(),
         };
         let amount = if dx.abs() >= dy.abs() { dx } else { dy };
-        let adjustment = widget.hadjustment();
+        let adjustment = if vertical { widget.vadjustment() } else { widget.hadjustment() };
         let upper = (adjustment.upper() - adjustment.page_size()).max(adjustment.lower());
         adjustment.set_value((adjustment.value() + amount * 56.0).clamp(adjustment.lower(), upper));
         gtk::glib::Propagation::Stop

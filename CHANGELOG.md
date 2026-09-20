@@ -1,5 +1,21 @@
 # Changelog / 更新记录
 
+## 1.27-A — 2026-09-20
+
+开发中，尚未发布 / In development, not released.
+
+- 新增可选的窗口高亮过渡和设置选项卡淡入淡出，默认关闭。
+- 新增同应用窗口堆叠、数量标记及组内窗口菜单。
+- 修复窗口按钮配色优先级，新增悬停、聚焦、文字与提醒颜色设置。
+- 新增四边位置和厚度设置；应用窗口可单排／双排，竖栏为单列／双列，其他组件保持一排。
+- 歌词组件、图片开始按钮和滚动区域适配竖栏。
+
+- Add optional window highlight transitions and settings-tab crossfades, disabled by default.
+- Group windows by application, with counts and per-window menus.
+- Fix color precedence and expose hover, focused, focused-text and urgent colors.
+- Configure all four edges and panel thickness; application windows support two rows or vertical columns while other components retain a single lane.
+- Adapt lyrics, image start buttons and scrolling to vertical panels.
+
 ## 1.25 Released — 2026-09-18
 
 ### 最新更新

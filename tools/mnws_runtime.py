@@ -110,6 +110,8 @@ def build_info():
 
 
 def version_text(info):
+    if info.get('display_version'):
+        return info['display_version']
     if info.get('release_label'):
         return f"{info.get('major_version', _tr('未知'))} {info['release_label']}"
     return f"Major {info.get('major_version', _tr('未知'))}    Minor：{info.get('minor_version', _tr('未知'))}"

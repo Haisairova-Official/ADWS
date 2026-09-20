@@ -17,16 +17,17 @@ use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 use waybar_cffi::{
     Module,
     gtk::{
-        self, Orientation, gio,
+        self, gio,
         glib::MainContext,
         traits::{
-            BoxExt, ContainerExt, StyleContextExt, WidgetExt,
+            ContainerExt, GridExt, StyleContextExt, WidgetExt,
         },
     },
     waybar_module,
 };
 
 mod button;
+mod grouping;
 mod config;
 mod error;
 mod icon;
@@ -38,6 +39,8 @@ mod panel;
 mod process;
 mod state;
 mod scroll;
+#[cfg(test)]
+mod panel_tests;
 
 static TRACING: LazyLock<()> = LazyLock::new(|| {
     if let Err(e) = tracing_subscriber::fmt()
@@ -79,11 +82,13 @@ waybar_module!(TaskbarModule);
 async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<(), Error> {
     // Set up the box that we'll use to contain the actual window buttons.
     let root = info.get_root_widget();
-    let container = gtk::Box::new(Orientation::Horizontal, 0);
+    let container = gtk::Grid::new();
+    container.set_row_homogeneous(!state.config().vertical());
+    container.set_column_homogeneous(state.config().vertical());
     container.style_context().add_class("niri-taskbar");
 
-    let scroll = scroll::create(&container, state.config().max_width());
-    if state.config().max_width().is_none()
+    let scroll = scroll::create_oriented(&container, state.config().max_width(), state.config().vertical());
+    if !state.config().vertical() && state.config().max_width().is_none()
         && let Some(fraction) = state.config().icon_zone_fraction()
     {
         scroll::limit_fraction(&scroll, fraction);
@@ -111,15 +116,22 @@ async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<(), Error> {
 
 struct Instance {
     buttons: BTreeMap<u64, Button>,
-    container: gtk::Box,
+    container: gtk::Grid,
+    representatives: HashMap<u64,u64>,
+    displayed: Vec<u64>,
     last_snapshot: Option<Snapshot>,
     state: State,
 }
 
 impl Instance {
-    pub fn new(state: State, container: gtk::Box) -> Self {
+    fn button_for_window(&self, id: u64) -> Option<&Button> {
+        self.buttons.get(self.representatives.get(&id).unwrap_or(&id))
+    }
+    pub fn new(state: State, container: gtk::Grid) -> Self {
         Self {
             buttons: Default::default(),
+            representatives: Default::default(),
+            displayed: Default::default(),
             container,
             last_snapshot: None,
             state,
@@ -259,7 +271,7 @@ impl Instance {
                     // If the window is already focused, there isn't really much
                     // to do.
                     if !window.is_focused {
-                        if let Some(button) = self.buttons.get(&window.id) {
+                        if let Some(button) = self.button_for_window(window.id) {
                             tracing::trace!(
                                 ?button,
                                 ?window,
@@ -342,7 +354,7 @@ impl Instance {
             };
 
             if app_id == mapped {
-                if let Some(button) = self.buttons.get(&window.id) {
+                if let Some(button) = self.button_for_window(window.id) {
                     tracing::trace!(app_id, ?button, ?window, "toplevel match found via app ID");
                     button.set_urgent();
                     found = true;
@@ -376,7 +388,7 @@ impl Instance {
 
         if !found {
             for id in fuzzy.into_iter() {
-                if let Some(button) = self.buttons.get(&id) {
+                if let Some(button) = self.button_for_window(id) {
                     button.set_urgent();
                 }
             }
@@ -405,7 +417,7 @@ impl Instance {
 
                     // Implicitly adding the button widget to the box as we create it simplifies
                     // reordering, since it means we can just do it as we go.
-                    self.container.add(button.widget());
+
                     entry.insert(button)
                 }
             };
@@ -420,17 +432,37 @@ impl Instance {
             // Since we get the windows in order in the snapshot, we can just
             // push this to the back and then let other widgets push in front as
             // we iterate.
-            self.container.reorder_child(button.widget(), -1);
+
         }
 
         // Remove any windows that no longer exist.
         for id in omitted.into_iter() {
             if let Some(button) = self.buttons.remove(&id) {
-                self.container.remove(button.widget());
+                if button.widget().parent().is_some() { self.container.remove(button.widget()); }
             }
         }
 
-        // Ensure everything is rendered.
+        let visible: Vec<_> = windows.iter().filter(|w| self.buttons.contains_key(&w.id)).collect();
+        let groups = grouping::groups(visible.iter().map(|w| (w.id,w.app_id.as_deref())), self.state.config().group_windows());
+        let displayed: Vec<_> = groups.iter().map(|g|g[0]).collect();
+        self.representatives.clear();
+        for group in &groups {
+            for id in group { self.representatives.insert(*id,group[0]); }
+            if let Some(button) = self.buttons.get(&group[0]) {
+                let members: Vec<_> = group.iter().filter_map(|id|visible.iter().find(|w| w.id==*id))
+                    .map(|w|(w.id,w.title.clone().unwrap_or_else(||w.app_id.clone().unwrap_or_default()))).collect();
+                button.set_group(members);
+                button.set_focus(visible.iter().any(|w|group.contains(&w.id) && w.is_focused));
+            }
+        }
+        if displayed != self.displayed {
+            for child in self.container.children() { self.container.remove(&child); }
+            for (index,id) in displayed.iter().enumerate() {
+                let (column,row) = grouping::cell(index,self.state.config().rows(),self.state.config().vertical());
+                self.container.attach(self.buttons[id].widget(),column,row,1,1);
+            }
+            self.displayed = displayed;
+        }
         self.container.show_all();
 
         // Update the last snapshot.

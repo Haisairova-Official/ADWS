@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use futures::Stream;
 use niri_ipc::{Action, Event, Output, Reply, Request, Workspace, socket::Socket};
 pub use state::{Snapshot, Window};
+#[cfg(test)]
+pub use state::WindowSet;
 pub use window_stream::WindowStream;
 
 use crate::error::Error;

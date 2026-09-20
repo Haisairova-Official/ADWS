@@ -54,7 +54,7 @@ def main():
         subprocess.run(['cc','-shared','-fPIC','-O2',str(ROOT/'src/niri-desktop-layer/integration/waybar-space.c'),'-o',str(folder/'libwaybar-space.so'),*flags],check=True)
         libraries={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.glob('*.so')}
         metadata = json.loads((ROOT / 'build-info.json').read_text())
-        manifest={'version':metadata['major_version'] + ' ' + metadata['release_label'],'os':'arch','arch':'x86_64','sha256':libraries,
+        manifest={'version':metadata.get('display_version') or metadata['major_version'] + ' ' + metadata['release_label'],'os':'arch','arch':'x86_64','sha256':libraries,
                   'source_tree_sha256':hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest()}
         (folder/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
         shutil.copy2(ROOT/'docs/arch-install.md',stage/'ARCH-INSTALL.md')

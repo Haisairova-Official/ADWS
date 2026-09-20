@@ -34,7 +34,7 @@ TASKBAR_MARKER = "/* ==== MNWS 任务栏样式（自动生成）==== */"
 CSS_START = "/* ==== MNWS 插件布局（自动生成）==== */"
 CSS_END = "/* ==== MNWS 插件布局 END ==== */"
 
-SLOT_NAMES = {"left": _tr('左侧'), "center": _tr('中间'), "right": _tr('右侧')}
+SLOT_NAMES = {"left": _tr('前部'), "center": _tr('中间'), "right": _tr('后部')}
 
 BUILTIN_INFO = {
     "start": {"name": _tr('开始按钮'), "module": "custom/applauncher", "slot": "left"},
@@ -323,6 +323,7 @@ def enabled_plugins(layout: dict, available: list[dict]) -> list[dict]:
             "slot": item.get("slot", defaults["slot"]) or defaults["slot"],
             "order": int(item.get("order", 0) or 0),
             "width": max(0, int(width or 0)),
+            "animations": item.get("animations") is True,
             "interval": float(item.get("settings", {}).get("interval", defaults["interval"]) or 0),
             "file": found["file"],
             "manifest": manifest,
@@ -368,7 +369,7 @@ def validate_start_images(options):
         raise ValueError(_tr('默认图片与悬停图片的尺寸必须完全一致。'))
 
 
-def launcher_definition(base=None, config_path=None):
+def module_definition(module, base=None, config_path=None):
     definition, visited = {}, set()
     def read(obj, parent):
         includes = obj.get("include", [])
@@ -381,10 +382,15 @@ def launcher_definition(base=None, config_path=None):
                 continue
             visited.add(path)
             read(parse_jsonc(path.read_text()), path.parent)
-        value = obj.get("custom/applauncher")
+        value = obj.get(module)
         if isinstance(value, dict):
             definition.update(value)
     read(base if base is not None else (read_live_config() or default_base_config()), (config_path or live_config_path()).parent)
+    return definition
+
+
+def launcher_definition(base=None, config_path=None):
+    definition = module_definition('custom/applauncher', base, config_path)
     if definition.get('format') in ('Apps', 'Start', '开始'):
         definition['format'] = _tr('开始')
     return definition
@@ -407,6 +413,9 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
     cfg["fixed-center"] = True
 
     options = layout.get("options", {}) if isinstance(layout.get("options"), dict) else {}
+
+    from mnws_panel_options import geometry
+    panel, vertical = geometry(cfg, options)
 
     if ("start_label" in options or options.get("start_icon_mode") == "distro"
             or "start_launcher_command" in options):
@@ -435,6 +444,8 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             "start_middle_command": definition.get("on-click-middle", ""),
             "start_tooltip": definition.get("tooltip-format", definition.get("format", "")) if definition.get("tooltip", True) else "",
             "start_label": definition.get("format", _tr('开始')),
+            "vertical": vertical,
+            "thickness": panel["thickness"],
         }
         for item in items:
             if item.get("id") == "start":
@@ -459,6 +470,10 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
                 "module_path": str(taskbar_library_path(layout)),
                 "show_all_outputs": base_def.get("show_all_outputs", False),
                 "current_workspace_only": base_def.get("current_workspace_only", True),
+                "vertical": vertical,
+                "rows": panel['window_rows'],
+                "group_windows": panel['group_windows'],
+                "thickness": panel['thickness'],
             }
             if isinstance(base_def.get("apps"), dict):
                 result["apps"] = base_def["apps"]
@@ -496,15 +511,35 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
                 # Let the isolated runner report invalid saved settings, not abort the whole layout.
                 settings = item.get('settings', {})
             command = shlex.join([sys.executable, str(mplg.project_root() / 'tools/mnws_plugin_runner.py'), str(item['file']), '--settings-json', json.dumps(settings, ensure_ascii=False)])
+            settings_command = shlex.join([
+                sys.executable, str(PROJECT_ROOT / "tools/mnws_layout.py"),
+                "gui", "--plugin", item["package"],
+            ])
+            controls = set(item["manifest"].get("controls", []))
+            def control_command(action):
+                if action not in controls:
+                    return ""
+                return shlex.join([
+                    sys.executable, str(entry_path), "--control", action,
+                    "--settings-json", json.dumps(settings, ensure_ascii=False),
+                ])
             if "panel.rows-v1" in item["manifest"].get("interfaces", []):
                 return {
                     "module_path": str(Path.home() / ".local/lib/waybar/libmnws_panel.so"),
                     "exec": command,
+                    "right_command": settings_command,
+                    "left_command": control_command("play-pause"),
+                    "previous_command": control_command("previous"),
+                    "next_command": control_command("next"),
                     **{key: str(settings.get(key, "")) for key in ("font_family", "primary_color", "secondary_color", "separator_color")},
-                    "width": int(item.get("width", 420) or 420),
+                    "width": int(item.get("width", 420)),
+                    "animations": item.get("animations") is True,
+                    "vertical": vertical,
+                    "thickness": panel['thickness'],
                     "widget_name": module_css_id(module),
                 }
-            module_cfg = {"return-type": "json", "exec": command, "tooltip": True}
+            module_cfg = {"return-type": "json", "exec": command, "tooltip": False,
+                          "on-click-right": settings_command}
             alignment = item["manifest"].get("defaults", {}).get("align")
             if isinstance(alignment, (int, float)) and 0 <= alignment <= 1:
                 module_cfg["align"] = alignment
@@ -572,20 +607,33 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             if width > 0:
                 css_rules.append((item["module"], width))
 
+    # Waybar labels support rotation; retain included formats/click actions.
+    for module in [name for name in left_names+center_names+right_names
+                   if name == 'clock' or name.startswith('custom/')]:
+        definition = module_definition(module, cfg, config_path)
+        if module == 'custom/applauncher' and not definition:
+            definition = launcher_definition(cfg, config_path)
+        if vertical or 'position' in options:
+            definition['rotate'] = 90 if vertical and module != 'clock' else 0
+        cfg[module] = definition
     cfg["modules-left"] = left_names or []
     cfg["modules-center"] = center_names
     cfg["modules-right"] = right_names or []
     cfg["_mnws_css_rules"] = css_rules
-    cfg["_mnws_options"] = options
+    cfg["_mnws_options"] = {**options, **panel}
     return cfg
 
 
-def render_css_block(rules: list[tuple[str, int]]) -> str:
-    if not rules:
+def render_css_block(rules: list[tuple[str, int]], options=None) -> str:
+    if not rules and options is None:
         return ""
     lines = [CSS_START]
+    vertical = options is not None and options.get('position') in ('left', 'right')
     for module, width in rules:
-        lines.append("#%s {\n    min-width: %dpx;\n}" % (module_css_id(module), width))
+        lines.append("#%s {\n    min-%s: %dpx;\n}" % (module_css_id(module), 'height' if vertical else 'width', width))
+    if options is not None:
+        from mnws_panel_options import styles
+        lines.append(styles(options))
     lines.append(CSS_END)
     return "\n".join(lines)
 
@@ -631,7 +679,7 @@ def apply_layout(layout: dict | None = None, restart: bool = False,
     try:
         cfg = render_waybar_config(layout, available=available, config_path=config_path)
         config_text = config_to_jsonc(cfg)
-        css_block = render_css_block(cfg.get("_mnws_css_rules", []))
+        css_block = render_css_block(cfg.get("_mnws_css_rules", []), cfg.get("_mnws_options", {}))
     except (OSError, ValueError) as exc:
         return False, _tr('渲染失败：%s') % exc
 
@@ -698,7 +746,7 @@ def cli_render(args) -> int:
     else:
         sys.stdout.write(text)
     if args.style_out:
-        block = render_css_block(cfg.get("_mnws_css_rules", []))
+        block = render_css_block(cfg.get("_mnws_css_rules", []), cfg.get("_mnws_options", {}))
         Path(args.style_out).expanduser().write_text(block, encoding="utf-8")
         print(_tr('CSS 已写入：%s') % args.style_out)
     return 0
@@ -740,6 +788,7 @@ def arguments(argv=None):
 
     p = sub.add_parser("gui", help=_tr('打开任务栏组件与插件管理窗口'))
     p.add_argument("--layout", help=_tr('布局文件'))
+    p.add_argument("--plugin", help=_tr('直接打开指定插件的设置'))
     p.set_defaults(func=cli_gui)
 
     return parser.parse_args(argv)
@@ -747,7 +796,7 @@ def arguments(argv=None):
 
 def cli_gui(args) -> int:
     import mnws_layout_gui
-    return mnws_layout_gui.run(args.layout)
+    return mnws_layout_gui.run(args.layout, args.plugin)
 
 
 def main(argv=None) -> int:

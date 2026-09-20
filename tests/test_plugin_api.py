@@ -76,6 +76,12 @@ class PluginApiTests(unittest.TestCase):
             with self.assertRaises(ValueError):api.settings({'settingsSchema':schema},{'on':value})
         self.assertTrue(api.schema_errors(schema+schema))
 
+    def test_declared_panel_controls(self):
+        self.assertEqual(api.public_errors({**self.manifest,
+                                           'controls':['play-pause', 'previous', 'next']}), [])
+        for controls in [['unknown'], ['next', 'next'], 'next']:
+            self.assertIn('Invalid controls', api.public_errors({**self.manifest, 'controls': controls}))
+
     def test_zip_traversal_duplicates_and_missing_entry(self):
         for extra in ['../escape','/escape','foo/../../escape','C:/escape','foo\\bar','plugin.json']:
             archive=self.root/'bad.mplg'
@@ -113,13 +119,30 @@ class PluginApiTests(unittest.TestCase):
     def test_text_and_rows_layout_use_runner(self):
         for renderer in ['panel.text-v1','panel.rows-v1']:
             self.manifest['renderer']=renderer
+            self.manifest['settingsSchema']=[{'key':'text','type':'string','default':''}]
+            self.manifest['controls']=['play-pause', 'previous', 'next']
             archive=plugin.build_package(self.source())
             manifest=plugin.load_manifest(archive)
             available=[{'ok':True,'file':archive,'manifest':manifest}]
-            state={'builtins':[],'plugins':[{'package':manifest['id'],'enabled':True}],'options':{}}
+            state={'builtins':[],'plugins':[{'package':manifest['id'],'enabled':True,'width':0}],'options':{}}
             with patch.dict(os.environ,{'MNWS_CACHE_DIR':str(self.root/'cache')}):
                 result=layout.render_waybar_config(state,available=available,base={})
             self.assertIn('mnws_plugin_runner.py',json.dumps(result))
+            module = next(key for key in result if key.startswith(('custom/mnws-', 'cffi/mnws-')))
+            self.assertIn('--plugin', result[module].get('right_command', result[module].get('on-click-right', '')))
+            self.assertIn(manifest['id'], result[module].get('right_command', result[module].get('on-click-right', '')))
+            if renderer == 'panel.rows-v1':
+                self.assertEqual(result[module]['width'], 0)
+                self.assertFalse(result[module]['animations'])
+                state['plugins'][0]['animations'] = True
+                with patch.dict(os.environ,{'MNWS_CACHE_DIR':str(self.root/'cache')}):
+                    animated = layout.render_waybar_config(state,available=available,base={})
+                self.assertTrue(animated[module]['animations'])
+                self.assertIn('--control play-pause', result[module]['left_command'])
+                self.assertIn('--control previous', result[module]['previous_command'])
+                self.assertIn('--control next', result[module]['next_command'])
+            else:
+                self.assertFalse(result[module]['tooltip'])
 
     def test_lyrics_id_migration_preserves_settings(self):
         path=self.root/'layout.json'

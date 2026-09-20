@@ -1,11 +1,11 @@
-use std::{cell::RefCell, fmt::Debug, path::PathBuf};
+use std::{cell::RefCell, fmt::Debug, path::PathBuf, rc::Rc};
 
 use waybar_cffi::gtk::{
     self as gtk, Border, CssProvider, IconLookupFlags, IconSize, IconTheme, ReliefStyle,
     StateFlags,
     gdk_pixbuf::Pixbuf,
-    prelude::{ButtonExt, CssProviderExt, GdkPixbufExt, GtkMenuExt, GtkMenuItemExt,
-              IconThemeExt, MenuShellExt, StyleContextExt, WidgetExt},
+    prelude::*,
+
 };
 
 use crate::state::State;
@@ -14,7 +14,10 @@ use crate::state::State;
 pub struct Button {
     app_id: Option<String>,
     button: gtk::Button,
+    badge: gtk::Label,
+    icon: gtk::Overlay,
     state: State,
+    members: Rc<RefCell<Vec<(u64, String)>>>,
 }
 
 impl Debug for Button {
@@ -59,12 +62,23 @@ impl Button {
         let button = gtk::Button::new();
         button.set_always_show_image(true);
         button.set_relief(ReliefStyle::None);
+        let icon = gtk::Overlay::new();
+        icon.add(&gtk::Image::from_icon_name(Some("application-x-executable"),IconSize::Button));
+        let badge = gtk::Label::new(None);
+        badge.style_context().add_class("mnws-window-count");
+        badge.set_halign(gtk::Align::End);
+        badge.set_valign(gtk::Align::End);
+        badge.set_no_show_all(true);
+        icon.add_overlay(&badge);
+        icon.set_overlay_pass_through(&badge,true);
+        button.set_image(Some(&icon));
 
         // Provide the base CSS for each button that users can then extend.
         BUTTON_CSS_PROVIDER.with(|provider| {
+            badge.style_context().add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION - 1);
             button
                 .style_context()
-                .add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+                .add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION - 1);
         });
 
         let app_id = window.app_id.clone();
@@ -75,7 +89,10 @@ impl Button {
         let button = Self {
             app_id,
             button,
+            badge,
+            icon,
             state,
+            members: Rc::new(RefCell::new(vec![(window.id, window.title.clone().unwrap_or_default())])),
         };
 
         // Set up our event handlers. It's easier to do this with self already available.
@@ -84,6 +101,15 @@ impl Button {
         button.connect_size_allocate(icon_path);
 
         button
+    }
+
+    pub fn set_group(&self, members: Vec<(u64, String)>) {
+        let count = members.len();
+        let caption = if count > 1 { count.to_string() } else { String::new() };
+        self.badge.set_text(&caption);
+        self.badge.set_visible(count>1);
+        self.button.set_tooltip_text(Some(&members.iter().map(|(_,title)|title.as_str()).collect::<Vec<_>>().join("\n")));
+        *self.members.borrow_mut() = members;
     }
 
     /// Sets whether the window represented by this button is currently focused.
@@ -139,7 +165,20 @@ impl Button {
     fn connect_click_handler(&self, window_id: u64) {
         let state = self.state.clone();
 
-        self.button.connect_clicked(move |_| {
+        let members = self.members.clone();
+        self.button.connect_clicked(move |button| {
+            if members.borrow().len() > 1 {
+                let menu = gtk::Menu::new();
+                for (id,title) in members.borrow().iter() {
+                    let item = gtk::MenuItem::with_label(title);
+                    let state = state.clone();
+                    let id = *id;
+                    item.connect_activate(move |_| { let _ = state.niri().activate_window(id); });
+                    menu.append(&item);
+                }
+                show_menu(menu, Some(button));
+                return;
+            }
             if let Err(e) = state.niri().activate_window(window_id) {
                 tracing::warn!(%e, id = window_id, "error trying to activate window");
             }
@@ -150,6 +189,7 @@ impl Button {
     fn connect_context_menu(&self, window_id: u64) {
         let state = self.state.clone();
 
+        let members = self.members.clone();
         self.button.connect_button_press_event(move |_button, event| {
             if event.button() != 3 {
                 return gtk::glib::Propagation::Proceed;
@@ -157,6 +197,26 @@ impl Button {
 
             tracing::info!(id = window_id, "{}", crate::i18n::text("打开窗口右键菜单", "Open window context menu"));
             let menu = gtk::Menu::new();
+            if members.borrow().len() > 1 {
+                for (id,title) in members.borrow().iter() {
+                    let item = gtk::MenuItem::with_label(title);
+                    let submenu = gtk::Menu::new();
+                    for (caption, action) in [(crate::i18n::text("聚焦窗口", "Focus window"),0),
+                        (crate::i18n::text("最小化 / 还原", "Minimize / restore"),1),
+                        (crate::i18n::text("关闭窗口", "Close window"),2)] {
+                        let action_item = gtk::MenuItem::with_label(caption);
+                        let state = state.clone(); let id = *id;
+                        action_item.connect_activate(move |_| {
+                            let result = match action {0 => state.niri().activate_window(id),1=>state.niri().toggle_window_minimized(id),_=>state.niri().close_window(id)};
+                            if let Err(error) = result {tracing::warn!(%error,id,"group window action failed");}
+                        });
+                        submenu.append(&action_item);
+                    }
+                    item.set_submenu(Some(&submenu)); menu.append(&item);
+                }
+                show_menu(menu, None);
+                return gtk::glib::Propagation::Stop;
+            }
             let focus = gtk::MenuItem::with_label(crate::i18n::text("聚焦窗口", "Focus window"));
             let minimize = gtk::MenuItem::with_label(crate::i18n::text("最小化 / 还原", "Minimize / restore"));
             let close = gtk::MenuItem::with_label(crate::i18n::text("关闭窗口", "Close window"));
@@ -194,11 +254,11 @@ impl Button {
             });
 
             ACTIVE_CONTEXT_MENU.with(|slot| {
-                let mut active = slot.borrow_mut();
-                if let Some(old) = active.take() {
+                let old = slot.borrow_mut().take();
+                if let Some(old) = old {
                     old.popdown();
                 }
-                *active = Some(menu.clone());
+                *slot.borrow_mut() = Some(menu.clone());
             });
             // 传入触发事件，让 GTK 在指针位置弹出菜单；不传时部分 Wayland 环境会定位失败。
             menu.popup_at_pointer(Some(event));
@@ -210,6 +270,9 @@ impl Button {
     #[tracing::instrument(level = "TRACE")]
     fn connect_size_allocate(&self, icon_path: Option<PathBuf>) {
         let last_size = RefCell::new(None);
+        let icon = self.icon.clone();
+        let vertical = self.state.config().vertical();
+        let lane = (self.state.config().thickness() / self.state.config().rows()) as i32;
 
         self.button
             .connect_size_allocate(move |button, allocation| {
@@ -223,14 +286,14 @@ impl Button {
                 // this was called.
                 if !must_redraw {
                     if let Some(last_size) = last_size.take() {
-                        if &last_size != allocation {
+                        if last_size != (allocation.width(), allocation.height()) {
                             must_redraw = true;
                         }
                     } else {
                         must_redraw = true;
                     }
 
-                    last_size.replace(Some(*allocation));
+                    last_size.replace(Some((allocation.width(), allocation.height())));
                 }
 
                 if must_redraw {
@@ -259,10 +322,12 @@ impl Button {
                     let margin = context.margin(StateFlags::NORMAL);
                     let padding = context.padding(StateFlags::NORMAL);
 
-                    let size = allocation.height()
-                        - border.vertical_size()
-                        - margin.vertical_size()
-                        - padding.vertical_size();
+                    let (available, decoration) = if vertical {
+                        (allocation.width(), border.horizontal_size()+margin.horizontal_size()+padding.horizontal_size())
+                    } else {
+                        (allocation.height(), border.vertical_size()+margin.vertical_size()+padding.vertical_size())
+                    };
+                    let size = (available.min(lane) - decoration).max(1);
 
                     // Now we know the size, we can actually load the image.
                     let image =
@@ -298,9 +363,11 @@ impl Button {
                     // Finally, we can set the button image. Doing this from the callback doesn't
                     // seem to work reliably for reasons I don't understand at all, but doing it
                     // from the main loop as soon as possible does. :shrug:
-                    let button = button.clone();
+                    let icon = icon.clone();
                     gtk::glib::source::idle_add_local_once(move || {
-                        button.set_image(Some(&image));
+                        if let Some(old) = icon.child() { icon.remove(&old); }
+                        icon.add(&image);
+                        image.show();
                     });
                 }
             });
@@ -330,10 +397,26 @@ impl Button {
 
 trait BorderExt {
     fn vertical_size(&self) -> i32;
+    fn horizontal_size(&self) -> i32;
 }
 
 impl BorderExt for Border {
+    fn horizontal_size(&self) -> i32 { (self.left + self.right).into() }
     fn vertical_size(&self) -> i32 {
         (self.top + self.bottom).into()
     }
+}
+
+fn show_menu(menu: gtk::Menu, anchor: Option<&gtk::Button>) {
+    crate::menu_style::apply(&menu);
+    menu.show_all();
+    menu.connect_deactivate(|_| { ACTIVE_CONTEXT_MENU.with(|slot| {slot.borrow_mut().take();}); });
+    ACTIVE_CONTEXT_MENU.with(|slot| {
+        let old = slot.borrow_mut().take();
+        if let Some(old) = old {old.popdown();}
+        *slot.borrow_mut() = Some(menu.clone());
+    });
+    if let Some(button) = anchor {
+        menu.popup_at_widget(button, gtk::gdk::Gravity::SouthWest, gtk::gdk::Gravity::NorthWest, None::<&gtk::gdk::Event>);
+    } else {menu.popup_at_pointer(gtk::current_event().as_ref());}
 }

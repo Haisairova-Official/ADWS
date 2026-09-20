@@ -41,11 +41,86 @@ class LyricsTests(unittest.TestCase):
             self.assertIsNone(lyrics.select_song([bad], self.track()))
         self.assertEqual(lyrics.select_song([song], self.track())["id"], 1)
 
-    def test_firefox_collapsed_collaboration_artists(self):
+    def test_browser_collapsed_collaboration_artists(self):
         song = {"id": 2, "name": "Example", "artists": [{"name": "Singer A"}, {"name": "Singer B"}],
                 "album": {"name": "Album"}, "duration": 120100}
         track = self.track(artists=["Singer A/Singer B"])
         self.assertEqual(lyrics.select_song([song], track)["id"], 2)
+
+    def test_mpris_discovery_supports_chrome_and_filters_by_netease_url(self):
+        names = ["org.freedesktop.DBus", "org.mpris.MediaPlayer2.firefox.instance1",
+                 "org.mpris.MediaPlayer2.chromium.instance42", "org.mpris.MediaPlayer2.vlc"]
+        self.assertEqual(lyrics.mpris_player_names(names), [
+            "org.mpris.MediaPlayer2.chromium.instance42",
+            "org.mpris.MediaPlayer2.firefox.instance1",
+            "org.mpris.MediaPlayer2.vlc",
+        ])
+        for url in ("https://music.163.com/#/song?id=1",
+                    "https://sub.music.163.com/player"):
+            self.assertTrue(lyrics.is_netease_url(url))
+        for url in ("https://example.com/music.163.com", "https://music.163.com.evil.test/", "not a url", ""):
+            self.assertFalse(lyrics.is_netease_url(url))
+
+    def test_other_music_platforms_are_explicitly_opt_in(self):
+        spotify = "https://open.spotify.com/track/123"
+        youtube_music = "https://music.youtube.com/watch?v=123"
+        self.assertFalse(lyrics.is_supported_source("org.mpris.MediaPlayer2.chromium.instance1", spotify))
+        self.assertTrue(lyrics.is_supported_source("org.mpris.MediaPlayer2.chromium.instance1", spotify, True))
+        self.assertTrue(lyrics.is_supported_source("org.mpris.MediaPlayer2.chromium.instance1", youtube_music, True))
+        self.assertTrue(lyrics.is_supported_source("org.mpris.MediaPlayer2.spotify", "spotify:track:123", True))
+        self.assertFalse(lyrics.is_supported_source("org.mpris.MediaPlayer2.chromium.instance1",
+                                                    "https://www.youtube.com/watch?v=123", True))
+        self.assertTrue(lyrics.is_supported_source("org.mpris.MediaPlayer2.firefox.instance1",
+                                                   "https://music.163.com/#/song?id=1", False))
+
+    def test_chromium_mpris_snapshot(self):
+        player = lyrics.BrowserPlayer.__new__(lyrics.BrowserPlayer)
+        player.players = []
+        player.refresh_at = 0
+        player.GLib = type("GLib", (), {"Error": RuntimeError})
+        metadata = {"xesam:url": "https://music.163.com/#/song?id=123",
+                    "xesam:title": "Chrome Song", "xesam:artist": ["Singer"],
+                    "xesam:album": "Album", "mpris:length": 123_000_000}
+        responses = iter([(["org.mpris.MediaPlayer2.chromium.instance42"],),
+                          ({"Metadata": metadata, "Position": 5_000_000,
+                            "PlaybackStatus": "Playing"},)])
+        player.call = lambda *args: next(responses)
+        track = player.snapshot()
+        self.assertEqual(track["player"], "org.mpris.MediaPlayer2.chromium.instance42")
+        self.assertEqual(track["title"], "Chrome Song")
+        self.assertEqual(track["position"], 5)
+
+    def test_experimental_spotify_snapshot(self):
+        lyrics.SETTINGS = {"experimental_other_platforms": True}
+        player = lyrics.BrowserPlayer.__new__(lyrics.BrowserPlayer)
+        player.players = []
+        player.refresh_at = 0
+        player.GLib = type("GLib", (), {"Error": RuntimeError})
+        metadata = {"xesam:url": "https://open.spotify.com/track/123",
+                    "xesam:title": "Spotify Song", "xesam:artist": ["Singer"],
+                    "xesam:album": "Album", "mpris:length": 180_000_000}
+        responses = iter([(["org.mpris.MediaPlayer2.spotify"],),
+                          ({"Metadata": metadata, "Position": 7_000_000,
+                            "PlaybackStatus": "Playing"},)])
+        player.call = lambda *args: next(responses)
+        self.assertEqual(player.snapshot()["title"], "Spotify Song")
+
+    def test_player_controls_selected_source(self):
+        player = lyrics.BrowserPlayer.__new__(lyrics.BrowserPlayer)
+        player.GLib = type("GLib", (), {"Error": RuntimeError})
+        calls = []
+        player.snapshot = lambda: {"player": "org.mpris.MediaPlayer2.chromium.instance42",
+                                   "status": "Playing"}
+        player.call = lambda *args: calls.append(args)
+        self.assertTrue(player.control("play-pause"))
+        self.assertEqual(calls[-1][3], "Pause")
+        player.snapshot = lambda: {"player": "org.mpris.MediaPlayer2.chromium.instance42",
+                                   "status": "Paused"}
+        self.assertTrue(player.control("play-pause"))
+        self.assertEqual(calls[-1][3], "Play")
+        for action, method in (("previous", "Previous"), ("next", "Next")):
+            self.assertTrue(player.control(action))
+            self.assertEqual(calls[-1][3], method)
 
     def test_pause_and_translation_and_markup(self):
         data = {"state": "ready", "lines": [(1, "A < B & C")], "translation": [(1, "译文")]}
@@ -57,6 +132,8 @@ class LyricsTests(unittest.TestCase):
 
     def test_idle_error_and_missing_position(self):
         self.assertEqual(lyrics.render(None, None)["class"], "idle")
+        lyrics.SETTINGS = {"experimental_other_platforms": True}
+        self.assertEqual(lyrics.render(None, None)["primary"], lyrics._tr("♫ 等待音乐"))
         self.assertIn("Example", lyrics.render(self.track(), {"state": "error"})["text"])
         result = lyrics.render(self.track(position=None), {"state": "ready"})
         self.assertIn(lyrics._tr("浏览器尚未提供播放进度"), result["tooltip"])

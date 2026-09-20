@@ -40,16 +40,18 @@ def mainland_china():
 
 def version_key(text):
     # MNWS's Major is a decimal (1.20 -> 1.30), followed by letter-based Minor.
-    match = re.fullmatch(r'v?(\d+\.\d+)(?:\.(\d+))?(?:[\s_-]*(Pre-release|Released?|[A-Za-z]))?', text.strip(), re.I)
+    match = re.fullmatch(r'v?(\d+\.\d+)(?:\.(\d+))?(?:[\s_-]*(Development|Pre-release|Released?|[A-Za-z]))?', text.strip(), re.I)
     if not match:
         raise ValueError(_tr('无法识别版本号：%s') % text)
     major, patch, minor = match.groups()
-    rank = 27 if minor is None or minor.lower() in ('release', 'released') else 26.5 if minor.lower() == 'pre-release' else ord(minor.upper()) - ord('A') + 1
+    rank = 27 if minor is None or minor.lower() in ('release', 'released') else 26.5 if minor.lower() == 'pre-release' else 0 if minor.lower() == 'development' else ord(minor.upper()) - ord('A') + 1
     return Decimal(major), int(patch or 0), rank
 
 
 def current_version():
     info = json.loads((ROOT / 'build-info.json').read_text())
+    if info.get('display_version'):
+        return info['display_version']
     suffix = info.get('release_label') or info.get('minor_version') or 'Release'
     return f"{info['major_version']} {suffix}"
 

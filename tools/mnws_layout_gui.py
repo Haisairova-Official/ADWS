@@ -30,7 +30,7 @@ def _gtk():
 class LayoutWindow:
     """任务栏组件与插件布局窗口（内置组件 + .mplg 插件）。"""
 
-    def __init__(self, layout_file=None):
+    def __init__(self, layout_file=None, open_plugin=None):
         Gdk, Gtk = _gtk()
         self.Gtk = Gtk
         self.layout_file = Path(layout_file) if layout_file else None
@@ -150,6 +150,9 @@ class LayoutWindow:
         self.window.connect("destroy", Gtk.main_quit)
         self.reload()
         self.window.show_all()
+        if open_plugin:
+            from gi.repository import GLib
+            GLib.idle_add(self.open_plugin_settings, open_plugin)
 
     # ---------- 行构建 ----------
 
@@ -190,7 +193,7 @@ class LayoutWindow:
         box.pack_start(label_box, True, True, 0)
 
         slot_combo = Gtk.ComboBoxText()
-        for value, label in (("left", _tr('左侧')), ("center", _tr('中间')), ("right", _tr('右侧'))):
+        for value, label in (("left", _tr('前部')), ("center", _tr('中间')), ("right", _tr('后部'))):
             slot_combo.append(value, label)
         slot_combo.set_active_id(entry.get("slot", "left"))
         slot_combo.connect("changed", lambda combo, e=entry: self.change_slot(e, combo.get_active_id()))
@@ -199,7 +202,7 @@ class LayoutWindow:
         width_spin = Gtk.SpinButton.new_with_range(0, 512, 4)
         width_spin.set_digits(0)
         width_spin.set_value(float(entry.get("width", 0) or 0))
-        width_spin.set_tooltip_text(_tr('像素宽度；0 = 自适应'))
+        width_spin.set_tooltip_text(_tr('像素宽度；0 = 随文字长度变化'))
         width_spin.set_sensitive(bool(entry.get("editable_width", False)))
         box.pack_start(width_spin, False, False, 0)
 
@@ -213,7 +216,7 @@ class LayoutWindow:
         box.pack_start(down, False, False, 0)
 
         if entry.get("kind") == "plugin":
-            if entry.get("manifest", {}).get("settingsSchema"):
+            if entry.get("manifest", {}).get("settingsSchema") or "panel.rows-v1" in entry.get("manifest", {}).get("interfaces", []):
                 settings_btn = Gtk.Button(label=_tr('设置…'))
                 settings_btn.connect("clicked", lambda _b, e=entry: self.on_plugin_settings(e))
                 box.pack_start(settings_btn, False, False, 0)
@@ -298,6 +301,7 @@ class LayoutWindow:
                 "slot": stored.get("slot", defaults["slot"]) or defaults["slot"],
                 "order": int(stored.get("order", 0) or 0),
                 "width": max(0, int(width or 0)),
+                "animations": stored.get("animations") is True,
                 "editable_width": True,
                 "file": entry["file"],
                 "manifest": manifest,
@@ -436,11 +440,27 @@ class LayoutWindow:
         dialog = SettingsDialog(self.window, entry["name"],
                                 entry["manifest"].get("settingsSchema", []),
                                 entry.get("settings", {}),
+                                animations=entry.get("animations", False) if "panel.rows-v1" in entry["manifest"].get("interfaces", []) else None,
                                 validator=validate_settings if canonical_id(entry['manifest']['id']) == 'org.AkiACG_Community.NCMLyricsBar' else None)
         values = dialog.run()
         if values is not None:
             entry["settings"] = values
+            if dialog.animations is not None:
+                entry["animations"] = dialog.animations
             self.save_layout(restart=True)
+
+    def open_plugin_settings(self, package_id):
+        from mnws_plugin_api import canonical_id
+        package_id = canonical_id(package_id)
+        entry = next((row for row in self.rows
+                      if row.get("kind") == "plugin" and row.get("key") == package_id), None)
+        if entry is None:
+            self.show_message(_tr('无法打开插件设置'), _tr('没有找到插件：%s') % package_id, error=True)
+        elif not entry.get("manifest", {}).get("settingsSchema") and "panel.rows-v1" not in entry.get("manifest", {}).get("interfaces", []):
+            self.show_message(_tr('无法打开插件设置'), _tr('此插件没有可配置的设置。'))
+        else:
+            self.on_plugin_settings(entry)
+        return False
 
     # ---------- 保存 ----------
 
@@ -517,6 +537,7 @@ class LayoutWindow:
                     "package": row["key"], "enabled": enabled, "slot": slot,
                     "order": 0,
                     "width": int(widgets["width"].get_value()),
+                    "animations": row.get("animations") is True,
                     "settings": dict(row.get("settings") or {}),
                 })
         counters = {"left": 0, "center": 0, "right": 0}
@@ -583,13 +604,13 @@ class LayoutWindow:
         dialog.destroy()
 
 
-def run(layout_file=None) -> int:
+def run(layout_file=None, open_plugin=None) -> int:
     from gi.repository import GLib
     # Wayland's app_id comes from prgname, not the X11 program class.
     GLib.set_prgname("mnws-layout")
     Gdk, Gtk = _gtk()
     Gdk.set_program_class("mnws-layout")
-    LayoutWindow(layout_file)
+    LayoutWindow(layout_file, open_plugin)
     Gtk.main()
     return 0
 

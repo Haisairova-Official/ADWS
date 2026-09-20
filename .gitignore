@@ -4,6 +4,7 @@ __pycache__/
 *.so
 *.mplg
 src/panel-rows/test-panel
+src/panel-rows/test-motion-events
 src/niri-desktop-layer/state/
 *.mnws-bak*
 *.bak
@@ -12,3 +13,7 @@ src/niri-desktop-layer/state/
 !.env.example
 core
 core.*
+
+src/panel-rows/test-vertical
+
+.cache/
