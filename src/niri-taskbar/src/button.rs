@@ -14,7 +14,12 @@ use crate::state::State;
 pub struct Button {
     app_id: Option<String>,
     button: gtk::Button,
-    badge: gtk::Label,
+    badge: gtk::DrawingArea,
+    count: Rc<std::cell::Cell<usize>>,
+    #[cfg(test)]
+    pub(crate) hover_popup: RefCell<Option<gtk::Popover>>,
+    #[cfg(test)]
+    pub(crate) badge_test: gtk::DrawingArea,
     icon: gtk::Overlay,
     state: State,
     members: Rc<RefCell<Vec<(u64, String)>>>,
@@ -64,7 +69,24 @@ impl Button {
         button.set_relief(ReliefStyle::None);
         let icon = gtk::Overlay::new();
         icon.add(&gtk::Image::from_icon_name(Some("application-x-executable"),IconSize::Button));
-        let badge = gtk::Label::new(None);
+        let badge = gtk::DrawingArea::new();
+        let count=Rc::new(std::cell::Cell::new(0usize));
+        let diameter=(state.config().thickness()/state.config().rows()/2).clamp(8,20) as i32;
+        badge.set_size_request(diameter,diameter);
+        let number=count.clone();
+        badge.connect_draw(move |widget,cr| {
+            let size=widget.allocated_width().min(widget.allocated_height()) as f64;
+            let style=widget.style_context();
+            let bg=style.lookup_color("primary").or_else(||style.lookup_color("theme_selected_bg_color")).unwrap_or(gtk::gdk::RGBA::new(0.2,0.4,0.8,1.));
+            let fg=style.lookup_color("on_primary").or_else(||style.lookup_color("theme_selected_fg_color")).unwrap_or(gtk::gdk::RGBA::new(1.,1.,1.,1.));
+            cr.set_source_rgba(bg.red(),bg.green(),bg.blue(),1.);cr.arc(size/2.,size/2.,size/2.,0.,std::f64::consts::TAU);let _=cr.fill();
+            let text=if number.get()>99{"99+".to_string()}else{number.get().to_string()};
+            cr.select_font_face("Sans",gtk::cairo::FontSlant::Normal,gtk::cairo::FontWeight::Bold);
+            cr.set_font_size(size*if text.len()>2{0.38}else{0.58});
+            if let Ok(ext)=cr.text_extents(&text){cr.move_to((size-ext.width())/2.-ext.x_bearing(),(size-ext.height())/2.-ext.y_bearing());}
+            cr.set_source_rgba(fg.red(),fg.green(),fg.blue(),1.);let _=cr.show_text(&text);
+            gtk::glib::Propagation::Stop
+        });
         badge.style_context().add_class("mnws-window-count");
         badge.set_halign(gtk::Align::End);
         badge.set_valign(gtk::Align::End);
@@ -75,7 +97,7 @@ impl Button {
 
         // Provide the base CSS for each button that users can then extend.
         BUTTON_CSS_PROVIDER.with(|provider| {
-            badge.style_context().add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+
             button
                 .style_context()
                 .add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION - 1);
@@ -89,7 +111,12 @@ impl Button {
         let button = Self {
             app_id,
             button,
+            #[cfg(test)]
+            badge_test: badge.clone(),
+            #[cfg(test)]
+            hover_popup: RefCell::new(None),
             badge,
+            count,
             icon,
             state,
             members: Rc::new(RefCell::new(vec![(window.id, window.title.clone().unwrap_or_default())])),
@@ -106,8 +133,8 @@ impl Button {
 
     pub fn set_group(&self, members: Vec<(u64, String)>) {
         let count = members.len();
-        let caption = if count > 1 { count.to_string() } else { String::new() };
-        self.badge.set_text(&caption);
+        self.count.set(count);
+        self.badge.queue_draw();
         self.badge.set_visible(count>1);
         self.button.set_has_tooltip(false);
         *self.members.borrow_mut() = members;
@@ -178,6 +205,8 @@ impl Button {
     fn connect_hover_description(&self) {
         // A native popup outside the layer surface avoids clipped bottom-edge tooltips.
         let popup = gtk::Popover::new(Some(&self.button));
+        #[cfg(test)]
+        self.hover_popup.replace(Some(popup.clone()));
         popup.set_modal(false);
         popup.set_position(match self.state.config().position() {
             "top"=>gtk::PositionType::Bottom,"left"=>gtk::PositionType::Right,
@@ -185,16 +214,19 @@ impl Button {
         });
         popup.set_constrain_to(gtk::PopoverConstraint::None);
         let inside=Rc::new(std::cell::Cell::new(false));
+        let generation=Rc::new(std::cell::Cell::new(0u64));
         let members=self.members.clone();let state=self.state.clone();
-        let hovered=inside.clone();let weak=popup.downgrade();
+        let hovered=inside.clone();let weak=popup.downgrade();let serial=generation.clone();
         self.button.add_events(gtk::gdk::EventMask::ENTER_NOTIFY_MASK|gtk::gdk::EventMask::LEAVE_NOTIFY_MASK);
         self.button.connect_enter_notify_event(move |_,event| {
             if event.detail()==gtk::gdk::NotifyType::Inferior{return gtk::glib::Propagation::Proceed;}
             hovered.set(true);
+            serial.set(serial.get()+1);let ticket=serial.get();let serial=serial.clone();
+            if weak.upgrade().is_some_and(|p|p.is_visible()){return gtk::glib::Propagation::Proceed;}
             let hovered=hovered.clone();let weak=weak.clone();let members=members.clone();let state=state.clone();
             gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(250),move || {
                 let Some(popup)=weak.upgrade() else{return};
-                if !hovered.get(){return;}
+                if !hovered.get() || serial.get()!=ticket || popup.is_visible(){return;}
                 if let Some(child)=popup.child(){popup.remove(&child);}
                 let items=gtk::Box::new(gtk::Orientation::Vertical,4);items.set_border_width(8);
                 for (id,title) in members.borrow().iter() {
@@ -206,20 +238,20 @@ impl Button {
                         items.pack_start(&select,false,false,0);
                     } else {items.pack_start(&text,false,false,0);}
                 }
-                popup.add(&items);items.show_all();popup.popup();
+                popup.add(&items);items.show_all();popup.show();
             });
             gtk::glib::Propagation::Proceed
         });
-        let hovered=inside.clone();let weak=popup.downgrade();
+        let hovered=inside.clone();let weak=popup.downgrade();let serial=generation.clone();
         self.button.connect_leave_notify_event(move |_,event| {
             if event.detail()==gtk::gdk::NotifyType::Inferior{return gtk::glib::Propagation::Proceed;}
-            hovered.set(false);let hovered=hovered.clone();let weak=weak.clone();
-            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(200),move ||{if !hovered.get(){if let Some(p)=weak.upgrade(){p.popdown();}}});
+            hovered.set(false);serial.set(serial.get()+1);let ticket=serial.get();let serial=serial.clone();let hovered=hovered.clone();let weak=weak.clone();
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(200),move ||{if serial.get()==ticket && !hovered.get(){if let Some(p)=weak.upgrade(){p.hide();}}});
             gtk::glib::Propagation::Proceed
         });
         popup.add_events(gtk::gdk::EventMask::ENTER_NOTIFY_MASK|gtk::gdk::EventMask::LEAVE_NOTIFY_MASK);
-        let hovered=inside.clone();popup.connect_enter_notify_event(move |_,_|{hovered.set(true);gtk::glib::Propagation::Proceed});
-        popup.connect_leave_notify_event(move |p,e|{if e.detail()!=gtk::gdk::NotifyType::Inferior{inside.set(false);p.popdown();}gtk::glib::Propagation::Proceed});
+        let hovered=inside.clone();let serial=generation.clone();popup.connect_enter_notify_event(move |_,e|{if e.detail()!=gtk::gdk::NotifyType::Inferior{serial.set(serial.get()+1);hovered.set(true);}gtk::glib::Propagation::Proceed});
+        popup.connect_leave_notify_event(move |p,e|{if e.detail()!=gtk::gdk::NotifyType::Inferior{generation.set(generation.get()+1);let ticket=generation.get();inside.set(false);let serial=generation.clone();let hovered=inside.clone();let weak=p.downgrade();gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(200),move ||{if serial.get()==ticket && !hovered.get(){if let Some(p)=weak.upgrade(){p.hide();}}});}gtk::glib::Propagation::Proceed});
         self.button.connect_destroy(move |_|{unsafe{popup.destroy();}});
     }
 

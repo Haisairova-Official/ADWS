@@ -59,6 +59,28 @@ fn panel_geometry_groups_and_colors() {
                     let color: gtk::gdk::RGBA=first.style_context().style_property_for_state("background-color",gtk::StateFlags::NORMAL).get().unwrap();
                     assert!((color.red()-18.0/255.0).abs()<0.01,"custom focus color was overridden: {color:?}");
                 }
+                if grouped && !vertical && rows==1 {
+                    let badge=&instance.buttons[&1].badge_test;
+                    assert_eq!(badge.allocated_width(),badge.allocated_height());
+                    assert!(badge.allocated_width()<=20);
+                    let popup=instance.buttons[&1].hover_popup.borrow().clone().unwrap();
+                    let enter=gtk::gdk::Event::new(gtk::gdk::EventType::EnterNotify);
+                    let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);
+                    settle();settle();
+                    assert!(popup.is_visible());
+                    let content=popup.child().unwrap();
+                    for _ in 0..3 {let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);}
+                    settle();settle();
+                    assert_eq!(popup.child().unwrap(),content,"repeated crossing rebuilt popup");
+                    let leave=gtk::gdk::Event::new(gtk::gdk::EventType::LeaveNotify);
+                    let _:bool=first.emit_by_name("leave-notify-event",&[&leave]);
+                    let _:bool=popup.emit_by_name("enter-notify-event",&[&enter]);
+                    settle();
+                    assert!(popup.is_visible(),"moving to popup hid it");
+                    let _:bool=popup.emit_by_name("leave-notify-event",&[&leave]);
+                    settle();
+                    assert!(!popup.is_visible());
+                }
                 first.set_state_flags(gtk::StateFlags::PRELIGHT,false);settle();
                 let hover:gtk::gdk::RGBA=first.style_context().style_property_for_state("background-color",gtk::StateFlags::PRELIGHT).get().unwrap();
                 assert!((hover.red()-if grouped {18.0/255.0}else{204.0/255.0}).abs()<0.01,"hover color was overridden");

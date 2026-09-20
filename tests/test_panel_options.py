@@ -47,3 +47,8 @@ class PanelOptionsTests(unittest.TestCase):
         self.assertEqual(result['clock']['rotate'],0)
         self.assertEqual(result['clock']['on-click'],'kclock')
         self.assertEqual(result['clock']['format'],'{:%H:%M}')
+
+    def test_popup_parent_layer_is_above_tiles(self):
+        for layer in ('bottom','background','top','overlay'):
+            result=layout.render_waybar_config({'options':{},'plugins':[],'builtins':[]},available=[],base={'layer':layer})
+            self.assertEqual(result['layer'],'overlay' if layer=='overlay' else 'top')

@@ -4,6 +4,9 @@
 
 开发中，尚未发布 / In development, not released.
 
+- 修复悬停提示层级与重复弹出，统一开始和时钟提示层级，并修正数量角标尺寸。
+- Fix tooltip stacking and repeated popups, including Start and Clock tooltips; correct count-badge sizing.
+
 - 完善圆形窗口数量角标、聚焦配色、悬停窗口列表和开始按钮渐变。（1.27-A）
 - Refine circular window counts, focus colors, hover window lists and start-button transitions. Live thumbnails remain pending.
 

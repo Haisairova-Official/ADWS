@@ -1,6 +1,6 @@
-> **声明：本 Repo 使用大量 vibe coding，可能不适合所有人。**
+> **声明：本 Repo 存在使用 vibe coding 的内容。本项目仍处于早期状态。**
 >
-> **Notice: This repository makes extensive use of vibe coding and may not be suitable for everyone.**
+> **Notice: This repository contains work created with vibe coding. The project is still in its early stages.**
 
 # MNWS — My Niri Workspace Solution
 

@@ -411,6 +411,9 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
     normalize_default_include(cfg, config_path or live_config_path())
     # "中间" means the bar's geometric centre, independent of side widths.
     cfg["fixed-center"] = True
+    # Popups inherit their layer-shell parent. Bottom puts descriptions behind tiles.
+    if cfg.get("layer", "bottom") in ("bottom", "background"):
+        cfg["layer"] = "top"
 
     options = layout.get("options", {}) if isinstance(layout.get("options"), dict) else {}
 
