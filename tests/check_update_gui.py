@@ -26,12 +26,14 @@ with patch.object(config.ConfigWindow, 'refresh_statuses'), patch.object(config,
     window = config.ConfigWindow(tab='about')
     window.notebook.set_current_page(2)
     ready = threading.Event()
-    def slow_check():
+    def slow_check(preview=False):
+        assert not preview
         ready.wait(2)
         return {'available':False,'text':'No updates found.','url':None}
     with patch('mnws_update.check_update', side_effect=slow_check):
         window.check_updates()
         assert not window.update_button.get_sensitive()
+        assert not window.update_preview.get_sensitive()
         ticks = []
         config.GLib.idle_add(lambda: ticks.append(True) and False)
         settle(lambda: bool(ticks))
@@ -39,15 +41,23 @@ with patch.object(config.ConfigWindow, 'refresh_statuses'), patch.object(config,
         settle(lambda: window.update_button.get_sensitive())
         assert window.update_result.get_text() == 'No updates found.'
         assert not window.update_link.get_visible()
-    with patch('mnws_update.check_update', return_value={'available':True,'text':'New version available','url':'https://github.com/Haisairova-Official/MNWS/releases/tag/v1.3'}):
+    window.update_preview.set_active(True)
+    with patch('mnws_update.check_update', return_value={'available':True,'text':'New version available','url':'https://github.com/Haisairova-Official/MNWS/releases/tag/v1.3'}) as check:
         window.check_updates()
         settle(lambda: window.update_button.get_sensitive())
         assert window.update_link.get_visible()
+        assert window.update_preview.get_sensitive()
+        check.assert_called_once_with(preview=True)
     with patch('mnws_update.check_update', side_effect=RuntimeError('Network unavailable')):
         window.check_updates()
         settle(lambda: window.update_button.get_sensitive())
         assert window.update_result.get_text() == 'Network unavailable'
         assert not window.update_link.get_visible()
+    settle()
+    import cairo
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, window.get_allocated_width(), window.get_allocated_height())
+    window.draw(cairo.Context(surface))
+    surface.write_to_png('/tmp/mnws-update-preview.png')
     window.notebook.set_current_page(1)
     window.resize(800, 760)
     settle(lambda: window.get_allocated_width() >= 800)

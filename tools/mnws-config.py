@@ -895,6 +895,8 @@ class ConfigWindow(Gtk.Window):
         title = Gtk.Label(label="My Niri Workspace Solution (MNWS)", xalign=0)
         title.get_style_context().add_class("title")
         box.pack_start(title, False, False, 0)
+        self.update_preview = Gtk.CheckButton(label=_tr('Beta 渠道（包含预发布版本）'))
+        box.pack_start(self.update_preview, False, False, 0)
         self.update_button = Gtk.Button(label=_tr('检查更新'))
         self.update_button.set_halign(Gtk.Align.START)
         self.update_button.connect('clicked', self.check_updates)
@@ -934,6 +936,8 @@ class ConfigWindow(Gtk.Window):
     def check_updates(self, _button=None):
         import threading
         from mnws_update import check_update
+        preview = self.update_preview.get_active()
+        self.update_preview.set_sensitive(False)
         self.update_button.set_sensitive(False)
         self.update_result.set_text(_tr('正在检查更新…'))
         self.update_link.hide()
@@ -941,6 +945,7 @@ class ConfigWindow(Gtk.Window):
             if not self.get_realized():
                 return False
             self.update_button.set_sensitive(True)
+            self.update_preview.set_sensitive(True)
             self.update_result.set_text(error or result['text'])
             if result and result['url']:
                 self.update_link.set_uri(result['url'])
@@ -948,7 +953,7 @@ class ConfigWindow(Gtk.Window):
             return False
         def worker():
             try:
-                result = check_update()
+                result = check_update(preview=preview)
                 GLib.idle_add(finish, result, None)
             except (OSError, ValueError, RuntimeError) as error:
                 GLib.idle_add(finish, None, str(error))

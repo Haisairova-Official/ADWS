@@ -6,7 +6,7 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development version: **1.27-C** · 最新已发布 / Latest published: **1.25 Released** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development version: **1.27-D** · 最新已发布 / Latest published: **1.25 Released** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
 
@@ -16,9 +16,9 @@ MNWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 
 1.25 已在 Arch Linux 与 Ubuntu 的 Niri 环境完成测试。MNWS 仍依赖 Niri、Waybar 和发行版提供的系统组件，不打算取代窗口管理器或 Linux 用户空间。
 
-### 1.27-C 开发版（Pre-1.30）
+### 1.27-D 开发版（Pre-1.30）
 
-Major 1.27    Minor：C    构建日期：2026-09-21
+Major 1.27    Minor：D    构建日期：2026-09-21
 
 - 增加了大量可选动效，你的任务栏再也不无聊了。
 - 增加了大量配色选项。
@@ -40,6 +40,7 @@ Major 1.27    Minor：C    构建日期：2026-09-21
 - 新建文件和文件夹也使用原位编辑，默认名称为 text.txt、markdown.md 和 folder；取消不会留下空文件。
 - 新增固定应用：点击启动，本桌面打开后进入活动区，关闭后回到原来的固定位置。
 - 同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。（C）
+- 检查更新新增 Beta 渠道，支持 mnws -u --preview 和 mnws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
 
 在“任务栏设置”的外观页中设置任务栏位置、厚度、窗口单排／双排、同应用窗口堆叠和独立配色。双排仅作用于应用窗口，其他组件仍为单排；左右竖栏对应双列。分组按钮显示窗口数量，左键切回组内最近使用的窗口，右键管理窗口；可开启悬停窗口画面预览，点击缩略图或标题可切换窗口。
 
@@ -123,12 +124,13 @@ mnws --status                   # 查看两者状态
 mnws config                     # 打开统一设置
 mnws layout apply --restart     # 应用任务栏布局
 mnws -u                         # 检查正式 Release 更新
+mnws -u --preview               # 检查 Beta 渠道（含预发布）
 mnws --uninstall                # 卸载
 ```
 
 `desktop` 和 `taskbar` 可以单独管理，例如 `mnws taskbar -s`、`mnws desktop -S`。使用 `--debug/-d` 在当前终端运行并输出日志，`-1` 至 `-6` 控制日志级别，默认为 `-4`。
 
-检查更新不会自动安装。中国大陆出口 IP 会优先尝试 GitHub 代理，失败后回退直连。
+检查更新不会自动安装。默认检查稳定版；使用 `mnws -u --preview` 或 `mnws --update --preview`，或在设置的“关于”页勾选“Beta 渠道（包含预发布版本）”，可同时检查稳定版和预发布版。渠道选择仅作用于本次检查，不改变默认渠道。检查以 GitHub Release 为准，开发分支提交需要先发布为预发布版本才能被检测到。中国大陆出口 IP 会优先尝试 GitHub 代理，失败后回退直连。
 
 ### 插件与 Sample
 
@@ -164,9 +166,9 @@ MNWS adds desktop icons, a bottom taskbar, unified settings and a plugin system 
 
 Version 1.25 has been tested with Niri on Arch Linux and Ubuntu. MNWS still relies on Niri, Waybar and distribution-provided system components; it does not aim to replace the window manager or the Linux user space.
 
-### 1.27-C development build (Pre-1.30)
+### 1.27-D development build (Pre-1.30)
 
-Major 1.27    Minor: C    Build date: 2026-09-21
+Major 1.27    Minor: D    Build date: 2026-09-21
 
 - Add plenty of optional animations—your taskbar will never be boring again.
 - Add many more color options.
@@ -188,6 +190,7 @@ Major 1.27    Minor: C    Build date: 2026-09-21
 - Use inline editing for new files and folders, defaulting to text.txt, markdown.md and folder; cancelling leaves no files behind.
 - Add pinned apps: click to launch, move into the active area when opened on this workspace, and return to the saved pin position when closed.
 - Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here. (C)
+- Add a Beta update channel via mnws -u --preview or mnws --update --preview and a Settings option; stable releases remain the default. (D)
 
 The Appearance tab in Taskbar Settings provides panel edge and thickness, one or two window rows, application grouping and independent state colors. Only application windows use two rows; other components remain in one row. Vertical panels use two columns. Group buttons show a window count; left-click returns to the most recently used member and right-click manages group members. Optional live window thumbnails allow selection by image or title.
 
@@ -276,7 +279,7 @@ mnws --uninstall                # Uninstall
 
 Manage `desktop` and `taskbar` separately with commands such as `mnws taskbar -s` and `mnws desktop -S`. Run either component in the current terminal with `--debug/-d`; `-1` through `-6` select the log level, with `-4` as the default.
 
-Update checks do not install anything. Mainland-China outbound IPs try a GitHub proxy first and fall back to a direct connection.
+Update checks do not install anything. Stable releases are checked by default. Use `mnws -u --preview` or `mnws --update --preview`, or select “Beta channel (include prereleases)” on the About page in Settings, to include prereleases. The selection applies to the current check without changing the default channel. Checks use GitHub Releases; development branch commits must first be published as prereleases to be detected. Mainland-China outbound IPs try a GitHub proxy first and fall back to a direct connection.
 
 ### Plugins and samples
 

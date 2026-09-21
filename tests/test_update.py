@@ -55,3 +55,62 @@ class UpdateTests(unittest.TestCase):
     def test_remote_release_links_cannot_redirect_to_another_site(self):
         with patch.object(update, 'mainland_china', return_value=False), patch.object(update, 'read_json', return_value={'tag_name':'v99.0','html_url':'https://example.invalid'}):
             self.assertTrue(update.check_update()['url'].startswith('https://github.com/Haisairova-Official/MNWS/releases/tag/'))
+
+    def test_preview_includes_prereleases_and_chooses_highest_version(self):
+        releases = [
+            {'tag_name':'v1.27-A','prerelease':True},
+            {'tag_name':'v9.0','draft':True},
+            {'tag_name':'lyrics-1.1.0'},
+            {'tag_name':'v1.27-C','prerelease':True},
+            {'tag_name':'v1.25','name':'1.25 Released'}]
+        with patch.object(update,'mainland_china',return_value=False), patch.object(update,'current_version',return_value='1.27-B'), patch.object(update,'read_json',return_value=releases) as read:
+            result=update.check_update(preview=True)
+            self.assertTrue(result['available'])
+            self.assertTrue(result['url'].endswith('/v1.27-C'))
+            read.assert_called_once_with(update.PREVIEW_API)
+            releases.append({'tag_name':'v1.30','prerelease':False})
+            self.assertTrue(update.check_update(preview=True)['url'].endswith('/v1.30'))
+
+    def test_preview_no_downgrade_empty_and_invalid_responses(self):
+        with patch.object(update,'mainland_china',return_value=False), patch.object(update,'current_version',return_value='1.27-C'), patch.object(update,'message',return_value='none') as message_mock:
+            for releases in ([], [{'tag_name':'v1.27-C','prerelease':True}], [{'tag_name':'v1.25'}], [{'tag_name':'v9.0','draft':True}]):
+                with patch.object(update,'read_json',return_value=releases):
+                    self.assertFalse(update.check_update(preview=True)['available'])
+            message_mock.reset_mock()
+            for releases in ({'message':'rate limited'}, [None], [{}], [{'tag_name':'invalid'}]):
+                with patch.object(update,'read_json',return_value=releases), self.assertRaises(RuntimeError):
+                    update.check_update(preview=True)
+            message_mock.assert_not_called()
+
+    def test_preview_proxy_failure_and_pagination(self):
+        old={'tag_name':'v1.25'}
+        with patch.object(update,'mainland_china',return_value=True), patch.dict(os.environ,{'MNWS_GITHUB_PROXY':'https://gh-proxy.com/'}), patch.object(update,'current_version',return_value='1.27-C'), patch.object(update,'read_json',side_effect=[OSError('proxy unavailable'), [old]*100, [{'tag_name':'v1.27-D','prerelease':True}]]) as read:
+            self.assertTrue(update.check_update(preview=True)['url'].endswith('/v1.27-D'))
+            self.assertEqual([c.args[0] for c in read.call_args_list],[
+                'https://gh-proxy.com/'+update.PREVIEW_API,update.PREVIEW_API,
+                update.RELEASES_API+'?per_page=100&page=2'])
+        with patch.object(update,'mainland_china',return_value=False), patch.object(update,'read_json',side_effect=[[old]*100,OSError('second page failed')]), patch.object(update,'message') as message_mock:
+            with self.assertRaises(RuntimeError):update.check_update(preview=True)
+            message_mock.assert_not_called()
+
+    def test_cli_preview_selection_and_invalid_options(self):
+        with patch.object(update,'check_update',return_value={'text':'none','url':None}) as check, patch('builtins.print'):
+            self.assertEqual(update.main(['--preview']),0)
+            check.assert_called_once_with(preview=True)
+            check.reset_mock()
+            self.assertEqual(update.main([]),0)
+            check.assert_called_once_with(preview=False)
+            check.reset_mock()
+            with self.assertRaises(SystemExit):update.main(['--preview','--bad'])
+            check.assert_not_called()
+
+    def test_shell_dispatch_for_both_update_spellings(self):
+        import tempfile, subprocess
+        root=Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as folder:
+            python=Path(folder)/'python3'
+            python.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+            python.chmod(0o755)
+            for flag in ['-u','--update']:
+                result=subprocess.run(['bash',str(root/'mnws'),flag,'--preview'],env={**os.environ,'PATH':folder+os.pathsep+os.environ['PATH']},capture_output=True,text=True,check=True)
+                self.assertEqual(result.stdout.splitlines(),[str(root/'tools/mnws_update.py'),'--preview'])

@@ -14,7 +14,9 @@ from mnws_i18n import tr as _tr, message
 
 ROOT = Path(__file__).resolve().parent.parent
 REPOSITORY = 'Haisairova-Official/MNWS'
-API = f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
+RELEASES_API = f'https://api.github.com/repos/{REPOSITORY}/releases'
+API = RELEASES_API + '/latest'
+PREVIEW_API = RELEASES_API + '?per_page=100&page=1'
 COUNTRY_API = 'https://api.country.is/'
 DEFAULT_PROXY = 'https://gh-proxy.com/'
 
@@ -26,14 +28,15 @@ def read_json(url, timeout=5):
     if len(payload) > 1024 * 1024:
         raise ValueError('Response exceeds size limit')
     data = json.loads(payload)
-    if not isinstance(data, dict):
-        raise ValueError('Expected a JSON object')
+    if not isinstance(data, (dict, list)):
+        raise ValueError('Expected a JSON object or array')
     return data
 
 
 def mainland_china():
     try:
-        return read_json(COUNTRY_API, timeout=2).get('country') == 'CN'
+        data = read_json(COUNTRY_API, timeout=2)
+        return isinstance(data, dict) and data.get('country') == 'CN'
     except (OSError, ValueError):
         return False
 
@@ -56,34 +59,70 @@ def current_version():
     return f"{info['major_version']} {suffix}"
 
 
-def check_update():
+def release_version(release):
+    tag = release.get('tag_name')
+    if not isinstance(tag, str):
+        raise ValueError(_tr('更新源缺少版本号。'))
+    remote = version_key(tag)
+    name = release.get('name')
+    if isinstance(name, str):
+        try:
+            named = version_key(name)
+            if named[:2] == remote[:2]:
+                remote = named
+        except ValueError:
+            pass
+    return remote
+
+
+def preview_release(url):
+    # Release lists are not guaranteed to be ordered by MNWS version. Scan pages
+    # before selecting; an incomplete/failed response must not report "up to date".
+    candidates = []
+    unsupported = []
+    for page in range(1, 11):
+        releases = read_json(url.rsplit('page=', 1)[0] + 'page=' + str(page))
+        if not isinstance(releases, list) or any(not isinstance(item, dict) for item in releases):
+            raise ValueError(_tr('更新源未返回有效的 Release 列表。'))
+        for release in releases:
+            if release.get('draft'):
+                continue
+            try:
+                candidates.append((release_version(release), release))
+            except ValueError as error:
+                unsupported.append(error)
+        if len(releases) < 100:
+            break
+    else:
+        raise ValueError(_tr('发布记录过多，未能完成更新检查。'))
+    if candidates:
+        return max(candidates, key=lambda item: item[0])[1]
+    if unsupported:
+        raise unsupported[0]
+    return None
+
+
+def check_update(preview=False):
     current = version_key(current_version())
-    urls = [API]
+    api = PREVIEW_API if preview else API
+    urls = [api]
     if mainland_china():
         proxy = os.environ.get('MNWS_GITHUB_PROXY', DEFAULT_PROXY).strip()
         parsed = urllib.parse.urlparse(proxy)
         if parsed.scheme == 'https' and parsed.netloc and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment:
-            urls.insert(0, proxy.rstrip('/') + '/' + API)
+            urls.insert(0, proxy.rstrip('/') + '/' + api)
     errors = []
     for url in urls:
         try:
-            release = read_json(url)
-            if release.get('draft') or release.get('prerelease'):
-                raise ValueError(_tr('更新源未返回正式 Release。'))
-            tag = release.get('tag_name')
-            if not isinstance(tag, str):
-                raise ValueError(_tr('更新源缺少版本号。'))
-            remote = version_key(tag)
-            name = release.get('name')
-            if isinstance(name, str):
-                try:
-                    named_version = version_key(name)
-                    if named_version[:2] == remote[:2]:
-                        remote = named_version
-                except ValueError:
-                    pass
-            if remote <= current:
+            if preview:
+                release = preview_release(url)
+            else:
+                release = read_json(url)
+                if not isinstance(release, dict) or release.get('draft') or release.get('prerelease'):
+                    raise ValueError(_tr('更新源未返回正式 Release。'))
+            if release is None or release_version(release) <= current:
                 return {'available': False, 'text': message('updates.none'), 'url': None}
+            tag = release['tag_name']
             link = f'https://github.com/{REPOSITORY}/releases/tag/' + urllib.parse.quote(tag, safe='')
             return {'available': True, 'text': _tr('发现新版本：%s') % tag, 'url': link}
         except (OSError, ValueError) as error:
@@ -92,10 +131,11 @@ def check_update():
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=_tr('检查 GitHub 上的正式 Release，不自动安装。'))
-    parser.parse_args(argv)
+    parser = argparse.ArgumentParser(prog='mnws --update', description=_tr('检查 GitHub Release 更新；默认稳定渠道，不自动安装。'))
+    parser.add_argument('--preview', action='store_true', help=_tr('使用 Beta 渠道，包含预发布版本。'))
+    args = parser.parse_args(argv)
     try:
-        result = check_update()
+        result = check_update(preview=args.preview)
         print(result['text'])
         if result['url']:
             print(result['url'])

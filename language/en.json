@@ -761,5 +761,12 @@
   "同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。": "Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here.",
   "固定区分隔线实时跟随聚焦背景色，没有活动窗口时也会保留。（C）": "Keep the pinned-area separator even without active windows, and update it with the focused-card background color. (C)",
   "任务栏歌词插件升级至 NCMLyricsBar 1.1.0，支持 Chrome 等浏览器，并提供实验性的其他音乐平台兼容。歌词支持右键打开设置、点击暂停和悬停切歌，还能动态占位，淡入淡出和宽度过渡也安排上了。": "Upgrade the taskbar lyrics plugin to NCMLyricsBar 1.1.0, supporting Chrome and other browsers, with optional experimental support for other music platforms. Lyrics now support right-click settings, click-to-pause and hover playback controls, with automatic sizing and optional fades and width transitions.",
-  "同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。（C）": "Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here. (C)"
+  "同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。（C）": "Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here. (C)",
+  "更新源未返回有效的 Release 列表。": "The update source did not return a valid release list.",
+  "发布记录过多，未能完成更新检查。": "Too many releases; the update check could not be completed.",
+  "检查 GitHub Release 更新；默认稳定渠道，不自动安装。": "Check GitHub Releases; use the stable channel by default. Does not install updates.",
+  "使用 Beta 渠道，包含预发布版本。": "Use the Beta channel, including prereleases.",
+  "Beta 渠道（包含预发布版本）": "Beta channel (include prereleases)",
+  "  -u, --update         检查 GitHub Release 更新（不自动安装）\n      --preview        与 -u / --update 合用，检查 Beta 渠道\n": "  -u, --update         Check GitHub Releases (does not install updates)\n      --preview        Use with -u / --update to check the Beta channel\n",
+  "检查更新新增 Beta 渠道，支持 mnws -u --preview 和 mnws --update --preview；设置中也可选择，默认仍检查稳定版。（D）": "Add a Beta update channel via mnws -u --preview or mnws --update --preview and a Settings option; stable releases remain the default. (D)"
 }

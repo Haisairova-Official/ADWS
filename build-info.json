@@ -21,10 +21,11 @@
     "桌面图标支持原位重命名，非法名称和重名直接提示，不再另外弹出一个平铺窗口。",
     "新建文件和文件夹也使用原位编辑，默认名称为 text.txt、markdown.md 和 folder；取消不会留下空文件。",
     "新增固定应用：点击启动，本桌面打开后进入活动区，关闭后回到原来的固定位置。",
-    "同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。（C）"
+    "同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。（C）",
+    "检查更新新增 Beta 渠道，支持 mnws -u --preview 和 mnws --update --preview；设置中也可选择，默认仍检查稳定版。（D）"
   ],
-  "release_label": "C",
-  "minor_version": "C",
-  "display_version": "1.27-C",
-  "help_version": "Major 1.27    Minor：C"
+  "release_label": "D",
+  "minor_version": "D",
+  "display_version": "1.27-D",
+  "help_version": "Major 1.27    Minor：D"
 }
