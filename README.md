@@ -1,16 +1,44 @@
-> **声明：本 Repo 使用大量 vibe coding，可能不适合所有人。**
+> **声明：本 Repo 存在使用 vibe coding 的内容。本项目仍处于早期状态。**
 >
-> **Notice: This repository makes extensive use of vibe coding and may not be suitable for everyone.**
+> **Notice: This repository contains work created with vibe coding. The project is still in its early stages.**
 
-# MNWS — My Niri Workspace Solution
+# ADWS — Akizuki's Desktop Workspace Solution
 
 **A simpler desktop experience for Niri.**
 
-当前版本 / Current version: **1.25 Released** · [更新记录 / Changelog](CHANGELOG.md)
+稳定版 / Stable: [MNWS 1.25 Released](https://github.com/Haisairova-Official/ADWS/releases/tag/v1.25) · 预发布 / Prerelease: [ADWS 1.30 Pre-Release](https://github.com/Haisairova-Official/ADWS/releases/tag/v1.30-pre-release)
 
 [中文](#中文) · [English](#english)
 
 ## 中文
+
+MNWS 现已更名为 **ADWS — Akizuki’s Desktop Workspace Solution**。新的名字不再限定于 Niri，但当前版本仍以 Niri 为主要支持环境。
+
+`main` 保留 MNWS 1.25 稳定版代码；ADWS 1.30 在 [`Pre-1.30`](https://github.com/Haisairova-Official/ADWS/tree/Pre-1.30) 分支开发。请选择对应版本的安装包和命令：稳定版使用 `mnws`，1.30 使用 `adws`。
+
+### ADWS 1.30 Pre-Release · 2026-09-21
+
+- 桌面与任务栏设置整合，支持固定应用、窗口堆叠和 Peek 预览。
+- 新增初始设置向导，可配置动效、配色、默认应用、启动器和壁纸。
+- 支持 `Config.ad-yml` 全局配置导入/导出。
+- 诊断信息默认折叠，并支持复制。
+- 补齐 Niri 浮动规则，设置、时钟与向导在新安装中也以浮动窗口打开。
+- 提供旧配置迁移和适配 ADWS 的 NCMLyricsBar，不保留 `mnws` 命令别名。
+
+[完整更新记录与已知限制](https://github.com/Haisairova-Official/ADWS/blob/Pre-1.30/docs/release-1.30-pre-release.md) · [下载预发布包](https://github.com/Haisairova-Official/ADWS/releases/tag/v1.30-pre-release)
+
+Arch Linux x86_64 可下载 `ADWS1.30_Pre-Release_for_arch.zip`，解压到固定目录后运行 `./install.sh`，无需现场编译 Rust/C。其他发行版使用源码包或：
+
+```sh
+git clone --branch Pre-1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
+cd ADWS
+./install.sh
+adws -s
+```
+
+从旧版升级前先运行 `mnws -S`，不要先卸载或删除配置。安装会迁移配置并保留备份；其他旧插件需要适配，旧安装目录不会自动全部删除。旧版静置卡顿曾在重启后恢复，根因仍未确认；本预发布不宣称彻底消除所有卡顿。
+
+以下内容介绍 `main` 分支的 **MNWS 1.25 稳定版**。
 
 MNWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统，让日常桌面操作更接近一套完整而轻量的桌面体验。
 
@@ -70,7 +98,7 @@ MNWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 源码安装适用于大多数发行版：
 
 ```sh
-git clone https://github.com/Haisairova-Official/MNWS.git
+git clone --branch main https://github.com/Haisairova-Official/ADWS.git MNWS
 cd MNWS
 ./install.sh
 mnws -s
@@ -128,6 +156,34 @@ mnws --uninstall
 MNWS 原创代码采用 **GNU GPL v3.0 或更新版本（GPL-3.0-or-later）**。第三方组件与 Sample 保留各自的许可证、来源和版权声明，详见 [LICENSE](LICENSE) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## English
+
+MNWS has been renamed to **ADWS — Akizuki’s Desktop Workspace Solution**. The new name is no longer tied to Niri, but Niri remains the primary supported environment in this release.
+
+`main` retains the MNWS 1.25 stable code; ADWS 1.30 is developed on [`Pre-1.30`](https://github.com/Haisairova-Official/ADWS/tree/Pre-1.30). Use the matching package and commands: `mnws` for stable 1.25, `adws` for 1.30.
+
+### ADWS 1.30 Pre-Release · 2026-09-21
+
+- Unified desktop/taskbar settings, pinned apps, window grouping and Peek previews.
+- First-run setup for animations, colors, default apps, launcher and wallpaper.
+- Global configuration import/export using `Config.ad-yml`.
+- Collapsed diagnostics with a copy button.
+- Niri floating rules for settings, clock and setup windows, including fresh installations.
+- Existing configuration migration and ADWS-compatible NCMLyricsBar; no `mnws` command aliases.
+
+[Full release notes and known limitations](https://github.com/Haisairova-Official/ADWS/blob/Pre-1.30/docs/release-1.30-pre-release.md) · [Download prerelease packages](https://github.com/Haisairova-Official/ADWS/releases/tag/v1.30-pre-release)
+
+On Arch Linux x86_64, extract `ADWS1.30_Pre-Release_for_arch.zip` to a permanent directory and run `./install.sh`; no Rust/C compilation is required. Other distributions can use the source archive or:
+
+```sh
+git clone --branch Pre-1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
+cd ADWS
+./install.sh
+adws -s
+```
+
+Before upgrading, stop the old components with `mnws -S`; do not uninstall or delete configuration first. The installer migrates settings and keeps backups. Other legacy plugins need porting, and the old installation directory is not removed automatically. An idle stall in the old bar recovered after restarting, but its cause remains unconfirmed; this prerelease does not claim to eliminate all stalls.
+
+The following documents **MNWS 1.25 stable** on `main`.
 
 MNWS adds desktop icons, a bottom taskbar, unified settings and a plugin system to Niri, providing a lightweight but complete everyday desktop experience.
 
@@ -187,7 +243,7 @@ The bundled `vendor/niri-ipc` supports upstream Niri window data and Shorin mini
 Source installation works on most distributions:
 
 ```sh
-git clone https://github.com/Haisairova-Official/MNWS.git
+git clone --branch main https://github.com/Haisairova-Official/ADWS.git MNWS
 cd MNWS
 ./install.sh
 mnws -s
