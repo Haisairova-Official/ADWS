@@ -1,5 +1,59 @@
 # Changelog / 更新记录
 
+## 1.27-C — 2026-09-21
+
+开发分支 / Development branch: `Pre-1.30`.
+
+### 最新更新
+
+Major 1.27    Minor：C    构建日期：2026-09-21
+
+- 增加了大量可选动效，你的任务栏再也不无聊了。
+- 增加了大量配色选项。
+- 现在任务栏可以上下左右切换了。
+- 任务栏高度也可以自行设置了。（1.26）
+- 现在选项卡可以合并在一起节省空间了。
+- 现在选项卡可以peek视图切换了，就像Windows的DWM那样（A）
+- 修复了一些提示错位的bug。（1.27）
+- 任务栏歌词插件升级至 NCMLyricsBar 1.1.0，支持 Chrome 等浏览器，并提供实验性的其他音乐平台兼容。歌词支持右键打开设置、点击暂停和悬停切歌，还能动态占位，淡入淡出和宽度过渡也安排上了。
+- 完善了歌词的竖排显示与系统配色，原文、译文和分隔线各有各的颜色。
+- 修复了应用配置后任务栏与窗口之间多出一块留白的问题。
+- 修复了任务栏、菜单和设置窗口配色跟随不及时的问题，换配色终于不用手动重启了。
+- 保留手动指定的颜色，配色文件临时写入异常时也不会丢掉上一套有效配色。（B）
+- 优化了 Peek，出现更早、切换更流畅，按桌面平铺顺序排列，并增加浮入淡出效果。
+- 将设置入口统一为“桌面设置”和“任务栏设置”，任务栏样式、组件布局和插件配置终于放到一起了。
+- 取消了滚轮对任务栏设置控件的误调整，滚动页面时不再顺手改掉配置。
+- 任务栏项目卡右键新增“打开新窗口”和“以管理员权限运行”。
+- 桌面图标支持原位重命名，非法名称和重名直接提示，不再另外弹出一个平铺窗口。
+- 新建文件和文件夹也使用原位编辑，默认名称为 text.txt、markdown.md 和 folder；取消不会留下空文件。
+- 新增固定应用：点击启动，本桌面打开后进入活动区，关闭后回到原来的固定位置。
+- 同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。（C）
+
+### Latest updates
+
+Major 1.27    Minor: C    Build date: 2026-09-21
+
+- Add plenty of optional animations—your taskbar will never be boring again.
+- Add many more color options.
+- The taskbar can now move to the top, bottom, left or right.
+- Taskbar height is now customizable. (1.26)
+- Window cards can now be grouped to save space.
+- Window cards now support Peek-style switching, like Windows DWM. (A)
+- Fix several misplaced-tooltip bugs. (1.27)
+- Upgrade the taskbar lyrics plugin to NCMLyricsBar 1.1.0, supporting Chrome and other browsers, with optional experimental support for other music platforms. Lyrics now support right-click settings, click-to-pause and hover playback controls, with automatic sizing and optional fades and width transitions.
+- Improve vertical lyrics and theme colors, with distinct colors for the original line, translation and separator.
+- Fix the extra gap between the taskbar and windows after applying settings.
+- Fix delayed theme updates in the taskbar, menus and settings windows; palette changes now apply without a manual restart.
+- Preserve manually selected colors and retain the last valid palette if a palette file is temporarily invalid while being written. (B)
+- Improve Peek responsiveness, order windows by workspace and tile position, and add float/fade transitions.
+- Unify settings into Desktop Settings and Taskbar Settings, bringing taskbar appearance, component layout and plugin configuration together.
+- Prevent accidental taskbar setting changes when scrolling; the wheel now scrolls the settings page.
+- Add Open new window and Run as administrator to taskbar card context menus.
+- Support inline desktop renaming, with inline invalid-name and collision errors instead of a separate tiled dialog.
+- Use inline editing for new files and folders, defaulting to text.txt, markdown.md and folder; cancelling leaves no files behind.
+- Add pinned apps: click to launch, move into the active area when opened on this workspace, and return to the saved pin position when closed.
+- Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here. (C)
+
 ## 1.27-B — 2026-09-21
 
 开发分支 / Development branch: `Pre-1.30`.

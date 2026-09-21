@@ -69,3 +69,9 @@ class PanelOptionsTests(unittest.TestCase):
         original = cfg.copy()
         geometry(cfg, {})
         self.assertEqual(cfg, original)
+
+    def test_preview_uses_window_animation_preferences(self):
+        result = layout.render_waybar_config({'options': {'window_animations': True, 'animation_duration': 180},
+            'plugins': [], 'builtins': [{'id': 'windows', 'enabled': True, 'slot': 'left', 'order': 0}]}, available=[], base={})
+        self.assertTrue(result['cffi/niri-taskbar']['window_animations'])
+        self.assertEqual(result['cffi/niri-taskbar']['animation_duration'], 180)

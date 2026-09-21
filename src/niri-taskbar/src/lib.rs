@@ -28,6 +28,7 @@ use waybar_cffi::{
 
 mod button;
 mod grouping;
+mod pins;
 mod config;
 mod error;
 mod icon;
@@ -37,6 +38,7 @@ mod notify;
 mod output;
 mod panel;
 mod preview;
+mod hover;
 mod process;
 mod state;
 mod scroll;
@@ -122,6 +124,10 @@ struct Instance {
     representatives: HashMap<u64,u64>,
     displayed: Vec<u64>,
     last_snapshot: Option<Snapshot>,
+    pins: Vec<pins::Pin>,
+    pinned_buttons: HashMap<String, Button>,
+    pinned_displayed: Vec<String>,
+    separator: gtk::DrawingArea,
     state: State,
 }
 
@@ -136,6 +142,10 @@ impl Instance {
             displayed: Default::default(),
             container,
             last_snapshot: None,
+            pins: pins::load().unwrap_or_default(),
+            pinned_buttons: Default::default(),
+            pinned_displayed: vec![],
+            separator: pins::separator(state.config().vertical()),
             state,
         }
     }
@@ -159,10 +169,18 @@ impl Instance {
                     self.process_window_snapshot(windows, output_filter.clone())
                         .await
                 }
+                Event::PinsChanged(pins) => {
+                    self.pins=pins;
+                    let snapshot=self.last_snapshot.clone().unwrap_or_default();
+                    self.process_window_snapshot(snapshot,output_filter.clone()).await;
+                }
                 Event::Workspaces(_) => {
                     // We're just using this as a signal that the outputs may have changed.
                     let new_filter = self.build_output_filter().await;
                     *output_filter.lock().expect("output filter lock") = new_filter;
+                    if let Some(snapshot)=self.last_snapshot.clone() {
+                        self.process_window_snapshot(snapshot,output_filter.clone()).await;
+                    }
                 }
             }
         }
@@ -170,9 +188,6 @@ impl Instance {
 
     #[tracing::instrument(level = "DEBUG", skip(self))]
     async fn build_output_filter(&self) -> output::Filter {
-        if self.state.config().show_all_outputs() {
-            return output::Filter::ShowAll;
-        }
 
         // OK, so we need to figure out what output we're on. Easy, right?
         //
@@ -215,7 +230,7 @@ impl Instance {
 
         // If there's only one output, then none of this matching stuff matters anyway.
         if outputs.len() == 1 {
-            return output::Filter::ShowAll;
+            return output::Filter::Only(outputs.keys().next().unwrap().clone());
         }
 
         let Some(window) = self.container.window() else {
@@ -229,12 +244,16 @@ impl Instance {
             return output::Filter::ShowAll;
         };
 
+        let mut geometry_matches=vec![];
         for (name, output) in outputs.into_iter() {
             let matches = output::Matcher::new(&monitor, &output);
             if matches == Matcher::all() {
                 return output::Filter::Only(name);
             }
+            if matches.contains(Matcher::GEOMETRY) {geometry_matches.push(name);}
         }
+        // Some drivers omit make/model in GTK. Unique logical geometry is sufficient.
+        if geometry_matches.len()==1 {return output::Filter::Only(geometry_matches.remove(0));}
 
         tracing::warn!(?monitor, "no Niri output matched the Gdk monitor");
         output::Filter::ShowAll
@@ -407,7 +426,7 @@ impl Instance {
         let mut omitted = self.buttons.keys().copied().collect::<BTreeSet<_>>();
 
         for window in windows.iter().filter(|window| {
-            filter
+            self.state.config().show_all_outputs() || filter
                 .lock()
                 .expect("output filter lock")
                 .should_show(window.output().unwrap_or_default())
@@ -444,26 +463,81 @@ impl Instance {
             }
         }
 
-        let visible: Vec<_> = windows.iter().filter(|w| self.buttons.contains_key(&w.id)).collect();
-        let groups = grouping::groups(visible.iter().map(|w| (w.id,w.app_id.as_deref())), self.state.config().group_windows());
+        // Never borrow windows from another monitor while output discovery is unresolved.
+        let on_output = |w: &Window| match &*filter.lock().expect("output filter lock") {
+            output::Filter::Only(name)=>w.output()==Some(name.as_str()),
+            output::Filter::ShowAll=>false,
+        };
+        let visible: Vec<_> = windows.iter().filter(|w| {
+            self.buttons.contains_key(&w.id) && if self.pins.iter().any(|p|p.matches(w.app_id.as_deref())) {
+                on_output(w) && w.workspace_active()
+            } else { !self.state.config().current_workspace_only() || w.workspace_active() }
+        }).collect();
+        let pin_ids: Vec<_> = self.pins.iter().map(|p|p.desktop_id.clone()).collect();
+        self.pinned_buttons.retain(|id,button| {
+            if pin_ids.contains(id) {true} else {
+                if button.widget().parent().is_some() {self.container.remove(button.widget());} false
+            }
+        });
+        let mut pinned_displayed=vec![];
+        for pin in &self.pins {
+            let mut matching: Vec<_>=windows.iter().filter(|w|on_output(w) && pin.matches(w.app_id.as_deref())).collect();
+            if matching.iter().any(|w|w.workspace_active()) {continue;}
+            let button=self.pinned_buttons.entry(pin.desktop_id.clone()).or_insert_with(||Button::pinned(&self.state,pin));
+            let recent=matching.iter().max_by_key(|w|(w.is_focused,w.focus_timestamp.as_ref().map(|t|(t.secs,t.nanos))))
+                .map(|w|w.id).unwrap_or(0);
+            matching.sort_by_key(|w|(w.id!=recent,w.workspace_index(),grouping::tile_order(w.layout.pos_in_scrolling_layout,w.id)));
+            button.set_group(matching.iter().map(|w|(w.id,w.title.clone().unwrap_or_else(||pin.name.clone()))).collect(),recent);
+            button.set_dots(!matching.is_empty());
+            button.set_focus(false);
+            pinned_displayed.push(pin.desktop_id.clone());
+        }
+        // A pinned application is always one card; retain the user's grouping choice for other apps.
+        let keys: Vec<_>=visible.iter().map(|w| {
+            self.pins.iter().find(|p|p.matches(w.app_id.as_deref())).map(|p|p.desktop_id.clone())
+                .or_else(||if self.state.config().group_windows(){w.app_id.clone()}else{None})
+        }).collect();
+        let groups = grouping::groups(visible.iter().zip(&keys).map(|(w,key)|(w.id,key.as_deref())),true);
         let displayed: Vec<_> = groups.iter().map(|g|g[0]).collect();
         self.representatives.clear();
         for group in &groups {
             for id in group { self.representatives.insert(*id,group[0]); }
             if let Some(button) = self.buttons.get(&group[0]) {
-                let mut member_windows: Vec<_> = group.iter().filter_map(|id|visible.iter().find(|w| w.id==*id))
+                let mut member_windows: Vec<_> = group.iter().filter_map(|id|visible.iter().copied().find(|w| w.id==*id))
                     .collect();
-                member_windows.sort_by_key(|w|std::cmp::Reverse((w.is_focused,w.focus_timestamp.as_ref().map(|t|(t.secs,t.nanos)))));
-                button.set_group(member_windows.into_iter().map(|w|(w.id,w.title.clone().unwrap_or_else(||w.app_id.clone().unwrap_or_default()))).collect());
+                let pin=self.pins.iter().find(|pin|pin.matches(member_windows.first().and_then(|w|w.app_id.as_deref())));
+                if let Some(pin)=pin {
+                    member_windows=windows.iter().filter(|w|on_output(w) && pin.matches(w.app_id.as_deref())).collect();
+                }
+                let recent = member_windows.iter().max_by_key(|w|(w.is_focused,w.focus_timestamp.as_ref().map(|t|(t.secs,t.nanos)))).map(|w|w.id).unwrap_or(group[0]);
+                // Pinned previews place the last-used window first, then workspace/tile order.
+                member_windows.sort_by_key(|w| (
+                    pin.is_some() && w.id!=recent,
+                    w.workspace_index(), grouping::tile_order(w.layout.pos_in_scrolling_layout,w.id)));
+                button.set_group(member_windows.into_iter().map(|w|(w.id,w.title.clone().unwrap_or_else(||w.app_id.clone().unwrap_or_default()))).collect(), recent);
                 button.set_focus(visible.iter().any(|w|group.contains(&w.id) && w.is_focused));
             }
         }
-        if displayed != self.displayed {
+        if displayed != self.displayed || pinned_displayed != self.pinned_displayed {
             for child in self.container.children() { self.container.remove(&child); }
-            for (index,id) in displayed.iter().enumerate() {
-                let (column,row) = grouping::cell(index,self.state.config().rows(),self.state.config().vertical());
-                self.container.attach(self.buttons[id].widget(),column,row,1,1);
+            let vertical=self.state.config().vertical();
+            let lanes=self.state.config().rows() as i32;
+            for (index,id) in pinned_displayed.iter().enumerate() {
+                let i=index as i32;
+                if vertical {self.container.attach(self.pinned_buttons[id].widget(),0,i,lanes,1);}
+                else {self.container.attach(self.pinned_buttons[id].widget(),i,0,1,lanes);}
             }
+            let mut offset=pinned_displayed.len() as i32;
+            if !pinned_displayed.is_empty() {
+                if vertical {self.container.attach(&self.separator,0,offset,lanes,1);}
+                else {self.container.attach(&self.separator,offset,0,1,lanes);}
+                offset+=1;
+            }
+            for (index,id) in displayed.iter().enumerate() {
+                let (column,row) = grouping::cell(index,self.state.config().rows(),vertical);
+                self.container.attach(self.buttons[id].widget(),column+if vertical {0}else{offset},row+if vertical {offset}else{0},1,1);
+            }
+            self.pinned_displayed=pinned_displayed;
             self.displayed = displayed;
         }
         self.container.show_all();

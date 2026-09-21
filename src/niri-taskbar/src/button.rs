@@ -16,12 +16,15 @@ pub struct Button {
     button: gtk::Button,
     badge: gtk::DrawingArea,
     count: Rc<std::cell::Cell<usize>>,
+    dots: Rc<std::cell::Cell<bool>>,
+    recent_window: Rc<std::cell::Cell<u64>>,
     pub(crate) hover_popup: Rc<RefCell<Option<gtk::Popover>>>,
     #[cfg(test)]
     pub(crate) badge_test: gtk::DrawingArea,
     icon: gtk::Overlay,
     state: State,
     members: Rc<RefCell<Vec<(u64, String)>>>,
+    hover: Rc<RefCell<Option<Rc<crate::hover::HoverPreview>>>>,
 }
 
 impl Debug for Button {
@@ -56,6 +59,17 @@ impl Button {
     /// Instantiates a new button, including creating a new Gtk button internally.
     #[tracing::instrument(level = "TRACE", fields(app_id = &window.app_id))]
     pub fn new(state: &State, window: &niri_ipc::Window) -> Self {
+        Self::create(state, window.app_id.clone(), window.id, window.title.clone().unwrap_or_default())
+    }
+
+    pub fn pinned(state: &State, pin: &crate::pins::Pin) -> Self {
+        let button = Self::create(state, Some(pin.desktop_id.clone()), 0, pin.name.clone());
+        button.button.set_tooltip_text(Some(&pin.name));
+        button.set_group(vec![], 0);
+        button
+    }
+
+    fn create(state: &State, app_id: Option<String>, window_id: u64, title: String) -> Self {
         let state = state.clone();
 
         // Set up the basic image button.
@@ -73,6 +87,8 @@ impl Button {
         let diameter=(state.config().thickness()/state.config().rows()/2).clamp(8,20) as i32;
         badge.set_size_request(diameter,diameter);
         let number=count.clone();
+        let dots=Rc::new(std::cell::Cell::new(false));
+        let draw_dots=dots.clone();
         badge.connect_draw(move |widget,cr| {
             let size=widget.allocated_width().min(widget.allocated_height()) as f64;
             let style=widget.style_context();
@@ -80,7 +96,7 @@ impl Button {
             let fg=style.lookup_color("on_primary").or_else(||style.lookup_color("theme_selected_fg_color")).unwrap_or(gtk::gdk::RGBA::new(1.,1.,1.,1.));
             cr.set_source_rgba(bg.red(),bg.green(),bg.blue(),1.);cr.arc(size/2.,size/2.,(size/2.-1.).max(1.),0.,std::f64::consts::TAU);let _=cr.fill_preserve();
             cr.set_source_rgba(fg.red(),fg.green(),fg.blue(),1.);cr.set_line_width(2.);let _=cr.stroke();
-            let text=if number.get()>99{"99+".to_string()}else{number.get().to_string()};
+            let text=if draw_dots.get(){"···".to_string()}else if number.get()>99{"99+".to_string()}else{number.get().to_string()};
             cr.select_font_face("Sans",gtk::cairo::FontSlant::Normal,gtk::cairo::FontWeight::Bold);
             cr.set_font_size(size*if text.len()>2{0.38}else{0.58});
             if let Ok(ext)=cr.text_extents(&text){cr.move_to((size-ext.width())/2.-ext.x_bearing(),(size-ext.height())/2.-ext.y_bearing());}
@@ -103,7 +119,6 @@ impl Button {
                 .add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION - 1);
         });
 
-        let app_id = window.app_id.clone();
         let icon_path = app_id
             .as_deref()
             .and_then(|id| state.icon_cache().lookup(id));
@@ -114,29 +129,47 @@ impl Button {
             #[cfg(test)]
             badge_test: badge.clone(),
             hover_popup: Rc::new(RefCell::new(None)),
+            hover: Rc::new(RefCell::new(None)),
             badge,
             count,
+            dots,
+            recent_window: Rc::new(std::cell::Cell::new(window_id)),
             icon,
             state,
-            members: Rc::new(RefCell::new(vec![(window.id, window.title.clone().unwrap_or_default())])),
+            members: Rc::new(RefCell::new(vec![(window_id, title)])),
         };
 
         // Set up our event handlers. It's easier to do this with self already available.
-        button.connect_click_handler(window.id);
-        button.connect_context_menu(window.id);
+        button.connect_click_handler(window_id);
+        button.connect_context_menu(window_id);
         button.connect_hover_description();
         button.connect_size_allocate(icon_path);
+        let hover = button.hover.clone();
+        button.button.connect_destroy(move |_| { hover.borrow_mut().take(); });
 
         button
     }
 
-    pub fn set_group(&self, members: Vec<(u64, String)>) {
+    pub fn set_group(&self, members: Vec<(u64, String)>, recent_window: u64) {
+        self.recent_window.set(recent_window);
         let count = members.len();
         self.count.set(count);
         self.badge.queue_draw();
         self.badge.set_visible(count>1);
         self.button.set_has_tooltip(false);
         *self.members.borrow_mut() = members;
+        if let Some(hover) = self.hover.borrow().as_ref() { hover.refresh(); }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pin_test_state(&self) -> (Vec<u64>,u64,bool) {
+        (self.members.borrow().iter().map(|m|m.0).collect(),self.recent_window.get(),self.dots.get())
+    }
+
+    pub fn set_dots(&self, dots: bool) {
+        self.dots.set(dots);
+        self.badge.set_visible(dots || self.count.get()>1);
+        self.badge.queue_draw();
     }
 
     /// Sets whether the window represented by this button is currently focused.
@@ -189,21 +222,28 @@ impl Button {
         &self.button
     }
 
-    fn connect_click_handler(&self, window_id: u64) {
+    fn connect_click_handler(&self, _window_id: u64) {
         let state = self.state.clone();
 
-        let members = self.members.clone();
-        let press_state=state.clone();let press_members=members.clone();let popup=self.hover_popup.clone();
+        let app_id = self.app_id.clone();
+        let press_app_id = app_id.clone();
+        let members = self.recent_window.clone();
+        let press_state=state.clone();let press_members=members.clone();let popup=self.hover_popup.clone();let hover=self.hover.clone();
         self.button.connect_button_press_event(move |_,event| {
             if event.button()!=1{return gtk::glib::Propagation::Proceed;}
+            if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
             if let Some(p)=popup.borrow().as_ref(){p.hide();}
-            let id=press_members.borrow().first().map(|(id,_)|*id).unwrap_or(window_id);
+            let id=press_members.get();
+            if id==0 {if let Some(app)=&press_app_id {crate::panel::launch_application(app,false);} return gtk::glib::Propagation::Stop;}
             if let Err(error)=press_state.niri().activate_window(id){tracing::warn!(%error,id,"focus on press failed");}
             gtk::glib::Propagation::Stop
         });
+        let hover=self.hover.clone();
         // Keep keyboard activation available; pointer presses are consumed above.
         self.button.connect_clicked(move |_| {
-            let id = members.borrow().first().map(|(id,_)|*id).unwrap_or(window_id);
+            if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
+            let id = members.get();
+            if id==0 {if let Some(app)=&app_id {crate::panel::launch_application(app,false);} return;}
             if let Err(e) = state.niri().activate_window(id) {
                 tracing::warn!(%e, id, "error trying to activate window");
             }
@@ -220,79 +260,53 @@ impl Button {
             "right"=>gtk::PositionType::Left,_=>gtk::PositionType::Top,
         });
         popup.set_constrain_to(gtk::PopoverConstraint::None);
-        let inside=Rc::new(std::cell::Cell::new(false));
-        let generation=Rc::new(std::cell::Cell::new(0u64));
-        let capture=Rc::new(RefCell::new(None::<gtk::gio::Subprocess>));
-        let active=capture.clone();
-        popup.connect_hide(move |_|{if let Some(child)=active.borrow_mut().take(){child.send_signal(15);}});
-        let active=capture.clone();
-        popup.connect_destroy(move |_|{if let Some(child)=active.borrow_mut().take(){child.send_signal(15);}});
-        let members=self.members.clone();let state=self.state.clone();
-        let hovered=inside.clone();let weak=popup.downgrade();let serial=generation.clone();
-        self.button.add_events(gtk::gdk::EventMask::ENTER_NOTIFY_MASK|gtk::gdk::EventMask::LEAVE_NOTIFY_MASK);
-        self.button.connect_enter_notify_event(move |_,event| {
-            if event.detail()==gtk::gdk::NotifyType::Inferior{return gtk::glib::Propagation::Proceed;}
-            hovered.set(true);
-            serial.set(serial.get()+1);let ticket=serial.get();let serial=serial.clone();
-            if weak.upgrade().is_some_and(|p|p.is_visible()){return gtk::glib::Propagation::Proceed;}
-            let hovered=hovered.clone();let weak=weak.clone();let members=members.clone();let state=state.clone();let capture=capture.clone();
-            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(250),move || {
-                let Some(popup)=weak.upgrade() else{return};
-                if !hovered.get() || serial.get()!=ticket || popup.is_visible(){return;}
-                if let Some(child)=popup.child(){popup.remove(&child);}
-                let peek=state.config().window_peek();
-                let items=gtk::Box::new(if peek{gtk::Orientation::Horizontal}else{gtk::Orientation::Vertical},6);items.set_border_width(8);
-                let mut images=Vec::new();
-                for (id,title) in members.borrow().iter() {
-                    let text=gtk::Label::new(Some(title));text.set_max_width_chars(if peek{24}else{48});text.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                    let content=gtk::Box::new(gtk::Orientation::Vertical,6);
-                    if peek {
-                        let image=gtk::Image::from_icon_name(Some("application-x-executable"),gtk::IconSize::Dialog);
-                        image.set_size_request(240,150);content.pack_start(&image,false,false,0);
-                        let status=gtk::Label::new(Some(crate::i18n::text("正在加载预览…","Loading preview…")));
-                        content.pack_start(&status,false,false,0);images.push((*id,image,status));
-                    }
-                    content.pack_start(&text,false,false,0);
-                    let select=gtk::Button::new();select.add(&content);
-                    let state=state.clone();let id=*id;let weak=popup.downgrade();
-                    select.connect_clicked(move |_|{if let Some(p)=weak.upgrade(){p.hide();}let _=state.niri().activate_window(id);});
-                    items.pack_start(&select,false,false,0);
-                }
-                let scroll=gtk::ScrolledWindow::new(None::<&gtk::Adjustment>,None::<&gtk::Adjustment>);
-                scroll.set_policy(gtk::PolicyType::Automatic,gtk::PolicyType::Never);
-                scroll.set_propagate_natural_width(true);scroll.set_propagate_natural_height(true);
-                scroll.set_max_content_width(760);scroll.add(&items);
-                popup.add(&scroll);scroll.show_all();popup.show();
-                if peek{*capture.borrow_mut()=crate::preview::start(state.config().preview_helper(),images,&popup);}
-
-            });
-            gtk::glib::Propagation::Proceed
-        });
-        let hovered=inside.clone();let weak=popup.downgrade();let serial=generation.clone();
-        self.button.connect_leave_notify_event(move |_,event| {
-            if event.detail()==gtk::gdk::NotifyType::Inferior{return gtk::glib::Propagation::Proceed;}
-            hovered.set(false);serial.set(serial.get()+1);let ticket=serial.get();let serial=serial.clone();let hovered=hovered.clone();let weak=weak.clone();
-            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(200),move ||{if serial.get()==ticket && !hovered.get(){if let Some(p)=weak.upgrade(){p.hide();}}});
-            gtk::glib::Propagation::Proceed
-        });
-        popup.add_events(gtk::gdk::EventMask::ENTER_NOTIFY_MASK|gtk::gdk::EventMask::LEAVE_NOTIFY_MASK);
-        let hovered=inside.clone();let serial=generation.clone();popup.connect_enter_notify_event(move |_,e|{if e.detail()!=gtk::gdk::NotifyType::Inferior{serial.set(serial.get()+1);hovered.set(true);}gtk::glib::Propagation::Proceed});
-        popup.connect_leave_notify_event(move |p,e|{if e.detail()!=gtk::gdk::NotifyType::Inferior{generation.set(generation.get()+1);let ticket=generation.get();inside.set(false);let serial=generation.clone();let hovered=inside.clone();let weak=p.downgrade();gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(200),move ||{if serial.get()==ticket && !hovered.get(){if let Some(p)=weak.upgrade(){p.hide();}}});}gtk::glib::Propagation::Proceed});
-        self.button.connect_destroy(move |_|{unsafe{popup.destroy();}});
+        self.hover.replace(Some(crate::hover::HoverPreview::new(
+            &self.button, &popup, self.state.clone(), self.members.clone())));
     }
 
     /// Opens a small context menu on right click (focus / minimize / close).
-    fn connect_context_menu(&self, window_id: u64) {
+    fn connect_context_menu(&self, _window_id: u64) {
         let state = self.state.clone();
 
         let members = self.members.clone();
+        let hover=self.hover.clone();
+        let app_id = self.app_id.clone();
+        let recent = self.recent_window.clone();
         self.button.connect_button_press_event(move |_button, event| {
             if event.button() != 3 {
                 return gtk::glib::Propagation::Proceed;
             }
 
+            if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
+            let window_id = recent.get();
             tracing::info!(id = window_id, "{}", crate::i18n::text("打开窗口右键菜单", "Open window context menu"));
             let menu = gtk::Menu::new();
+            for (label, administrator) in [
+                (crate::i18n::text("打开新窗口", "Open new window"), false),
+                (crate::i18n::text("以管理员权限运行", "Run as administrator"), true),
+            ] {
+                let item = gtk::MenuItem::with_label(label);
+                item.set_sensitive(app_id.as_ref().is_some_and(|id| !id.is_empty()));
+                let app_id = app_id.clone();
+                item.connect_activate(move |_| {
+                    if let Some(id) = &app_id {
+                        crate::panel::launch_application(id, administrator);
+                    }
+                });
+                menu.append(&item);
+            }
+            if let Some(app) = &app_id {
+                let pinned=crate::pins::is_pinned(app);
+                let pin=gtk::MenuItem::with_label(if pinned {crate::i18n::text("取消固定", "Unpin from taskbar")} else {crate::i18n::text("固定到任务栏", "Pin to taskbar")});
+                let app=app.clone();
+                pin.connect_activate(move |_|crate::panel::pin_application(&app,!pinned));
+                menu.append(&pin);
+            }
+            if members.borrow().is_empty() {
+                show_menu(menu, None);
+                return gtk::glib::Propagation::Stop;
+            }
+            menu.append(&gtk::SeparatorMenuItem::new());
             if members.borrow().len() > 1 {
                 for (id,title) in members.borrow().iter() {
                     let item = gtk::MenuItem::with_label(title);
@@ -515,4 +529,8 @@ fn show_menu(menu: gtk::Menu, anchor: Option<&gtk::Button>) {
     if let Some(button) = anchor {
         menu.popup_at_widget(button, gtk::gdk::Gravity::SouthWest, gtk::gdk::Gravity::NorthWest, None::<&gtk::gdk::Event>);
     } else {menu.popup_at_pointer(gtk::current_event().as_ref());}
+}
+
+impl Drop for Button {
+    fn drop(&mut self) { self.hover.borrow_mut().take(); }
 }

@@ -64,6 +64,11 @@ impl WindowSet {
                     tracing::warn!(%self, "unexpected state for WindowFocusChanged event");
                 }
             }
+            Event::WindowFocusTimestampChanged { id, focus_timestamp } => {
+                if let Some(Inner::Ready(state)) = &mut self.0 {
+                    if let Some(window)=state.windows.get_mut(&id) {window.focus_timestamp=focus_timestamp;}
+                }
+            }
             Event::WindowLayoutsChanged { changes } => {
                 if let Some(Inner::Ready(state)) = &mut self.0 {
                     for (window_id, layout) in changes.into_iter() {
@@ -242,6 +247,8 @@ impl Niri {
             .map(|ww| Window {
                 window: ww.window.clone(),
                 output: ww.workspace.output.clone(),
+                workspace_active: ww.workspace.is_active,
+                workspace_index: ww.workspace.idx,
             })
             .collect()
     }
@@ -254,9 +261,13 @@ pub type Snapshot = Vec<Window>;
 pub struct Window {
     window: NiriWindow,
     output: Option<String>,
+    workspace_active: bool,
+    workspace_index: u8,
 }
 
 impl Window {
+    pub fn workspace_active(&self) -> bool {self.workspace_active}
+    pub fn workspace_index(&self) -> u8 {self.workspace_index}
     pub fn output(&self) -> Option<&str> {
         self.output.as_deref()
     }

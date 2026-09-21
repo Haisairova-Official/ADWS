@@ -37,3 +37,19 @@ mod tests {
         assert_eq!((cell(0,2,true),cell(1,2,true),cell(2,2,true)),((0,0),(1,0),(0,1)));
     }
 }
+
+/// Tiled windows follow Niri's column/row order; floating/unknown windows follow.
+pub fn tile_order(position: Option<(usize, usize)>, id: u64) -> (bool, usize, usize, u64) {
+    let (column, row) = position.unwrap_or((usize::MAX, usize::MAX));
+    (position.is_none(), column, row, id)
+}
+
+#[cfg(test)]
+mod order_tests {
+    #[test]
+    fn previews_follow_columns_then_rows_not_window_creation() {
+        let mut windows = [(1,Some((2,1))), (9,Some((1,2))), (8,Some((1,1))), (2,None)];
+        windows.sort_by_key(|(id,position)| super::tile_order(*position,*id));
+        assert_eq!(windows.map(|(id,_)|id), [8,9,1,2]);
+    }
+}

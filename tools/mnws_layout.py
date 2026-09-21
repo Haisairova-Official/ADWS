@@ -479,6 +479,8 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
                 "rows": panel['window_rows'],
                 "group_windows": panel['group_windows'],
                 "position": panel['position'], "window_peek": panel['window_peek'],
+                "window_animations": panel['window_animations'],
+                "animation_duration": panel['animation_duration'],
                 "preview_helper": str(PROJECT_ROOT / "tools/mnws_window_preview.py"),
                 "thickness": panel['thickness'],
             }

@@ -100,7 +100,7 @@ fn panel_geometry_groups_and_colors() {
                         widget.clone().downcast::<gtk::Container>().map(|c|c.children().iter().flat_map(choices).collect()).unwrap_or_default()
                     }
                     let choices=choices(&popup.child().unwrap());assert_eq!(choices.len(),2,"title-only cards must be clickable");
-                    choices[1].emit_clicked();
+                    choices[0].emit_clicked();
                     assert!(!popup.is_visible());
                     let actions=requests.lock().unwrap();assert_eq!(actions.len(),2);
                     assert_eq!(actions[0]["Action"]["FocusWindow"]["id"],2);
@@ -115,6 +115,28 @@ fn panel_geometry_groups_and_colors() {
                     let _:bool=popup.emit_by_name("leave-notify-event",&[&leave]);
                     settle();
                     assert!(!popup.is_visible());
+                    // Click while the initial hover timer is pending: no delayed reopen.
+                    let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);
+                    assert!(first.emit_by_name::<bool>("button-press-event",&[&*press]));
+                    settle();assert!(!popup.is_visible(),"click did not cancel pending preview");
+                    let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();
+                    let child=popup.child().unwrap();
+                    instance.buttons[&1].set_group(vec![(2,"Updated title".into()),(1,"Other title".into())],2);
+                    assert_eq!(popup.child().unwrap(),child,"title/order update rebuilt capture widgets");
+                    fn labels(widget:&gtk::Widget)->Vec<String>{
+                        if let Ok(label)=widget.clone().downcast::<gtk::Label>(){return vec![label.text().to_string()];}
+                        widget.clone().downcast::<gtk::Container>().map(|c|c.children().iter().flat_map(labels).collect()).unwrap_or_default()
+                    }
+                    assert_eq!(labels(&child),vec!["Updated title","Other title"]);
+                    instance.buttons[&1].set_group(vec![(2,"Survivor".into())],2);
+                    assert_eq!(labels(&popup.child().unwrap()),vec!["Survivor"]);
+                    let other=instance.buttons[&3].widget();
+                    let _:bool=other.emit_by_name("enter-notify-event",&[&enter]);settle();
+                    assert!(!popup.is_visible(),"two popups remained visible");
+                    let other_popup=instance.buttons[&3].hover_popup.borrow().clone().unwrap();
+                    assert!(other_popup.is_visible());
+                    let _:bool=other.emit_by_name("leave-notify-event",&[&leave]);settle();
+                    assert!(!other_popup.is_visible());
                 }
                 first.set_state_flags(gtk::StateFlags::PRELIGHT,false);settle();
                 let hover:gtk::gdk::RGBA=first.style_context().style_property_for_state("background-color",gtk::StateFlags::PRELIGHT).get().unwrap();
@@ -139,4 +161,100 @@ fn panel_geometry_groups_and_colors() {
     unsafe{if let Some(value)=old_socket{std::env::set_var("NIRI_SOCKET",value);}else{std::env::remove_var("NIRI_SOCKET");}}
     std::fs::remove_file(socket).unwrap();
 
+}
+
+
+#[test]
+#[ignore = "requires an isolated GTK display"]
+fn pins_follow_workspaces_monitor_mru_and_live_colors() {
+    gtk::init().unwrap();
+    use std::io::{BufRead,BufReader,Write};
+    let socket=std::env::temp_dir().join(format!("mnws-pin-click-{}.sock",std::process::id()));
+    let listener=std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    unsafe {std::env::set_var("NIRI_SOCKET",&socket);}
+    let requests=Arc::new(Mutex::new(Vec::new()));let incoming=requests.clone();
+    let server=std::thread::spawn(move || {
+        for _ in 0..4 {
+            let (mut stream,_)=listener.accept().unwrap();
+            let mut line=String::new();BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+            incoming.lock().unwrap().push(serde_json::from_str::<serde_json::Value>(&line).unwrap());
+            writeln!(stream,"{{\"Ok\":\"Handled\"}}").unwrap();
+        }
+    });
+    let config_home=std::env::temp_dir().join(format!("mnws-pins-test-{}",std::process::id()));
+    unsafe {std::env::set_var("XDG_CONFIG_HOME",&config_home);}
+    std::fs::create_dir_all(config_home.join("mnws")).unwrap();
+    std::fs::write(pins::path(),serde_json::to_vec(&json!({"version":1,"apps":[
+        {"app_id":"foot","desktop_id":"foot.desktop","name":"Terminal"},
+        {"app_id":"firefox","desktop_id":"firefox.desktop","name":"Firefox"},
+        {"app_id":"code","desktop_id":"code.desktop","name":"Code"},
+        {"app_id":"idle","desktop_id":"idle.desktop","name":"Idle app"}
+    ]})).unwrap()).unwrap();
+    let css=gtk::CssProvider::new();
+    gtk::StyleContext::add_provider_for_screen(&gtk::gdk::Screen::default().unwrap(),&css,gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    for vertical in [false,true] {
+        css.load_from_data(b".niri-taskbar button.focused {background:#123456;transition:none;}").unwrap();
+        let grid=gtk::Grid::new();grid.style_context().add_class("niri-taskbar");
+        let window=gtk::Window::new(gtk::WindowType::Toplevel);window.add(&grid);
+        let config=serde_json::from_value(json!({"vertical":vertical,"rows":2,"group_windows":false,"show_all_outputs":true,"current_workspace_only":true,"window_peek":false})).unwrap();
+        let mut instance=Instance::new(State::new(config),grid.clone());
+        let filter=Arc::new(Mutex::new(output::Filter::Only("DP-1".into())));
+        let mut stream=niri::WindowSet::new(false);
+        stream.with_event(serde_json::from_value(json!({"WorkspacesChanged":{"workspaces":[
+            {"id":10,"idx":1,"name":null,"is_urgent":false,"output":"DP-1","is_active":true,"is_focused":true,"active_window_id":2},
+            {"id":11,"idx":2,"name":null,"is_urgent":false,"output":"DP-1","is_active":false,"is_focused":false,"active_window_id":3},
+            {"id":12,"idx":3,"name":null,"is_urgent":false,"output":"DP-1","is_active":false,"is_focused":false,"active_window_id":6},
+            {"id":20,"idx":1,"name":null,"is_urgent":false,"output":"DP-2","is_active":true,"is_focused":false,"active_window_id":4}
+        ]}})).unwrap());
+        let windows:Vec<_>=[(1,"foot",10,1),(2,"foot",10,2),(3,"firefox",11,2),(4,"code",20,1),(5,"firefox",11,1),(6,"firefox",12,1)]
+            .iter().map(|(id,app,workspace,column)|json!({"id":id,"app_id":app,"title":format!("Window {id}"),"pid":null,
+                "workspace_id":workspace,"is_focused":*id==2,"is_floating":false,"is_urgent":false,"focus_timestamp":{"secs":id,"nanos":0},
+                "layout":{"pos_in_scrolling_layout":[column,1],"tile_size":[800.0,600.0],"window_size":[800,600],"tile_pos_in_workspace_view":[0.0,0.0],"window_offset_in_tile":[0.0,0.0]}})).collect();
+        let initial=stream.with_event(serde_json::from_value(json!({"WindowsChanged":{"windows":windows}})).unwrap()).unwrap();
+        MainContext::default().block_on(instance.process_window_snapshot(initial,filter.clone()));
+        window.show_all();settle();
+        assert_eq!(instance.pinned_displayed,vec!["firefox.desktop","code.desktop","idle.desktop"]);
+        assert_eq!(instance.displayed.len(),1,"pinned windows group even when ordinary grouping is off");
+        assert_eq!(instance.buttons[&1].pin_test_state(),(vec![2,1],2,false));
+        assert_eq!(instance.pinned_buttons["firefox.desktop"].pin_test_state(),(vec![6,5,3],6,true));
+        assert_eq!(instance.pinned_buttons["code.desktop"].pin_test_state(),(vec![],0,false),"another physical monitor must not count as running");
+        assert!(instance.separator.parent().is_some());
+        let color=pins::focus_color(&instance.separator);
+        assert!((color.red()-18./255.).abs()<0.01,"wrong divider color: {color:?}");
+        css.load_from_data(b".niri-taskbar button.focused {background:#ab3456;transition:none;}").unwrap();settle();
+        let color=pins::focus_color(&instance.separator);
+        assert!((color.red()-171./255.).abs()<0.01,"stale divider color: {color:?}");
+        let idle=instance.pinned_buttons["idle.desktop"].widget();
+        let enter=gtk::gdk::Event::new(gtk::gdk::EventType::EnterNotify);
+        let _:bool=idle.emit_by_name("enter-notify-event",&[&enter]);settle();
+        let popup=instance.pinned_buttons["idle.desktop"].hover_popup.borrow().clone().unwrap();
+        assert!(popup.is_visible(),"idle pin description must be visible");popup.hide();
+        let updated=stream.with_event(serde_json::from_value(json!({"WindowFocusTimestampChanged":{"id":3,"focus_timestamp":{"secs":100,"nanos":0}}})).unwrap()).unwrap();
+        MainContext::default().block_on(instance.process_window_snapshot(updated,filter.clone()));
+        assert_eq!(instance.pinned_buttons["firefox.desktop"].pin_test_state(),(vec![3,5,6],3,true));
+        // One click on the three-dot pin focuses the most recently used remote window.
+        instance.pinned_buttons["firefox.desktop"].widget().clone().downcast::<gtk::Button>().unwrap().emit_clicked();
+        assert_eq!(requests.lock().unwrap().last().unwrap(),&json!({"Action":{"FocusWindow":{"id":3}}}));
+        let changed=stream.with_event(niri_ipc::Event::WorkspaceActivated{id:11,focused:true}).unwrap();
+        MainContext::default().block_on(instance.process_window_snapshot(changed,filter.clone()));
+        assert_eq!(instance.pinned_displayed,vec!["foot.desktop","code.desktop","idle.desktop"]);
+        assert_eq!(instance.displayed.len(),1);
+        let active=instance.displayed[0];
+        assert_eq!(instance.buttons[&active].pin_test_state(),(vec![3,5,6],3,false));
+        instance.buttons[&active].widget().clone().downcast::<gtk::Button>().unwrap().emit_clicked();
+        assert_eq!(requests.lock().unwrap().last().unwrap(),&json!({"Action":{"FocusWindow":{"id":3}}}));
+        for id in [3,5,6] {
+            let changed=stream.with_event(niri_ipc::Event::WindowClosed{id}).unwrap();
+            MainContext::default().block_on(instance.process_window_snapshot(changed,filter.clone()));
+        }
+        assert_eq!(instance.pinned_displayed,vec!["foot.desktop","firefox.desktop","code.desktop","idle.desktop"]);
+        assert_eq!(instance.pinned_buttons["firefox.desktop"].pin_test_state(),(vec![],0,false));
+        assert!(instance.separator.parent().is_some(),"keep the pinned-area divider without active cards");
+        instance.pins.retain(|p|p.app_id!="code");
+        MainContext::default().block_on(instance.process_window_snapshot(instance.last_snapshot.clone().unwrap(),filter));
+        assert!(!instance.pinned_buttons.contains_key("code.desktop"));
+        unsafe{window.destroy();}
+    }
+    server.join().unwrap();std::fs::remove_file(socket).unwrap();
+    std::fs::remove_dir_all(config_home).unwrap();
 }

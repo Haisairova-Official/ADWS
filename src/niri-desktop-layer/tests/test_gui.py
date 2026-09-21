@@ -634,6 +634,211 @@ class DesktopGuiTests(unittest.TestCase):
 
 
 
+    def test_inline_rename_keeps_position_and_never_overwrites(self):
+        cfg = self.Config()
+        launcher = self.desktop / 'fixture.desktop'
+        launcher.write_text('[Desktop Entry]\nType=Application\nName=Original\nName[zh_CN]=原名\nExec=/usr/bin/true\n')
+        launcher.chmod(0o755)
+        def scenario(application):
+            yield lambda: self.ready(application)
+            view = application.views[0]
+            original = self.desktop / 'item-0000.txt'
+            key = str(original)
+            view.selection = {key}
+            menu = view.make_menu(key)
+            self.menu_item(menu, _tr('重命名…')).activate()
+            menu.destroy()
+            yield lambda: view.rename_input is not None and view.rename_input.get_mapped() and view.rename_editor.get_allocated_width() > 10
+            self.assertEqual(len(application.get_windows()), 1)
+            self.assertEqual(view.rename_input.get_selection_bounds(), (0, len(original.stem)))
+            rect = view.rects[key]
+            box = view.rename_editor.get_allocation()
+            self.assertEqual(view.rename_editor.translate_coordinates(view.area, 0, 0), (rect[0]+5, rect[1]+cfg.icon_size+14))
+            self.assertLessEqual(box.width, cfg.cell_width)
+            if destination := os.environ.get('MNWS_TEST_RENAME_SCREENSHOT'):
+                surface = self.cairo.ImageSurface(self.cairo.FORMAT_ARGB32, view.get_allocated_width(), view.get_allocated_height())
+                self.Gtk.Widget.draw(view, self.cairo.Context(surface))
+                surface.write_to_png(destination)
+            slot = f'{view.monitor_key}:{view.page}'
+            position = [(rect[0]-cfg.margin)//cfg.cell_width, (rect[1]-cfg.margin)//cfg.cell_height]
+            application.positions[slot] = {key: position}
+            view.rename_input.set_text('重命名 文档.txt')
+            view.rename_input.emit('activate')
+            target = self.desktop / '重命名 文档.txt'
+            self.assertIsNone(view.rename_input)
+            self.assertFalse(original.exists())
+            self.assertEqual(target.read_text(), 'GUI fixture\n')
+            self.assertEqual(application.positions[slot][str(target)], position)
+            self.assertEqual(view.rects[str(target)], rect)
+            self.assertIn(str(target), view.selection)
+            view.rename_entry(str(target))
+            view.rename_input.set_text('item-0001.txt')
+            self.assertFalse(view.commit_rename())
+            self.assertTrue(view.rename_error_label.get_visible())
+            self.assertTrue(target.exists())
+            dangling = self.desktop / 'dangling'
+            dangling.symlink_to(self.desktop / 'missing')
+            view.rename_input.set_text('dangling')
+            self.assertFalse(view.commit_rename())
+            self.assertTrue(dangling.is_symlink())
+            view.rename_input.set_text('../outside')
+            self.assertFalse(view.commit_rename())
+            view.cancel_rename()
+            view.rename_entry(str(launcher))
+            view.rename_input.set_text('新启动器')
+            self.assertTrue(view.commit_rename())
+            self.assertEqual(application.by_path[str(launcher)].name, '新启动器')
+            self.assertIn('Exec=/usr/bin/true', launcher.read_text())
+            self.assertEqual(launcher.stat().st_mode & 0o777, 0o755)
+            view.close()
+        self.run_preview(cfg, scenario)
+
+    def test_inline_rename_keyboard_focus_and_cancellation(self):
+        def scenario(application):
+            yield lambda: self.ready(application)
+            view = application.views[0]
+            original = self.desktop / 'item-0000.txt'
+            key = str(original)
+            view.selection = {key}
+            self.assertTrue(view.key_press(view, SimpleNamespace(keyval=self.Gdk.KEY_F2, state=0)))
+            yield lambda: view.rename_input is not None and view.rename_input.get_mapped() and view.rename_editor.get_allocated_width() > 10
+            field = view.rename_input
+            field.set_text('cancelled.txt')
+            # Desktop Ctrl+A / Delete must not select or delete desktop files while editing.
+            self.assertFalse(view.key_press(view, SimpleNamespace(keyval=self.Gdk.KEY_Delete,state=0)))
+            self.assertFalse(view.key_press(view, SimpleNamespace(keyval=self.Gdk.KEY_a,state=self.Gdk.ModifierType.CONTROL_MASK)))
+            escape = self.Gdk.Event.new(self.Gdk.EventType.KEY_PRESS)
+            escape.keyval = self.Gdk.KEY_Escape
+            field.emit('key-press-event', escape)
+            self.assertIsNone(view.rename_input)
+            self.assertTrue(original.exists())
+            self.assertFalse((self.desktop/'cancelled.txt').exists())
+            view.rename_entry(key)
+            yield lambda: view.rename_input is not None and view.rename_input.get_mapped() and view.rename_editor.get_allocated_width() > 10
+            view.rename_input.set_text('outside-click.txt')
+            view.button_press(view.area, self.event((900,500)))
+            self.assertIsNone(view.rename_input)
+            target = self.desktop/'outside-click.txt'
+            self.assertTrue(target.exists())
+            view.rename_entry(str(target))
+            yield lambda: view.rename_input is not None and view.rename_input.get_mapped() and view.rename_editor.get_allocated_width() > 10
+            view.rename_input.set_text('lost-focus.txt')
+            view.rename_input.emit('activate')
+            yield lambda: view.rename_input is None
+            self.assertTrue((self.desktop/'lost-focus.txt').exists())
+            view.rename_entry(str(self.desktop/'lost-focus.txt'))
+            view.rename_input.set_text('not-saved-on-hide.txt')
+            application.set_hidden(True)
+            self.assertIsNone(view.rename_input)
+            self.assertFalse((self.desktop/'not-saved-on-hide.txt').exists())
+            view.close()
+        self.run_preview(self.Config(), scenario)
+
+    def test_inline_rename_ime_focus_and_layout_settle(self):
+        def scenario(application):
+            yield lambda: self.ready(application)
+            view = application.views[0]
+            original = self.desktop / 'item-0000.txt'
+            view.rename_entry(str(original))
+            yield lambda: view.rename_input is not None and view.rename_input.get_allocated_width() > 10
+            field = view.rename_input
+            # Repeated composition and candidate focus events must neither rename
+            # files nor destroy/recreate the input context.
+            for _ in range(20):
+                field.emit('preedit-changed', 'zhongwen')
+                field.emit('focus-out-event', self.Gdk.Event.new(self.Gdk.EventType.FOCUS_CHANGE))
+                self.assertFalse(view.commit_rename())
+                self.assertIs(view.rename_input, field)
+                self.assertTrue(original.exists())
+                field.emit('preedit-changed', '')
+            with patch.object(view, 'relayout', wraps=view.relayout) as layout:
+                deadline = self.GLib.get_monotonic_time() + 250000
+                yield lambda: self.GLib.get_monotonic_time() >= deadline
+                self.assertLessEqual(layout.call_count, 2, 'editor allocation must settle instead of continuously resizing')
+            self.assertIs(view.rename_input, field)
+            field.set_text('中文文档.txt')
+            field.emit('activate')
+            self.assertTrue((self.desktop/'中文文档.txt').exists())
+            self.assertIsNone(view.rename_input)
+            view.close()
+        self.run_preview(self.Config(), scenario)
+
+    def test_inline_create_defaults_cancel_validation_and_collision(self):
+        def scenario(application):
+            yield lambda: self.ready(application)
+            view = application.views[0]
+            for kind, name, caption in [('text','text.txt','文本文档'), ('markdown','markdown.md','Markdown 文档'), ('folder','folder','文件夹')]:
+                menu = view.make_menu(None)
+                self.menu_item(menu, _tr('新建'), _tr(caption)).activate()
+                menu.destroy()
+                yield lambda: view.rename_input is not None and view.rename_input.get_allocated_width() > 10
+                self.assertEqual(view.rename_input.get_text(), name)
+                self.assertEqual(len(application.get_windows()), 1)
+                self.assertFalse((self.desktop/name).exists())
+                self.assertIn(view.rename_key, view.rects)
+                self.assertEqual(view.rename_input.get_selection_bounds(), (0,len(Path(name).stem if kind != 'folder' else name)))
+                for bad in ['', '.', '..', '../outside', 'a/b']:
+                    view.rename_input.set_text(bad)
+                    self.assertFalse(view.commit_rename())
+                    self.assertTrue(view.rename_error_label.get_visible())
+                view.rename_input.set_text(name)
+                self.assertTrue(view.commit_rename())
+                self.assertIsNone(view.new_item)
+                if kind == 'folder':
+                    self.assertTrue((self.desktop/name).is_dir())
+                elif kind == 'text':
+                    self.assertEqual((self.desktop/name).read_text(), '')
+                else:
+                    self.assertEqual((self.desktop/name).read_text(), _tr('# 新文档\n'))
+            view.create_item('text','text.txt')
+            self.assertEqual(view.rename_input.get_text(),'text (2).txt')
+            view.rename_input.set_text('text.txt')
+            self.assertFalse(view.commit_rename())
+            view.rename_input.set_text('appeared.txt')
+            (self.desktop/'appeared.txt').write_text('another process')
+            self.assertFalse(view.commit_rename())
+            self.assertEqual((self.desktop/'appeared.txt').read_text(),'another process')
+            (self.desktop/'dangling').symlink_to(self.desktop/'missing')
+            view.rename_input.set_text('dangling')
+            self.assertFalse(view.commit_rename())
+            self.assertFalse((self.desktop/'missing').exists())
+            view.cancel_rename()
+            self.assertFalse((self.desktop/'text (2).txt').exists())
+            self.assertFalse(list(self.desktop.glob('.mnws-draft-*')))
+            view.close()
+        self.run_preview(self.Config(), scenario)
+
+    def test_inline_create_full_page_refresh_and_escape(self):
+        cfg = self.Config()
+        def scenario(application):
+            yield lambda: self.ready(application)
+            view = application.views[0]
+            capacity = view.columns * view.rows
+            for index in range(capacity - len(application.entries)):
+                (self.desktop/f'filler-{index:03d}.txt').touch()
+            application.refresh()
+            self.assertEqual(view.pages(),1)
+            view.create_item('folder','folder')
+            self.assertEqual(view.page,1)
+            yield lambda: view.rename_input is not None and view.rename_input.get_allocated_width() > 10
+            editor = view.rename_input
+            application.refresh()
+            self.assertIs(view.rename_input, editor)
+            escape = self.Gdk.Event.new(self.Gdk.EventType.KEY_PRESS)
+            escape.keyval = self.Gdk.KEY_Escape
+            editor.emit('key-press-event',escape)
+            self.assertIsNone(view.new_item)
+            self.assertEqual(view.page,0)
+            self.assertFalse((self.desktop/'folder').exists())
+            view.create_item('folder','folder')
+            view.rename_input.set_text('中文文件夹')
+            self.assertTrue(view.commit_rename())
+            self.assertTrue((self.desktop/'中文文件夹').is_dir())
+            self.assertIn(str(self.desktop/'中文文件夹'),view.selection)
+            self.assertIn(str(self.desktop/'中文文件夹'),view.rects)
+            view.close()
+        self.run_preview(cfg, scenario)
+
     def test_startup_initializes_missing_desktop(self):
         import shutil
         shutil.rmtree(self.desktop)

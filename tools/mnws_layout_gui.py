@@ -30,20 +30,25 @@ def _gtk():
 class LayoutWindow:
     """任务栏组件与插件布局窗口（内置组件 + .mplg 插件）。"""
 
-    def __init__(self, layout_file=None, open_plugin=None):
+    def __init__(self, layout_file=None, open_plugin=None, parent=None, on_apply=None):
         Gdk, Gtk = _gtk()
         from mnws_theme import start as start_theme_watch
         start_theme_watch()
         self.Gtk = Gtk
         self.layout_file = Path(layout_file) if layout_file else None
         self.rows = []
+        self.embedded = parent is not None
+        self.on_apply = on_apply
 
-        self.window = Gtk.Window(title=_tr('任务栏组件与插件 — MNWS'))
-        self.window.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-        self.window.set_default_size(820, 620)
-        self.window.set_border_width(12)
+        self.window = parent if self.embedded else Gtk.Window(title=_tr('任务栏组件与插件 — MNWS'))
+        if not self.embedded:
+            self.window.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            self.window.set_default_size(820, 620)
+            self.window.set_border_width(12)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.window.add(outer)
+        self.content = outer
+        if not self.embedded:
+            self.window.add(outer)
 
         heading = Gtk.Label(label=_tr('任务栏布局'), xalign=0)
         heading.get_style_context().add_class("title")
@@ -136,22 +141,23 @@ class LayoutWindow:
         scroller.add(self.list_box)
         outer.pack_start(scroller, True, True, 0)
 
-        footer = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
-        footer.set_halign(Gtk.Align.END)
-        save_btn = Gtk.Button(label=_tr('保存布局'))
-        save_btn.connect("clicked", lambda _b: self.save_layout(restart=False))
-        apply_btn = Gtk.Button(label=_tr('应用并重启任务栏'))
-        apply_btn.connect("clicked", lambda _b: self.save_layout(restart=True))
-        close_btn = Gtk.Button(label=_tr('关闭'))
-        close_btn.connect("clicked", lambda _b: self.window.destroy())
-        footer.pack_end(close_btn, False, False, 0)
-        footer.pack_end(apply_btn, False, False, 0)
-        footer.pack_end(save_btn, False, False, 0)
-        outer.pack_end(footer, False, False, 0)
-
-        self.window.connect("destroy", Gtk.main_quit)
+        if not self.embedded:
+            footer = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
+            footer.set_halign(Gtk.Align.END)
+            save_btn = Gtk.Button(label=_tr('保存布局'))
+            save_btn.connect("clicked", lambda _b: self.save_layout(restart=False))
+            apply_btn = Gtk.Button(label=_tr('应用并重启任务栏'))
+            apply_btn.connect("clicked", lambda _b: self.save_layout(restart=True))
+            close_btn = Gtk.Button(label=_tr('关闭'))
+            close_btn.connect("clicked", lambda _b: self.window.destroy())
+            footer.pack_end(close_btn, False, False, 0)
+            footer.pack_end(apply_btn, False, False, 0)
+            footer.pack_end(save_btn, False, False, 0)
+            outer.pack_end(footer, False, False, 0)
+            self.window.connect("destroy", Gtk.main_quit)
         self.reload()
-        self.window.show_all()
+        if not self.embedded:
+            self.window.show_all()
         if open_plugin:
             from gi.repository import GLib
             GLib.idle_add(self.open_plugin_settings, open_plugin)
@@ -230,10 +236,13 @@ class LayoutWindow:
         entry["box"] = box
         self.rows.append(entry)
         self.list_box.pack_start(box, False, False, 0)
+        if self.embedded and hasattr(self, "protect_scroll"):
+            self.protect_scroll(box)
 
-    def reload(self):
+    def reload(self, layout=None):
         self._clear_rows()
-        layout = load_layout(self.layout_file)
+        if layout is None:
+            layout = load_layout(self.layout_file)
         options = layout.get("options", {})
         try:
             definition = mnws_layout.launcher_definition()
@@ -326,6 +335,7 @@ class LayoutWindow:
             hint.set_margin_top(12)
             self.list_box.pack_start(hint, False, False, 0)
         self.update_status(layout)
+        self.list_box.show_all()
 
     def update_status(self, _layout=None):
         target = self.layout_file or layout_path()
@@ -430,6 +440,10 @@ class LayoutWindow:
         confirm.destroy()
         try:
             defaults = json.loads(PROJECT_LAYOUT_PATH.read_text(encoding="utf-8"))
+            if self.embedded:
+                self.reload(defaults)
+                self.status.set_text(_tr('布局已恢复默认，点击应用后生效。'))
+                return
             save_layout(defaults, self.layout_file)
         except (OSError, ValueError) as exc:
             self.show_message(_tr('恢复失败'), str(exc))
@@ -556,6 +570,14 @@ class LayoutWindow:
             row = next(row for row in self.rows
                        if row["kind"] == "plugin" and row["key"] == item["package"])
             item["order"] = row["order"]
+        # Applying appearance settings also collects this page. Preserve settings
+        # for packages temporarily unavailable instead of silently deleting them.
+        visible_builtins = {row["key"] for row in self.rows if row["kind"] == "builtin"}
+        visible_plugins = {row["key"] for row in self.rows if row["kind"] == "plugin"}
+        builtins.extend(item for item in layout.get("builtins", [])
+                        if item.get("id") not in visible_builtins)
+        plugins.extend(item for item in layout.get("plugins", [])
+                       if item.get("package") not in visible_plugins)
         layout["builtins"] = builtins
         layout["plugins"] = plugins
         layout.setdefault("options", {})["start_label"] = self.start_label.get_text().strip()
@@ -574,6 +596,8 @@ class LayoutWindow:
         return layout
 
     def save_layout(self, restart: bool, _button=None):
+        if self.embedded and self.on_apply is not None:
+            return self.on_apply()
         try:
             layout = self.collect_layout()
             path = save_layout(layout, self.layout_file)
@@ -612,7 +636,11 @@ def run(layout_file=None, open_plugin=None) -> int:
     GLib.set_prgname("mnws-layout")
     Gdk, Gtk = _gtk()
     Gdk.set_program_class("mnws-layout")
-    LayoutWindow(layout_file, open_plugin)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("mnws_config", Path(__file__).with_name("mnws-config.py"))
+    settings = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(settings)
+    settings.TaskbarSettingsWindow(tab="layout", layout_file=layout_file, open_plugin=open_plugin)
     Gtk.main()
     return 0
 

@@ -51,8 +51,10 @@ impl State {
 
         glib::spawn_future_local(window_stream(
             tx.clone(),
-            self.niri().window_stream(self.config().current_workspace_only()),
+            self.niri().window_stream(false),
         ));
+
+        glib::spawn_future_local(crate::pins::watch(tx.clone()));
 
         // We don't want to send a set of workspaces through until after the window stream has
         // yielded a window snapshot, and it's easier to defer it here than in the calling code.
@@ -83,6 +85,7 @@ pub enum Event {
     Notification(Box<EnrichedNotification>),
     WindowSnapshot(Snapshot),
     Workspaces(()),
+    PinsChanged(Vec<crate::pins::Pin>),
 }
 
 async fn notify_stream(tx: Sender<Event>) {

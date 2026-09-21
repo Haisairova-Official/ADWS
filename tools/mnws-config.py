@@ -632,9 +632,18 @@ class AnimatedPages(Gtk.Box):
         self.stack.set_visible_child_name(str(index))
 
 
+def on_settings_window_destroy(*_):
+    def quit_when_closed():
+        if Gtk.main_level() and not any(window.get_visible() and window.get_window_type() == Gtk.WindowType.TOPLEVEL
+                                        for window in Gtk.Window.list_toplevels()):
+            Gtk.main_quit()
+        return False
+    GLib.idle_add(quit_when_closed)
+
+
 class ConfigWindow(Gtk.Window):
     def __init__(self, tab=None):
-        super().__init__(title=_tr('MNWS 设置 — My Niri Workspace Solution'))
+        super().__init__(title=_tr('桌面设置 — MNWS'))
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.set_default_size(600, 440)
         self.set_border_width(12)
@@ -663,7 +672,7 @@ class ConfigWindow(Gtk.Window):
         footer.pack_end(ok, False, False, 0)
         footer.pack_end(apply, False, False, 0)
         outer.pack_end(footer, False, False, 0)
-        self.connect("destroy", Gtk.main_quit)
+        self.connect("destroy", on_settings_window_destroy)
         self.show_all()
 
     def build_appearance_page(self):
@@ -787,13 +796,10 @@ class ConfigWindow(Gtk.Window):
         taskbar_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         restart_task = Gtk.Button(label=_tr('重启'))
         restart_task.connect("clicked", self.action_restart_taskbar)
-        style_task = Gtk.Button(label=_tr('任务栏样式…'))
+        style_task = Gtk.Button(label=_tr('任务栏设置…'))
         style_task.connect("clicked", self.action_open_taskbar_style)
-        layout_task = Gtk.Button(label=_tr('组件布局与插件…'))
-        layout_task.connect("clicked", self.action_open_layout)
         taskbar_buttons.pack_start(restart_task, False, False, 0)
         taskbar_buttons.pack_start(style_task, False, False, 0)
-        taskbar_buttons.pack_start(layout_task, False, False, 0)
         box.pack_start(taskbar_buttons, False, False, 0)
         hint = Gtk.Label(
             label=_tr('两个开关互相独立：桌面图标层使用 desktop-hidden 标记，任务栏使用 taskbar-hidden。'),
@@ -959,22 +965,44 @@ class ConfigWindow(Gtk.Window):
         dialog.destroy()
 
 
-class TaskbarStyleWindow(Gtk.Window):
-    def __init__(self):
-        super().__init__(title=_tr('任务栏样式 — MNWS'))
+def keep_scroll_for_page(container, scroll):
+    """Wheel/touchpad input scrolls settings instead of silently editing values."""
+    def forward(_control, event):
+        scroll.emit("scroll-event", event.copy())
+        return True  # Stop the control's default value-changing handler.
+
+    def attach(widget):
+        if isinstance(widget, (Gtk.ComboBox, Gtk.SpinButton, Gtk.Scale)):
+            if getattr(widget, "_mnws_scroll_guard", False):
+                return
+            widget._mnws_scroll_guard = True
+            widget.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+            widget.connect("scroll-event", forward)
+        elif isinstance(widget, Gtk.Container):
+            for child in widget.get_children():
+                attach(child)
+    attach(container)
+
+
+class TaskbarSettingsWindow(Gtk.Window):
+    def __init__(self, tab=None, layout_file=None, open_plugin=None):
+        super().__init__(title=_tr('任务栏设置 — MNWS'))
+        self.layout_file = layout_file
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-        self.set_default_size(580, 760)
-        self.set_border_width(14)
+        self.set_default_size(820, 760)
+        self.set_border_width(12)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.add(outer)
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        outer.pack_start(scroll, True, True, 0)
+        self.notebook = AnimatedPages()
+        outer.pack_start(self.notebook, True, True, 0)
+        self.notebook.append_page(scroll, Gtk.Label(label=_tr('外观')))
         box = dialog_box()
         scroll.add(box)
         from mnws_layout import load_layout
         from mnws_panel_options import validate
-        self.panel_layout = load_layout()
+        self.panel_layout = load_layout(self.layout_file)
         options = validate(self.panel_layout.get('options', {}))
         self.position = Gtk.ComboBoxText()
         for key, caption in [('bottom', _tr('底部')), ('top', _tr('顶部')), ('left', _tr('左侧')), ('right', _tr('右侧'))]:
@@ -1051,10 +1079,31 @@ class TaskbarStyleWindow(Gtk.Window):
         hint.get_style_context().add_class("dim-label")
         hint.set_line_wrap(True)
         box.pack_start(hint, False, False, 0)
+        from mnws_layout_gui import LayoutWindow
+        self.layout_editor = LayoutWindow(layout_file, open_plugin, parent=self, on_apply=self.apply_style)
+        layout_page = self.layout_editor.content
+        layout_page.set_border_width(18)
+        self.notebook.append_page(layout_page, Gtk.Label(label=_tr('组件与插件')))
+        # Protect both existing and subsequently added layout rows from wheel edits.
+        def protect_layout(widget):
+            scroller = self.layout_editor.list_box.get_parent()
+            while scroller is not None and not isinstance(scroller, Gtk.ScrolledWindow):
+                scroller = scroller.get_parent()
+            if scroller is not None:
+                keep_scroll_for_page(widget, scroller)
+        self.layout_editor.protect_scroll = protect_layout
+        protect_layout(layout_page)
+        if tab == "layout" or open_plugin:
+            self.notebook.set_current_page(1)
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         buttons.set_hexpand(True)
-        restore = Gtk.Button(label=_tr('恢复默认'))
+        restore = Gtk.Button(label=_tr('恢复默认外观'))
         restore.connect("clicked", self.apply_restore)
+        restore.set_no_show_all(True)
+        def show_appearance_restore(*_):
+            restore.set_visible(self.notebook.get_current_page() == 0)
+        self.notebook.stack.connect("notify::visible-child", show_appearance_restore)
+        show_appearance_restore()
         buttons.pack_start(restore, False, False, 0)
         apply = Gtk.Button(label=_tr('应用'))
         apply.connect("clicked", lambda _b: self.apply_style(close_after=False))
@@ -1062,12 +1111,13 @@ class TaskbarStyleWindow(Gtk.Window):
         ok.connect("clicked", lambda _b: self.apply_style(close_after=True))
         close = Gtk.Button(label=_tr('关闭'))
         close.connect("clicked", lambda _b: self.destroy())
-        buttons.pack_end(close, False, False, 0)
-        buttons.pack_end(ok, False, False, 0)
         buttons.pack_end(apply, False, False, 0)
+        buttons.pack_end(ok, False, False, 0)
+        buttons.pack_end(close, False, False, 0)
         outer.pack_end(buttons, False, False, 0)
+        keep_scroll_for_page(box, scroll)
         self.on_theme_toggled()
-        self.connect("destroy", Gtk.main_quit)
+        self.connect("destroy", on_settings_window_destroy)
         self.show_all()
 
     def on_theme_toggled(self, *_):
@@ -1077,7 +1127,7 @@ class TaskbarStyleWindow(Gtk.Window):
         try:
             from mnws_layout import load_layout, save_layout, apply_layout
             from mnws_panel_options import validate
-            layout = load_layout()
+            layout = self.layout_editor.collect_layout()
             options = dict(layout.get('options', {}))
             options.update(position=self.position.get_active_id(), thickness=self.thickness.get_value_as_int(),
                            window_rows=int(self.window_rows.get_active_id()), animation_duration=self.animation_duration.get_value_as_int())
@@ -1096,7 +1146,8 @@ class TaskbarStyleWindow(Gtk.Window):
             ok, message = apply_layout(layout, restart=True)
             if not ok:
                 raise ValueError(message)
-            save_layout(layout)
+            save_layout(layout, self.layout_file)
+            self.layout_editor.status.set_text(_tr('设置已应用。'))
         except (OSError, ValueError) as exc:
             self.show_error(str(exc))
             return False
@@ -1115,7 +1166,7 @@ class TaskbarStyleWindow(Gtk.Window):
             for _, follow in self.panel_colors.values(): follow.set_active(True)
             self.theme_background.set_active(True)
             self.radius.set_value(12)
-            self.apply_style()
+            self.layout_editor.status.set_text(_tr('外观已恢复默认，点击应用后生效。'))
         except OSError as exc:
             self.show_error(str(exc))
 
@@ -1128,6 +1179,10 @@ class TaskbarStyleWindow(Gtk.Window):
         dialog.format_secondary_text(text)
         dialog.run()
         dialog.destroy()
+
+
+# Compatibility entry point for existing launchers.
+TaskbarStyleWindow = TaskbarSettingsWindow
 
 
 def main(argv=None):

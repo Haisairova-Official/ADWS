@@ -14,13 +14,14 @@ import signal
 import shutil
 import sys
 import time
+import uuid
 from urllib.parse import urlsplit
 
 from .config import load_config, state_path, validate_config
 from .selection import move_group, rectangle_hits
 from .overview import OverviewWatcher
 from .visibility import MarkerVisibility, WindowFade
-from .model import (scan_desktop, desktop_directory, launch_entry, UntrustedLauncher,
+from .model import (Entry, scan_desktop, desktop_directory, launch_entry, UntrustedLauncher,
                     atomic_save_json, arrange_grid, sort_entries, open_in_thunar,
                     file_manager_location)
 
@@ -298,6 +299,11 @@ def run_gui(args, cfg, directory):
             self.launch_dialog = None
             self.exit_dialog = None
             self.pending_opens = []
+            self.rename_editor = self.rename_input = self.rename_key = None
+            self.new_item = None
+            self.new_item_kind = None
+            self.rename_preedit = False
+            self.last_area_size = None
             self.columns = self.rows = 1
             self.layout_pending = 0
             self.scroll_accumulator = 0.0
@@ -335,7 +341,10 @@ def run_gui(args, cfg, directory):
                                  Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK |
                                  Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
             self.area.set_has_tooltip(True)
-            self.add(self.area)
+            self.overlay = Gtk.Overlay()
+            self.overlay.add(self.area)
+            self.overlay.connect('get-child-position', self.position_rename_editor)
+            self.add(self.overlay)
             for event, callback in [("draw", self.draw), ("size-allocate", self.resized),
                                     ("button-press-event", self.button_press),
                                     ("button-release-event", self.button_release),
@@ -356,6 +365,7 @@ def run_gui(args, cfg, directory):
             self.resize(max(1, width), 1)
 
         def destroyed(self, *_):
+            self.cancel_rename()
             self.fade.close()
             if self.monitor_handler is not None:
                 self.monitor.disconnect(self.monitor_handler)
@@ -376,7 +386,11 @@ def run_gui(args, cfg, directory):
             self.relayout()
             return False
 
-        def resized(self, *_):
+        def resized(self, _widget, allocation):
+            size = (allocation.width, allocation.height)
+            if size == self.last_area_size:
+                return
+            self.last_area_size = size
             if not self.layout_pending:
                 self.layout_pending = GLib.idle_add(self.delayed_layout)
 
@@ -386,23 +400,30 @@ def run_gui(args, cfg, directory):
             return False
 
         def pages(self):
-            return max(1, math.ceil(len(self.owner.entries) / (self.columns * self.rows)))
+            return max(1, math.ceil((len(self.owner.entries) + (self.new_item is not None)) / (self.columns * self.rows)))
 
         def relayout(self):
+            previous_rename_rect = self.rects.get(self.rename_key)
             width, height = self.area.get_allocated_width(), self.area.get_allocated_height()
             self.columns = max(1, (width - 2 * cfg.margin) // cfg.cell_width)
             self.rows = max(1, (height - 2 * cfg.margin - 38) // cfg.cell_height)
             self.page = min(self.page, self.pages() - 1)
             capacity = self.columns * self.rows
             # Stable names determine pagination. Saved positions are per output and page.
-            visible = self.owner.entries[self.page * capacity:(self.page + 1) * capacity]
+            entries = self.owner.entries + ([self.new_item] if self.new_item is not None else [])
+            visible = entries[self.page * capacity:(self.page + 1) * capacity]
             saved = self.owner.positions.get(f"{self.monitor_key}:{self.page}", {})
             layout = arrange_grid([str(e.path) for e in visible], saved, self.columns, self.rows)
             self.rects = {key: (cfg.margin + cell[0] * cfg.cell_width,
                                 cfg.margin + cell[1] * cfg.cell_height,
                                 cfg.cell_width, cfg.cell_height) for key, cell in layout.items()}
             self.toolbar = (cfg.margin, max(0, height - cfg.margin - 30), min(242, max(0, width - 2 * cfg.margin)), 30)
-            self.selection.intersection_update(self.owner.by_path)
+            self.selection.intersection_update([str(entry.path) for entry in entries])
+            if self.rename_key is not None:
+                if self.rename_key not in self.rects:
+                    self.cancel_rename()
+                elif previous_rename_rect != self.rects[self.rename_key]:
+                    self.overlay.queue_resize()
             self.blur_cache = None
             self.apply_input_region()
             self.area.queue_draw()
@@ -429,6 +450,8 @@ def run_gui(args, cfg, directory):
             return rx <= x < rx + width and ry <= y < ry + height
 
         def entry(self, key):
+            if self.new_item is not None and key == str(self.new_item.path):
+                return self.new_item
             return self.owner.by_path.get(key)
 
         def pixbuf(self, entry):
@@ -504,7 +527,8 @@ def run_gui(args, cfg, directory):
                 cr.restore()
             else:
                 self.text(cr, "◇", x, y + 8, width, 30, 1)
-            self.text(cr, entry.name, x + 5, y + cfg.icon_size + 14, width - 10)
+            if key != self.rename_key:
+                self.text(cr, entry.name, x + 5, y + cfg.icon_size + 14, width - 10)
 
         def draw_contents(self, cr):
             for key, rect in self.rects.items():
@@ -573,9 +597,15 @@ def run_gui(args, cfg, directory):
 
         def key_press(self, _widget, event):
             LOG.debug(_tr('桌面按键：keyval=%s'), event.keyval)
+            if self.rename_input is not None:
+                # Editing shortcuts belong to the entry, never the desktop selection.
+                return False
             if self.owner.overview_active or self.owner.hidden:
                 return False
             control = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
+            if event.keyval == Gdk.KEY_F2 and len(self.selection) == 1:
+                self.rename_entry(next(iter(self.selection)))
+                return True
             if control and event.keyval in (Gdk.KEY_a, Gdk.KEY_A):
                 self.selection = set(self.rects)
                 self.selection_changed()
@@ -599,6 +629,8 @@ def run_gui(args, cfg, directory):
 
         def button_press(self, _widget, event):
             LOG.debug(_tr('鼠标按下：button=%s x=%.1f y=%.1f'), event.button, event.x, event.y)
+            if self.rename_input is not None and not self.commit_rename():
+                return True
             if self.owner.overview_active:
                 return False
             if self.owner.hidden:
@@ -734,7 +766,7 @@ def run_gui(args, cfg, directory):
             return False
 
         def tooltip(self, _widget, x, y, keyboard, tooltip):
-            if self.owner.hidden or self.owner.overview_active:
+            if self.owner.hidden or self.owner.overview_active or self.new_item is not None:
                 return False
             if keyboard or self.dragging or self.marquee:
                 return False
@@ -749,6 +781,7 @@ def run_gui(args, cfg, directory):
 
         @logged_action(_tr('翻页'))
         def change_page(self, step):
+            self.cancel_rename()
             self.page = (self.page + step) % self.pages()
             self.selection.clear()
             self.selection_anchor = None
@@ -877,15 +910,16 @@ def run_gui(args, cfg, directory):
                 return menu
             if not key:
                 new_menu = submenu(_tr('新建'))
-                item(new_menu, _tr('文件夹'), lambda: self.create_item("folder", _tr('新建文件夹')))
-                item(new_menu, _tr('文本文档'), lambda: self.create_item("text", _tr('新建文本文档.txt')))
-                item(new_menu, _tr('Markdown 文档'), lambda: self.create_item("markdown", _tr('新建文档.md')))
+                item(new_menu, _tr('文件夹'), lambda: self.create_item("folder", "folder"))
+                item(new_menu, _tr('文本文档'), lambda: self.create_item("text", "text.txt"))
+                item(new_menu, _tr('Markdown 文档'), lambda: self.create_item("markdown", "markdown.md"))
                 separator(menu)
             if key:
                 item(menu, ''.join([_tr('打开选中的 '), f'{len(self.selection)}', _tr(' 项')]) if len(self.selection) > 1 else _tr('打开'),
                      self.open_selected if len(self.selection) > 1 else lambda: self.open_entry(key))
                 item(menu, _tr('在 Thunar 中显示'), self.reveal_selected)
                 item(menu, _tr('复制文件路径'), self.copy_paths)
+                item(menu, _tr('重命名…'), (lambda: self.rename_entry(key)) if len(self.selection) <= 1 else None)
                 separator(menu)
                 item(menu, _tr('删除（移到回收站）'), self.trash_selected)
                 separator(menu)
@@ -987,69 +1021,201 @@ def run_gui(args, cfg, directory):
             """返回桌面目录中不存在的文件名，重复时自动追加 (2)、(3)…"""
             name = Path(name).name
             target = directory / name
-            if not target.exists():
+            if not os.path.lexists(target):
                 return target
             stem, suffix = os.path.splitext(name)
             index = 2
             while True:
                 target = directory / f"{stem} ({index}){suffix}"
-                if not target.exists():
+                if not os.path.lexists(target):
                     return target
                 index += 1
 
-        @logged_action(_tr('打开名称输入框'))
-        def ask_name(self, title, default):
-            dialog = Gtk.Dialog(title=title, transient_for=self, modal=True, destroy_with_parent=True)
-            dialog.add_button(_tr('取消'), Gtk.ResponseType.CANCEL)
-            dialog.add_button(_tr('创建'), Gtk.ResponseType.ACCEPT)
-            dialog.set_default_response(Gtk.ResponseType.ACCEPT)
-            content = dialog.get_content_area()
-            content.set_spacing(8)
-            content.set_margin_top(12)
-            content.set_margin_bottom(8)
-            content.set_margin_start(12)
-            content.set_margin_end(12)
-            label = Gtk.Label(label=_tr('名称：'), xalign=0)
-            entry = Gtk.Entry()
-            entry.set_text(default)
-            entry.select_region(0, -1)
-            entry.set_activates_default(True)
-            content.add(label)
-            content.add(entry)
-            dialog.connect("response", lambda w, result: LOG.info(_tr('弹窗响应：%s，结果=%s'), w.get_title(), result))
-            dialog.show_all()
-            entry.grab_focus()
-            value = default
-            if dialog.run() == Gtk.ResponseType.ACCEPT:
-                value = entry.get_text().strip()
-            dialog.destroy()
-            return value or None
+        def position_rename_editor(self, _overlay, child, allocation):
+            if child is not self.rename_editor or self.rename_key not in self.rects:
+                return False
+            x, y, width, _ = self.rects[self.rename_key]
+            allocation.width = max(1, int(width - 10))
+            allocation.height = child.get_preferred_height_for_width(allocation.width)[1]
+            allocation.x = max(0, int(x + 5))
+            allocation.y = max(0, min(int(y + cfg.icon_size + 14),
+                                      self.area.get_allocated_height() - allocation.height))
+            return True
+
+        def cancel_rename(self, keep_draft=False):
+            editor = self.rename_editor
+            self.rename_editor = self.rename_input = self.rename_key = None
+            self.rename_preedit = False
+            if editor is not None:
+                editor.destroy()
+                self.selection_changed()
+            if self.new_item is not None and not keep_draft:
+                if self.selection_anchor == str(self.new_item.path):
+                    self.selection_anchor = None
+                self.selection.discard(str(self.new_item.path))
+                self.new_item = self.new_item_kind = None
+                self.relayout()
+
+        def rename_error(self, message):
+            LOG.warning('%s: %s', _tr('创建失败') if self.new_item is not None else _tr('重命名失败'), message)
+            self.rename_input.get_style_context().add_class('error')
+            self.rename_error_label.set_text(message)
+            self.rename_error_label.show()
+            self.overlay.queue_resize()
+            return False
+
+        @logged_action(_tr('重命名'))
+        def rename_entry(self, key):
+            entry = self.entry(key)
+            if entry is None or key not in self.rects or self.owner.hidden or self.owner.overview_active:
+                return
+            self.cancel_rename(keep_draft=entry is self.new_item)
+            self.selection = {key}
+            self.selection_anchor = key
+            self.rename_key = key
+            launcher = entry.kind in ('application', 'link') and not entry.error
+            name = entry.name if launcher or entry is self.new_item else entry.path.name
+            editor = self.rename_editor = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            field = self.rename_input = Gtk.Entry()
+            if not args.preview:
+                # Layer-shell runs on Wayland. Let the compositor/IME own the
+                # candidate surface: fcitx's GTK client-side themed popup can
+                # block this desktop's main loop in synchronous image decoding.
+                # This per-entry override does not alter the user's IM settings.
+                field.set_property('im-module', 'wayland')
+            field.set_width_chars(1)
+            field.set_alignment(.5)
+            field.set_text(name)
+            field.get_accessible().set_name(_tr('新建项目') if entry is self.new_item else _tr('重命名'))
+            editor.pack_start(field, False, False, 0)
+            error = self.rename_error_label = Gtk.Label()
+            error.set_line_wrap(True)
+            error.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            error.set_max_width_chars(1)
+            error.get_style_context().add_class('error')
+            editor.pack_start(error, False, False, 0)
+            error.set_no_show_all(True)
+            field.connect('activate', lambda *_: self.commit_rename())
+            field.connect('preedit-changed', self.rename_preedit_changed)
+            def key_press(_field, event):
+                if event.keyval == Gdk.KEY_Escape:
+                    # Let the IME dismiss its candidate/preedit first. Do not destroy
+                    # an input context while it is handling composition.
+                    if _field.im_context_filter_keypress(event):
+                        return True
+                    if self.rename_preedit:
+                        _field.reset_im_context()
+                        self.rename_preedit = False
+                        return True
+                    self.cancel_rename()
+                    self.area.grab_focus()
+                    return True
+                return False
+            field.connect('key-press-event', key_press)
+            # Candidate windows and input-method switching may temporarily take
+            # focus. Losing focus is not a file operation and must not grab it back.
+            self.overlay.add_overlay(editor)
+            self.overlay.set_overlay_pass_through(editor, False)
+            editor.show_all()
+            self.selection_changed()
+            def focus():
+                if self.rename_input is field:
+                    field.grab_focus()
+                    # Like Explorer: retain the extension; directories and launchers select all.
+                    suffix = Path(name).suffix if entry.kind == 'file' and not launcher else ''
+                    field.select_region(0, len(name) - len(suffix) if suffix else -1)
+                return False
+            GLib.idle_add(focus)
+
+        def rename_preedit_changed(self, field, text):
+            if self.rename_input is field:
+                self.rename_preedit = bool(text)
+
+        def commit_rename(self):
+            if self.rename_input is None:
+                return True
+            if self.rename_preedit:
+                return False
+            key = self.rename_key
+            entry = self.entry(key)
+            if entry is None:
+                self.cancel_rename()
+                return True
+            launcher = entry.kind in ('application', 'link') and not entry.error
+            name = self.rename_input.get_text()
+            old_name = entry.name if launcher else entry.path.name
+            if name == old_name and entry is not self.new_item:
+                self.cancel_rename()
+                return True
+            if not name.strip() or '/' in name or '\x00' in name or name in ('.', '..'):
+                return self.rename_error(_tr('名称不能为空，不能包含 /，也不能是 . 或 ..'))
+            if entry is self.new_item:
+                target = directory / name
+                try:
+                    if self.new_item_kind == 'folder':
+                        target.mkdir()
+                    else:
+                        # Exclusive creation protects files and dangling symlinks,
+                        # including a file created after the editor was opened.
+                        with target.open('x', encoding='utf-8') as stream:
+                            if self.new_item_kind == 'markdown':
+                                stream.write(_tr('# 新文档\n'))
+                except OSError as exc:
+                    return self.rename_error(str(exc))
+                self.cancel_rename()
+                self.finish_file_change(target)
+                LOG.info('%s: %s', _tr('新建项目'), target)
+                return True
+            target = entry.path if launcher else entry.path.with_name(name)
+            try:
+                source = Gio.File.new_for_path(key)
+                if launcher:
+                    # Desktop launchers display Name, not their file basename.
+                    _, content, etag = source.load_contents(None)
+                    data = GLib.KeyFile()
+                    data.load_from_data(content.decode('utf-8'), len(content),
+                                        GLib.KeyFileFlags.KEEP_COMMENTS | GLib.KeyFileFlags.KEEP_TRANSLATIONS)
+                    for field in data.get_keys('Desktop Entry')[0]:
+                        if field == 'Name' or field.startswith('Name['):
+                            data.set_string('Desktop Entry', field, name)
+                    payload, _ = data.to_data()
+                    source.replace_contents(payload.encode('utf-8'), etag, False,
+                                            Gio.FileCreateFlags.NONE, None)
+                else:
+                    # NONE must never overwrite a file, directory or dangling link.
+                    source.move(Gio.File.new_for_path(str(target)), Gio.FileCopyFlags.NONE, None, None)
+            except (GLib.Error, OSError, ValueError) as exc:
+                return self.rename_error(str(exc))
+            for positions in self.owner.positions.values():
+                if key in positions:
+                    positions[str(target)] = positions.pop(key)
+            self.owner.save_state()
+            self.cancel_rename()
+            self.finish_file_change(target)
+            LOG.info('%s: %s → %s', _tr('重命名'), old_name, name)
+            return True
 
         @logged_action(_tr('新建项目'))
         def create_item(self, kind, default):
-            titles = {"folder": _tr('新建文件夹'), "text": _tr('新建文本文档'), "markdown": _tr('新建 Markdown 文档')}
-            name = self.ask_name(titles[kind], default)
-            if not name:
+            if self.owner.hidden or self.owner.overview_active:
                 return
-            if "/" in name or name in (".", ".."):
-                self.show_error(_tr('名称无效'), _tr('名称不能包含 /，也不能是 . 或 ..'))
-                return
-            target = self.unique_target(name)
-            try:
-                if kind == "folder":
-                    target.mkdir(parents=False)
-                else:
-                    target.touch()
-                    if kind == "markdown":
-                        target.write_text(_tr('# 新文档\n'), encoding="utf-8")
-            except OSError as exc:
-                self.show_error(_tr('创建失败'), ''.join([_tr('无法创建 '), f'{target.name}', '：', f'{exc}']))
-                return
-            self.finish_file_change(target)
+            self.cancel_rename()
+            self.new_item_kind = kind
+            self.new_item = Entry(directory / ('.mnws-draft-' + uuid.uuid4().hex),
+                                  self.unique_target(default).name,
+                                  Gio.ThemedIcon.new('folder' if kind == 'folder' else 'text-x-generic'),
+                                  'directory' if kind == 'folder' else 'file')
+            self.page = self.pages() - 1
+            self.relayout()
+            self.rename_entry(str(self.new_item.path))
 
         def finish_file_change(self, target):
             self.owner.refresh()
             key = str(target)
+            if key in self.owner.by_path and key not in self.rects:
+                index = next(i for i, entry in enumerate(self.owner.entries) if str(entry.path) == key)
+                self.page = index // (self.columns * self.rows)
+                self.relayout()
             if key in self.owner.by_path and key in self.rects:
                 self.selection = {key}
                 self.selection_anchor = key
@@ -1365,6 +1531,7 @@ def run_gui(args, cfg, directory):
             self.overview_active = bool(is_open)
             for view in self.views:
                 view.blur_cache = None
+                view.cancel_rename()
                 view.hover = None
                 view.press = view.press_key = view.marquee = view.drag_point = None
                 view.dragging = False
@@ -1573,6 +1740,7 @@ def run_gui(args, cfg, directory):
                 view.dragging = False
                 view.drag_point = None
                 view.selection.clear()
+                view.cancel_rename()
                 view.fade.set_hidden(self.hidden)
                 view.apply_input_region()
 

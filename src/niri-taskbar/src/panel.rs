@@ -9,7 +9,7 @@ thread_local! {
     static ACTIVE_MENU: RefCell<Option<gtk::Menu>> = RefCell::new(None);
 }
 
-/// 在底栏空白处提供右键菜单，打开统一的 MNWS-Config（任务栏样式页）。
+/// 在底栏空白处提供右键菜单，提供桌面设置与统一任务栏设置入口。
 ///
 /// 菜单挂在 waybar 顶层窗口上，因此只会在不属于任何子组件
 /// （开始按钮、窗口图标、时钟等）的背景区域收到事件时弹出。
@@ -28,18 +28,18 @@ pub fn connect_panel_menu(toplevel: &gtk::Widget) {
         }
 
         let menu = gtk::Menu::new();
-        let style_item = gtk::MenuItem::with_label(crate::i18n::text("任务栏样式设置… (MNWS)", "Taskbar style settings… (MNWS)"));
-        style_item.connect_activate(|_| {
+        let desktop_item = gtk::MenuItem::with_label(crate::i18n::text("桌面设置", "Desktop settings"));
+        desktop_item.connect_activate(|_| {
+            tracing::info!("{}", crate::i18n::text("打开桌面设置", "Open desktop settings"));
+            open_mnws_config("desktop");
+        });
+        menu.append(&desktop_item);
+        let taskbar_item = gtk::MenuItem::with_label(crate::i18n::text("任务栏设置", "Taskbar settings"));
+        taskbar_item.connect_activate(|_| {
             tracing::info!("{}", crate::i18n::text("打开任务栏设置", "Open taskbar settings"));
-            open_mnws_config();
+            open_mnws_config("taskbar");
         });
-        menu.append(&style_item);
-        let layout_item = gtk::MenuItem::with_label(crate::i18n::text("组件与插件… (MNWS)", "Components and plugins… (MNWS)"));
-        layout_item.connect_activate(|_| {
-            tracing::info!("{}", crate::i18n::text("打开组件布局设置", "Open component layout settings"));
-            open_layout_gui();
-        });
-        menu.append(&layout_item);
+        menu.append(&taskbar_item);
         crate::menu_style::apply(&menu);
         menu.show_all();
         menu.connect_deactivate(|_| {
@@ -59,7 +59,7 @@ pub fn connect_panel_menu(toplevel: &gtk::Widget) {
     });
 }
 
-fn open_mnws_config() {
+fn open_mnws_config(tab: &str) {
     let mut candidates = Vec::new();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().and_then(|parent| parent.parent());
@@ -78,7 +78,7 @@ fn open_mnws_config() {
     let result = Command::new("python3")
         .arg(&tool)
         .arg("--tab")
-        .arg("taskbar")
+        .arg(tab)
         .env_remove("GDK_BACKEND")
         .spawn();
     if let Err(e) = result {
@@ -86,36 +86,37 @@ fn open_mnws_config() {
     }
 }
 
-fn open_layout_gui() {
-    let mut candidates = Vec::new();
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let project_root = manifest.parent().and_then(|parent| parent.parent());
-    if let Some(root) = project_root {
-        candidates.push(root.join("tools/mnws_layout.py"));
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        candidates.push(PathBuf::from(home).join(".local/bin/mnws"));
-    }
+pub fn launch_application(app_id: &str, administrator: bool) {
+    application_action(app_id, if administrator {Some("--administrator")} else {None});
+}
 
-    let Some(tool) = candidates.into_iter().find(|path| path.exists()) else {
-        tracing::warn!("{}", crate::i18n::text("MNWS 布局工具未找到（tools/mnws_layout.py 或 ~/.local/bin/mnws）", "MNWS layout tool not found (tools/mnws_layout.py or ~/.local/bin/mnws)"));
+pub fn pin_application(app_id: &str, enabled: bool) {
+    application_action(app_id, Some(if enabled {"--pin"} else {"--unpin"}));
+}
+
+fn application_action(app_id: &str, option: Option<&str>) {
+    let mut candidates = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        if let Ok(entry) = std::fs::canonicalize(PathBuf::from(home).join(".local/bin/mnws")) {
+            if let Some(root) = entry.parent() {
+                candidates.push(root.join("tools/mnws_app_launch.py"));
+            }
+        }
+    }
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/mnws_app_launch.py"));
+    let Some(tool) = candidates.into_iter().find(|path| path.is_file()) else {
+        tracing::error!("MNWS application launch helper is missing");
         return;
     };
-
-    let result = if tool.extension().is_some_and(|ext| ext == "py") {
-        Command::new("python3")
-            .arg(&tool)
-            .arg("gui")
-            .env_remove("GDK_BACKEND")
-            .spawn()
-    } else {
-        Command::new(&tool)
-            .arg("layout")
-            .arg("gui")
-            .env_remove("GDK_BACKEND")
-            .spawn()
-    };
-    if let Err(e) = result {
-        tracing::warn!(%e, "{}", crate::i18n::text("cannot launch MNWS 组件布局", "Cannot launch MNWS component layout"));
+    tracing::info!(%app_id, ?option, "Application action from taskbar");
+    let mut command = Command::new("python3");
+    command.arg(tool);
+    // Options precede -- so an application ID can never become a helper option.
+    if let Some(option) = option {
+        command.arg(option);
+    }
+    match command.arg("--").arg(app_id).env_remove("GDK_BACKEND").spawn() {
+        Ok(mut child) => { std::thread::spawn(move || { let _ = child.wait(); }); }
+        Err(error) => tracing::error!(%error, "Cannot start application launch helper"),
     }
 }

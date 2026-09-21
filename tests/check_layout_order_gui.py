@@ -36,6 +36,8 @@ with tempfile.TemporaryDirectory() as directory:
             {"package": ids[2], "slot": "center", "order": 0, "enabled": True},
         ],
     }
+    missing = {"package": "test.temporarily-missing", "enabled": True, "slot": "right", "order": 9, "settings": {"keep": "me"}}
+    data["plugins"].append(missing)
     path.write_text(json.dumps(data))
     app = gui.LayoutWindow(str(path))
     expected = ["start", "windows", ids[2], ids[0], "workspaces", "clock", ids[1]]
@@ -43,6 +45,7 @@ with tempfile.TemporaryDirectory() as directory:
     for _ in range(5):
         assert [row["key"] for row in app.rows] == expected
         saved = app.collect_layout()
+        assert missing in saved["plugins"], "Unavailable plugin settings were discarded"
         if stable is not None:
             assert saved == stable
         stable = saved
