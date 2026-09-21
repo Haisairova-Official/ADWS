@@ -721,5 +721,12 @@
   "任务栏高度也可以自行设置了。（1.26）": "Taskbar height is now customizable. (1.26)",
   "现在选项卡可以合并在一起节省空间了。": "Window cards can now be grouped to save space.",
   "现在选项卡可以peek视图切换了，就像Windows的DWM那样（A）": "Window cards now support Peek-style switching, like Windows DWM. (A)",
-  "修复了一些提示错位的bug。（1.27）": "Fix several misplaced-tooltip bugs. (1.27)"
+  "修复了一些提示错位的bug。（1.27）": "Fix several misplaced-tooltip bugs. (1.27)",
+  "任务栏歌词插件升级至 NCMLyricsBar 1.1.0，支持 Chrome 等浏览器，并提供实验性的其他音乐平台兼容。": "Upgrade the taskbar lyrics plugin to NCMLyricsBar 1.1.0, supporting Chrome and other browsers, with optional experimental support for other music platforms.",
+  "歌词支持右键打开设置、点击暂停和悬停切歌，还能动态占位，淡入淡出和宽度过渡也可以安排上。": "Lyrics now support right-click settings, click-to-pause and hover playback controls, with automatic sizing and optional fades and width transitions.",
+  "完善了歌词的竖排显示与系统配色，原文、译文和分隔线各有各的颜色。": "Improve vertical lyrics and theme colors, with distinct colors for the original line, translation and separator.",
+  "修复了应用配置后任务栏与窗口之间多出一块留白的问题。": "Fix the extra gap between the taskbar and windows after applying settings.",
+  "修复了任务栏、菜单和设置窗口配色跟随不及时的问题，换配色终于不用手动重启了。": "Fix delayed theme updates in the taskbar, menus and settings windows; palette changes now apply without a manual restart.",
+  "保留手动指定的颜色，配色文件临时写入异常时也不会丢掉上一套有效配色。": "Preserve manually selected colors and retain the last valid palette if a palette file is temporarily invalid while being written.",
+  "保留手动指定的颜色，配色文件临时写入异常时也不会丢掉上一套有效配色。（B）": "Preserve manually selected colors and retain the last valid palette if a palette file is temporarily invalid while being written. (B)"
 }

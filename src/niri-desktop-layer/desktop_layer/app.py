@@ -141,11 +141,17 @@ def apply_menu_palette(menu, cfg) -> None:
             "menu menuitem.desktop-exit:hover label, menu menuitem.desktop-exit:selected label {"
             "color: #ffffff; }")
     try:
-        provider = Gtk.CssProvider()
-        provider.load_from_data(css.encode("utf-8"))
+        candidate = Gtk.CssProvider()
+        candidate.load_from_data(css.encode("utf-8"))
+        provider = getattr(menu, "_mnws_palette_provider", None)
+        if provider is None:
+            provider = candidate
+        else:
+            provider.load_from_data(css.encode("utf-8"))
+        menu._mnws_palette_provider = provider
     except Exception as exc:  # noqa: BLE001 - 样式失败不应影响菜单本身
         LOG.warning(_tr('菜单调色板样式加载失败: %s'), exc)
-        return
+        return False
 
     def attach(widget):
         widget.get_style_context().add_provider(
@@ -159,6 +165,10 @@ def apply_menu_palette(menu, cfg) -> None:
                     attach(submenu)
 
     attach(menu)
+    if not hasattr(menu, "_mnws_palette_watch"):
+        from mnws_theme import Watch
+        menu._mnws_palette_watch = Watch(palette_file_candidates(),
+                                         lambda: apply_menu_palette(menu, cfg), menu)
 
 
 def arguments(argv=None):
@@ -257,6 +267,9 @@ def run_gui(args, cfg, directory):
     import cairo
     from gi.repository import Gtk, Gdk, Gio, GLib, Pango, PangoCairo, GtkLayerShell
     from PIL import Image, ImageFilter
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
+    from mnws_theme import start as start_theme_watch
+    start_theme_watch()
 
     class DesktopWindow(Gtk.ApplicationWindow):
         def __init__(self, application, monitor, key):

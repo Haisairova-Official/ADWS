@@ -32,6 +32,8 @@ class LayoutWindow:
 
     def __init__(self, layout_file=None, open_plugin=None):
         Gdk, Gtk = _gtk()
+        from mnws_theme import start as start_theme_watch
+        start_theme_watch()
         self.Gtk = Gtk
         self.layout_file = Path(layout_file) if layout_file else None
         self.rows = []

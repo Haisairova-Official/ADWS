@@ -82,6 +82,7 @@ waybar_module!(TaskbarModule);
 #[tracing::instrument(level = "DEBUG", skip_all, err)]
 async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<(), Error> {
     // Set up the box that we'll use to contain the actual window buttons.
+    menu_style::watch_palette();
     let root = info.get_root_widget();
     let container = gtk::Grid::new();
     container.set_row_homogeneous(!state.config().vertical());

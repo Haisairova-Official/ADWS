@@ -1149,6 +1149,8 @@ def main(argv=None):
     GLib.set_prgname("mnws-config")
     Gdk.set_program_class("mnws-config")
     Gtk.init([])
+    from mnws_theme import start as start_theme_watch
+    start_theme_watch()
     if args.tab == "taskbar":
         TaskbarStyleWindow()
     else:

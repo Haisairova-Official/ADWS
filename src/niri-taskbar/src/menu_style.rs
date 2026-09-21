@@ -68,7 +68,7 @@ fn read_font_family() -> Option<String> {
 }
 
 /// 让菜单使用与底部任务栏一致的 matugen 调色板（每次弹出重读 colors.css）。
-pub fn apply(menu: &gtk::Menu) {
+fn refresh_menu_palette() {
     let colors = read_colors();
     fn pick<'a>(colors: &'a HashMap<String, String>, name: &str, fallback: &'a str) -> &'a str {
         colors.get(name).map(String::as_str).unwrap_or(fallback)
@@ -125,6 +125,10 @@ pub fn apply(menu: &gtk::Menu) {
             tracing::warn!(%error, "menu palette CSS parse error");
         }
     });
+}
+
+pub fn apply(menu: &gtk::Menu) {
+    refresh_menu_palette();
     // Screen-scoped selectors also reach menu items and the popup decoration;
     // a provider attached to the menu widget alone does not style those nodes.
     menu.style_context().add_class("mnws-menu");
@@ -136,4 +140,163 @@ pub fn apply(menu: &gtk::Menu) {
             top.style_context().add_class("mnws-menu-popup");
         }
     });
+}
+
+/// Named colors alone do not reliably invalidate GTK's custom drawing nodes.
+/// Content polling also survives atomic replacement and symlink retargeting.
+pub fn watch_palette() {
+    use std::{cell::Cell, time::Duration};
+    thread_local! { static STARTED: Cell<bool> = const { Cell::new(false) }; }
+    if STARTED.with(|started| started.replace(true)) {
+        return;
+    }
+    let provider = CssProvider::new();
+    let Some(screen) = gtk::gdk::Screen::default() else {
+        return;
+    };
+    gtk::StyleContext::add_provider_for_screen(
+        &screen,
+        &provider,
+        gtk::STYLE_PROVIDER_PRIORITY_USER,
+    );
+    let mut previous = None;
+    gtk::glib::timeout_add_local(Duration::from_millis(500), move || {
+        let current = waybar_config_file("colors.css").and_then(|p| {
+            let waybar = std::fs::read(&p).ok()?;
+            if waybar.iter().all(u8::is_ascii_whitespace) {
+                return None;
+            }
+            // GTK popovers use GTK roles, whereas bar widgets use Waybar roles.
+            let gtk_palette = p.parent()?.parent()?.join("gtk-3.0/colors.css");
+            let mut data = std::fs::read(gtk_palette).unwrap_or_default();
+            data.push(b'\n');
+            data.extend(waybar);
+            Some(data)
+        });
+        if current != previous {
+            if let Some(data) = current.as_ref() {
+                // Validate before touching the active provider; preserve valid colors
+                // while a generator is partway through writing its output.
+                let candidate = CssProvider::new();
+                if !data.is_empty()
+                    && candidate.load_from_data(data).is_ok()
+                    && provider.load_from_data(data).is_ok()
+                {
+                    previous = current;
+                    refresh_menu_palette();
+                    gtk::StyleContext::reset_widgets(&screen);
+                    for window in gtk::Window::list_toplevels() {
+                        window.queue_draw();
+                    }
+                }
+            }
+        }
+        gtk::glib::ControlFlow::Continue
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gtk::prelude::*;
+    use std::time::{Duration, Instant};
+    fn settle() {
+        let until = Instant::now() + Duration::from_millis(650);
+        while Instant::now() < until {
+            while gtk::glib::MainContext::default().pending() {
+                gtk::glib::MainContext::default().iteration(false);
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    #[test]
+    #[ignore = "requires an isolated GTK display"]
+    fn live_palette_replacement() {
+        gtk::init().unwrap();
+        let root = std::env::temp_dir().join(format!("mnws-theme-test-{}", std::process::id()));
+        let dir = root.join("waybar");
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &root);
+        }
+        let palette = dir.join("colors.css");
+        std::fs::write(&palette, "@define-color primary #ff0000;\n").unwrap();
+        let style = dir.join("style-bottom.css");
+        std::fs::write(&style,"@import 'colors.css'; button {background-image:none;background-color:@primary;transition:none;}").unwrap();
+        let css = CssProvider::new();
+        css.load_from_path(style.to_str().unwrap()).unwrap();
+        gtk::StyleContext::add_provider_for_screen(
+            &gtk::gdk::Screen::default().unwrap(),
+            &css,
+            gtk::STYLE_PROVIDER_PRIORITY_USER,
+        );
+        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        let button = gtk::Button::with_label("theme");
+        window.add(&button);
+        window.show_all();
+        let manual = CssProvider::new();
+        manual.load_from_data(b"button {color:#123456;}").unwrap();
+        button
+            .style_context()
+            .add_provider(&manual, gtk::STYLE_PROVIDER_PRIORITY_USER);
+        watch_palette();
+        settle();
+        let context = button.style_context();
+        assert!(
+            context
+                .style_property_for_state("background-color", gtk::StateFlags::NORMAL)
+                .get::<gtk::gdk::RGBA>()
+                .unwrap()
+                .red()
+                > 0.9
+        );
+        std::fs::write(dir.join("new.css"), "@define-color primary #0000ff;\n").unwrap();
+        std::fs::rename(dir.join("new.css"), &palette).unwrap();
+        settle();
+        assert!(context.lookup_color("primary").unwrap().blue() > 0.9);
+        assert!(
+            context
+                .style_property_for_state("background-color", gtk::StateFlags::NORMAL)
+                .get::<gtk::gdk::RGBA>()
+                .unwrap()
+                .blue()
+                > 0.9,
+            "computed CSS must refresh as well as named-color lookup"
+        );
+        std::fs::write(&palette, "invalid css {").unwrap();
+        settle();
+        assert!(
+            context
+                .style_property_for_state("background-color", gtk::StateFlags::NORMAL)
+                .get::<gtk::gdk::RGBA>()
+                .unwrap()
+                .blue()
+                > 0.9
+        );
+        std::fs::write(&palette, "@define-color primary #00ff00;\n").unwrap();
+        settle();
+        assert!(
+            context
+                .style_property_for_state("background-color", gtk::StateFlags::NORMAL)
+                .get::<gtk::gdk::RGBA>()
+                .unwrap()
+                .green()
+                > 0.9
+        );
+        let manual_color = context.color(gtk::StateFlags::NORMAL);
+        assert!(
+            (manual_color.red() - 18.0 / 255.0).abs() < 0.01,
+            "manual color changed"
+        );
+        unsafe {
+            window.destroy();
+            if let Some(v) = old {
+                std::env::set_var("XDG_CONFIG_HOME", v);
+            } else {
+                std::env::remove_var("XDG_CONFIG_HOME");
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

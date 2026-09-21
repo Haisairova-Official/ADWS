@@ -1,12 +1,12 @@
 # Changelog / 更新记录
 
-## 1.27-A — 2026-09-20
+## 1.27-B — 2026-09-21
 
 开发分支 / Development branch: `Pre-1.30`.
 
 ### 最新更新
 
-Major 1.27    Minor：A    构建日期：2026-09-20
+Major 1.27    Minor：B    构建日期：2026-09-21
 
 - 增加了大量可选动效，你的任务栏再也不无聊了。
 - 增加了大量配色选项。
@@ -15,10 +15,16 @@ Major 1.27    Minor：A    构建日期：2026-09-20
 - 现在选项卡可以合并在一起节省空间了。
 - 现在选项卡可以peek视图切换了，就像Windows的DWM那样（A）
 - 修复了一些提示错位的bug。（1.27）
+- 任务栏歌词插件升级至 NCMLyricsBar 1.1.0，支持 Chrome 等浏览器，并提供实验性的其他音乐平台兼容。
+- 歌词支持右键打开设置、点击暂停和悬停切歌，还能动态占位，淡入淡出和宽度过渡也可以安排上。
+- 完善了歌词的竖排显示与系统配色，原文、译文和分隔线各有各的颜色。
+- 修复了应用配置后任务栏与窗口之间多出一块留白的问题。
+- 修复了任务栏、菜单和设置窗口配色跟随不及时的问题，换配色终于不用手动重启了。
+- 保留手动指定的颜色，配色文件临时写入异常时也不会丢掉上一套有效配色。（B）
 
 ### Latest updates
 
-Major 1.27    Minor: A    Build date: 2026-09-20
+Major 1.27    Minor: B    Build date: 2026-09-21
 
 - Add plenty of optional animations—your taskbar will never be boring again.
 - Add many more color options.
@@ -27,6 +33,12 @@ Major 1.27    Minor: A    Build date: 2026-09-20
 - Window cards can now be grouped to save space.
 - Window cards now support Peek-style switching, like Windows DWM. (A)
 - Fix several misplaced-tooltip bugs. (1.27)
+- Upgrade the taskbar lyrics plugin to NCMLyricsBar 1.1.0, supporting Chrome and other browsers, with optional experimental support for other music platforms.
+- Lyrics now support right-click settings, click-to-pause and hover playback controls, with automatic sizing and optional fades and width transitions.
+- Improve vertical lyrics and theme colors, with distinct colors for the original line, translation and separator.
+- Fix the extra gap between the taskbar and windows after applying settings.
+- Fix delayed theme updates in the taskbar, menus and settings windows; palette changes now apply without a manual restart.
+- Preserve manually selected colors and retain the last valid palette if a palette file is temporarily invalid while being written. (B)
 
 ## 1.25 Released — 2026-09-18
 
