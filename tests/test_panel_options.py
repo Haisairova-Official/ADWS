@@ -40,13 +40,14 @@ class PanelOptionsTests(unittest.TestCase):
         self.assertNotIn('width',top)
         self.assertEqual(top['height'],60)
 
-    def test_vertical_clock_stays_horizontal_and_keeps_actions(self):
+    def test_vertical_clock_stays_horizontal_with_settings_action(self):
         state={'options':{'position':'left','thickness':48},'plugins':[],
                'builtins':[{'id':'clock','enabled':True,'slot':'right','order':0}]}
         result=layout.render_waybar_config(state,available=[],base={'clock':{'format':'{:%H:%M}','on-click':'kclock','rotate':90}})
         self.assertEqual(result['clock']['rotate'],0)
-        self.assertEqual(result['clock']['on-click'],'kclock')
-        self.assertEqual(result['clock']['format'],'{:%H:%M}')
+        self.assertEqual(result['clock']['on-click'],'')
+        self.assertIn('mnws_clock.py',result['clock']['on-click-right'])
+        self.assertEqual(result['clock']['format'],'{0:%H:%M}')
 
     def test_popup_parent_layer_is_above_tiles(self):
         for layer in ('bottom','background','top','overlay'):

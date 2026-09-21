@@ -6,7 +6,7 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development version: **1.27-D** · 最新已发布 / Latest published: **1.25 Released** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development version: **1.28-D** · 最新已发布 / Latest published: **1.25 Released** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
 
@@ -16,31 +16,22 @@ MNWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 
 1.25 已在 Arch Linux 与 Ubuntu 的 Niri 环境完成测试。MNWS 仍依赖 Niri、Waybar 和发行版提供的系统组件，不打算取代窗口管理器或 Linux 用户空间。
 
-### 1.27-D 开发版（Pre-1.30）
+### 1.28-D 开发版（Pre-1.30）
 
-Major 1.27    Minor：D    构建日期：2026-09-21
+Major 1.28    Minor：D    构建日期：2026-09-21
 
-- 增加了大量可选动效，你的任务栏再也不无聊了。
-- 增加了大量配色选项。
-- 现在任务栏可以上下左右切换了。
-- 任务栏高度也可以自行设置了。（1.26）
-- 现在选项卡可以合并在一起节省空间了。
-- 现在选项卡可以peek视图切换了，就像Windows的DWM那样（A）
-- 修复了一些提示错位的bug。（1.27）
-- 任务栏歌词插件升级至 NCMLyricsBar 1.1.0，支持 Chrome 等浏览器，并提供实验性的其他音乐平台兼容。歌词支持右键打开设置、点击暂停和悬停切歌，还能动态占位，淡入淡出和宽度过渡也安排上了。
-- 完善了歌词的竖排显示与系统配色，原文、译文和分隔线各有各的颜色。
-- 修复了应用配置后任务栏与窗口之间多出一块留白的问题。
-- 修复了任务栏、菜单和设置窗口配色跟随不及时的问题，换配色终于不用手动重启了。
-- 保留手动指定的颜色，配色文件临时写入异常时也不会丢掉上一套有效配色。（B）
 - 优化了 Peek，出现更早、切换更流畅，按桌面平铺顺序排列，并增加浮入淡出效果。
 - 将设置入口统一为“桌面设置”和“任务栏设置”，任务栏样式、组件布局和插件配置终于放到一起了。
 - 取消了滚轮对任务栏设置控件的误调整，滚动页面时不再顺手改掉配置。
 - 任务栏项目卡右键新增“打开新窗口”和“以管理员权限运行”。
 - 桌面图标支持原位重命名，非法名称和重名直接提示，不再另外弹出一个平铺窗口。
+- 修复了部分输入法主题下，重命名切换中文导致桌面会话卡死的问题。
 - 新建文件和文件夹也使用原位编辑，默认名称为 text.txt、markdown.md 和 folder；取消不会留下空文件。
 - 新增固定应用：点击启动，本桌面打开后进入活动区，关闭后回到原来的固定位置。
-- 同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。（C）
+- 同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。
+- 固定区分隔线实时跟随聚焦背景色，没有活动窗口时也会保留。（C）
 - 检查更新新增 Beta 渠道，支持 mnws -u --preview 和 mnws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
+- 修复了任务栏在开启窗口预览下偶发的卡顿bug。（1.28）
 
 在“任务栏设置”的外观页中设置任务栏位置、厚度、窗口单排／双排、同应用窗口堆叠和独立配色。双排仅作用于应用窗口，其他组件仍为单排；左右竖栏对应双列。分组按钮显示窗口数量，左键切回组内最近使用的窗口，右键管理窗口；可开启悬停窗口画面预览，点击缩略图或标题可切换窗口。
 
@@ -77,6 +68,7 @@ Major 1.27    Minor：D    构建日期：2026-09-21
 ### 主要功能
 
 - **桌面图标层**：显示、选择和排列桌面文件，提供文件操作、终端入口、简化菜单与安全退出确认。
+- **时钟设置**：右键时钟打开设置，支持日期、星期和秒数；按系统时间地区推荐日期格式，也可手动选择。默认上行大时间、下行小日期；支持 `YYYY-MM-DD`、`HH:mm:SS` 等自定义格式（`MM` 月份，`mm` 分钟）。左键不执行操作。
 - **底部任务栏**：显示 Niri 窗口、工作区、时钟和插件；窗口较多时自动滚动，支持任务栏右键菜单。
 - **统一设置**：调整桌面、任务栏、组件顺序、左中右分区和插件设置；中间分区按整条任务栏真正居中。
 - **开始按钮**：支持文字、发行版图标或自定义图片；默认图和悬停图可分别设置，并保留原有左键、右键和悬停提示逻辑。
@@ -123,14 +115,16 @@ mnws -s                         # 启动桌面与任务栏
 mnws --status                   # 查看两者状态
 mnws config                     # 打开统一设置
 mnws layout apply --restart     # 应用任务栏布局
-mnws -u                         # 检查正式 Release 更新
-mnws -u --preview               # 检查 Beta 渠道（含预发布）
+mnws -u                         # 检查稳定版，确认后安装更新
+mnws -u --preview               # 检查 Beta 渠道（含预发布），确认后安装
 mnws --uninstall                # 卸载
 ```
 
 `desktop` 和 `taskbar` 可以单独管理，例如 `mnws taskbar -s`、`mnws desktop -S`。使用 `--debug/-d` 在当前终端运行并输出日志，`-1` 至 `-6` 控制日志级别，默认为 `-4`。
 
-检查更新不会自动安装。默认检查稳定版；使用 `mnws -u --preview` 或 `mnws --update --preview`，或在设置的“关于”页勾选“Beta 渠道（包含预发布版本）”，可同时检查稳定版和预发布版。渠道选择仅作用于本次检查，不改变默认渠道。检查以 GitHub Release 为准，开发分支提交需要先发布为预发布版本才能被检测到。中国大陆出口 IP 会优先尝试 GitHub 代理，失败后回退直连。
+检查到新版本后，命令行询问 `Y/n`（回车同意），设置界面弹出“确定 / 取消”；取消时不会下载安装。默认检查稳定版；使用 `mnws -u --preview` 或 `mnws --update --preview`，或在设置的“关于”页勾选“Beta 渠道（包含预发布版本）”，可同时检查稳定版和预发布版。渠道选择仅作用于本次检查，不改变默认渠道。检查以 GitHub Release 为准，开发分支提交需要先发布为预发布版本才能被检测到。检查版本和下载安装包时，中国大陆出口 IP 均优先尝试 `MNWS_GITHUB_PROXY` 配置的代理（默认 `https://gh-proxy.com/`），失败后回退 GitHub；国外直接访问 GitHub。
+
+更新优先使用匹配的 Arch x86_64 预构建包，没有匹配包时构建对应版本源码（需要 Rust/Cargo、C 编译器和 GTK 开发依赖）。下载、校验和构建在独立目录完成，随后备份替换，保留用户配置、固定应用、图片及桌面状态，只重启原本正在运行的 MNWS 组件。安装失败会尝试恢复旧版本；日志保存在 `~/.local/state/mnws/update-*.log`，旧安装备份保存在安装目录旁的隐藏备份目录中。请使用已安装的 `mnws` 命令更新，开发 Git 检出不会被覆盖。
 
 ### 插件与 Sample
 
@@ -166,31 +160,22 @@ MNWS adds desktop icons, a bottom taskbar, unified settings and a plugin system 
 
 Version 1.25 has been tested with Niri on Arch Linux and Ubuntu. MNWS still relies on Niri, Waybar and distribution-provided system components; it does not aim to replace the window manager or the Linux user space.
 
-### 1.27-D development build (Pre-1.30)
+### 1.28-D development build (Pre-1.30)
 
-Major 1.27    Minor: D    Build date: 2026-09-21
+Major 1.28    Minor: D    Build date: 2026-09-21
 
-- Add plenty of optional animations—your taskbar will never be boring again.
-- Add many more color options.
-- The taskbar can now move to the top, bottom, left or right.
-- Taskbar height is now customizable. (1.26)
-- Window cards can now be grouped to save space.
-- Window cards now support Peek-style switching, like Windows DWM. (A)
-- Fix several misplaced-tooltip bugs. (1.27)
-- Upgrade the taskbar lyrics plugin to NCMLyricsBar 1.1.0, supporting Chrome and other browsers, with optional experimental support for other music platforms. Lyrics now support right-click settings, click-to-pause and hover playback controls, with automatic sizing and optional fades and width transitions.
-- Improve vertical lyrics and theme colors, with distinct colors for the original line, translation and separator.
-- Fix the extra gap between the taskbar and windows after applying settings.
-- Fix delayed theme updates in the taskbar, menus and settings windows; palette changes now apply without a manual restart.
-- Preserve manually selected colors and retain the last valid palette if a palette file is temporarily invalid while being written. (B)
 - Improve Peek responsiveness, order windows by workspace and tile position, and add float/fade transitions.
 - Unify settings into Desktop Settings and Taskbar Settings, bringing taskbar appearance, component layout and plugin configuration together.
 - Prevent accidental taskbar setting changes when scrolling; the wheel now scrolls the settings page.
 - Add Open new window and Run as administrator to taskbar card context menus.
 - Support inline desktop renaming, with inline invalid-name and collision errors instead of a separate tiled dialog.
+- Fix desktop-session freezes when switching to Chinese input during renaming with certain input method themes.
 - Use inline editing for new files and folders, defaulting to text.txt, markdown.md and folder; cancelling leaves no files behind.
 - Add pinned apps: click to launch, move into the active area when opened on this workspace, and return to the saved pin position when closed.
-- Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here. (C)
+- Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here.
+- Keep the pinned-area separator in sync with the focused background color, including when no windows are active. (C)
 - Add a Beta update channel via mnws -u --preview or mnws --update --preview and a Settings option; stable releases remain the default. (D)
+- Fix intermittent taskbar stalls with window previews enabled. (1.28)
 
 The Appearance tab in Taskbar Settings provides panel edge and thickness, one or two window rows, application grouping and independent state colors. Only application windows use two rows; other components remain in one row. Vertical panels use two columns. Group buttons show a window count; left-click returns to the most recently used member and right-click manages group members. Optional live window thumbnails allow selection by image or title.
 
@@ -227,6 +212,7 @@ Window hover/focus transitions and settings-tab crossfades are independently opt
 ### Highlights
 
 - **Desktop icons:** display, select and arrange desktop files, with file operations, a terminal entry, a simplified hidden-icon menu and safe exit confirmation.
+- **Clock settings:** right-click the clock to configure date, weekday and seconds. Date formats follow the system time locale recommendation or your manual choice. The default two-line layout puts larger time above a smaller date. Custom formats support `YYYY-MM-DD`, `HH:mm:SS` and more (`MM` = month, `mm` = minute). Left-click does nothing.
 - **Bottom taskbar:** show Niri windows, workspaces, the clock and plugins. Window items scroll when space runs out, and the taskbar has a context menu.
 - **Unified settings:** configure the desktop, taskbar, component order, left/center/right sections and plugin settings. The center section aligns with the geometric center of the whole bar.
 - **Start button:** use text, a distribution logo or custom images. Separate default and hover images preserve the normal left-click, right-click and tooltip behavior.
@@ -279,7 +265,9 @@ mnws --uninstall                # Uninstall
 
 Manage `desktop` and `taskbar` separately with commands such as `mnws taskbar -s` and `mnws desktop -S`. Run either component in the current terminal with `--debug/-d`; `-1` through `-6` select the log level, with `-4` as the default.
 
-Update checks do not install anything. Stable releases are checked by default. Use `mnws -u --preview` or `mnws --update --preview`, or select “Beta channel (include prereleases)” on the About page in Settings, to include prereleases. The selection applies to the current check without changing the default channel. Checks use GitHub Releases; development branch commits must first be published as prereleases to be detected. Mainland-China outbound IPs try a GitHub proxy first and fall back to a direct connection.
+When an update is available, the CLI asks `Y/n` (Enter accepts), and Settings presents OK / Cancel. Cancelling does not download or install the update. Stable releases are checked by default. Use `mnws -u --preview` or `mnws --update --preview`, or select “Beta channel (include prereleases)” on the About page in Settings, to include prereleases. The selection applies to the current check without changing the default channel. Checks use GitHub Releases; development branch commits must first be published as prereleases to be detected. Both version checks and package downloads use `MNWS_GITHUB_PROXY` in mainland China (default `https://gh-proxy.com/`), falling back to GitHub on failure. Elsewhere they access GitHub directly.
+
+Updates prefer a matching Arch x86_64 prebuilt package; otherwise they build the selected release from source, requiring Rust/Cargo, a C compiler and GTK development dependencies. Downloads, validation and builds finish in staging before a backed-up replacement. User settings, pins, images and desktop state are preserved; only previously running MNWS components are restarted. Failed installations attempt to restore the previous version. Logs are saved to `~/.local/state/mnws/update-*.log`; installation backups are kept in hidden directories beside the installation. Run updates from the installed `mnws` command; Git development checkouts are protected.
 
 ### Plugins and samples
 

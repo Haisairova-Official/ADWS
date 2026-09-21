@@ -1,6 +1,7 @@
 //! One cancellable capture helper per visible popup. No GTK-thread blocking I/O.
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
+    rc::Rc,
     collections::HashMap,
     ffi::OsStr,
     time::{Duration, Instant},
@@ -34,11 +35,33 @@ fn remember(id: u64, frame: &gtk::gdk_pixbuf::Pixbuf) {
     });
 }
 
+// Own both the producer and the pending read. Dropping a preview cancels its
+// GTK future immediately, so a late old frame cannot update a replacement.
+pub struct Capture {
+    process: gio::Subprocess,
+    reader: glib::JoinHandle<()>,
+}
+impl Drop for Capture {
+    fn drop(&mut self) {
+        self.reader.abort();
+        self.process.send_signal(15);
+        let exited = Rc::new(Cell::new(false));
+        let completed = exited.clone();
+        self.process.wait_async(None::<&gio::Cancellable>, move |_| completed.set(true));
+        let process = self.process.clone();
+        // A helper can still be in synchronous D-Bus/GStreamer initialization
+        // before its SIGTERM main-loop handler runs. Bound that shutdown too.
+        glib::timeout_add_local_once(Duration::from_millis(250), move || {
+            if !exited.get() { process.force_exit(); }
+        });
+    }
+}
+
 pub fn start(
     helper: &str,
     images: Vec<(u64, gtk::Image, gtk::Label)>,
     popup: &gtk::Popover,
-) -> Option<gio::Subprocess> {
+) -> Option<Capture> {
     let unavailable = crate::i18n::text("预览暂不可用", "Preview unavailable");
     for (id, image, status) in &images {
         status.set_text(unavailable);
@@ -67,7 +90,7 @@ pub fn start(
         .map(|(id, image, status)| (id, (image.downgrade(), status.downgrade())))
         .collect();
     let weak = popup.downgrade();
-    glib::MainContext::default().spawn_local(async move {
+    let reader = glib::MainContext::default().spawn_local(async move {
         while let Ok(line) = input.read_line_future(glib::Priority::DEFAULT).await {
             if line.is_empty() {
                 break;
@@ -108,5 +131,45 @@ pub fn start(
             }
         }
     });
-    Some(process)
+    Some(Capture { process, reader })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires an isolated GTK display"]
+    fn switching_unloaded_capture_cancels_read_and_bounds_shutdown() {
+        gtk::init().unwrap();
+        let helper=std::env::temp_dir().join(format!("mnws-delayed-preview-{}.py",std::process::id()));
+        std::fs::write(&helper,"import signal,time,sys\nsignal.signal(signal.SIGTERM,signal.SIG_IGN)\nsys.stdout.write('{');sys.stdout.flush()\ntime.sleep(30)\n").unwrap();
+        let window=gtk::Window::new(gtk::WindowType::Toplevel);
+        let button=gtk::Button::with_label("preview");window.add(&button);window.show_all();
+        let popup=gtk::Popover::new(Some(&button));popup.set_modal(false);popup.show();
+        let image=gtk::Image::new();let status=gtk::Label::new(None);
+        fn pump(ms:u64) {
+            let until=Instant::now()+Duration::from_millis(ms);
+            while Instant::now()<until {
+                while glib::MainContext::default().pending() {glib::MainContext::default().iteration(false);}
+                std::thread::sleep(Duration::from_millis(3));
+            }
+        }
+        for _ in 0..3 {
+            let capture=start(helper.to_str().unwrap(),vec![(1,image.clone(),status.clone())],&popup).unwrap();
+            pump(120);
+            let exited=Rc::new(Cell::new(false));let done=exited.clone();
+            capture.process.wait_async(None::<&gio::Cancellable>,move |_| done.set(true));
+            let began=Instant::now();drop(capture);
+            assert!(began.elapsed()<Duration::from_millis(100),"cancel blocked GTK");
+            status.set_text("replacement preview");
+            let ticks=Rc::new(Cell::new(0));let count=ticks.clone();
+            let timer=glib::timeout_add_local(Duration::from_millis(40),move || {count.set(count.get()+1);glib::ControlFlow::Continue});
+            pump(650);timer.remove();
+            assert!(exited.get(),"old helper survived bounded shutdown");
+            assert!(ticks.get()>=8,"replacement preview blocked GTK");
+            assert_eq!(status.text(),"replacement preview","old reader overwrote new status");
+        }
+        unsafe {popup.destroy();window.destroy();}
+        let _=std::fs::remove_file(helper);
+    }
 }

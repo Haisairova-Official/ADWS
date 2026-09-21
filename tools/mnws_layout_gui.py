@@ -223,6 +223,11 @@ class LayoutWindow:
         box.pack_start(up, False, False, 0)
         box.pack_start(down, False, False, 0)
 
+        if entry.get("kind") == "builtin" and entry.get("key") == "clock":
+            settings_btn = Gtk.Button(label=_tr('设置…'))
+            settings_btn.connect("clicked", self.on_clock_settings)
+            box.pack_start(settings_btn, False, False, 0)
+
         if entry.get("kind") == "plugin":
             if entry.get("manifest", {}).get("settingsSchema") or "panel.rows-v1" in entry.get("manifest", {}).get("interfaces", []):
                 settings_btn = Gtk.Button(label=_tr('设置…'))
@@ -244,6 +249,7 @@ class LayoutWindow:
         if layout is None:
             layout = load_layout(self.layout_file)
         options = layout.get("options", {})
+        self.clock_options = None
         try:
             definition = mnws_layout.launcher_definition()
         except (OSError, ValueError):
@@ -537,6 +543,20 @@ class LayoutWindow:
         if self.image_error.get_text():
             self.show_message(_tr('图片错误'), self.image_error.get_text(), error=True)
 
+    def on_clock_settings(self, _button=None):
+        from mnws_clock import ClockDialog
+        options = load_layout(self.layout_file).get("options", {}).copy()
+        if self.clock_options is not None:
+            options["clock"] = self.clock_options
+        dialog = ClockDialog(options, self.window)
+        try:
+            values = dialog.run()
+            if values is not None:
+                self.clock_options = values
+                self.status.set_text(_tr('时钟设置已修改，点击应用后生效。'))
+        finally:
+            dialog.dialog.destroy()
+
     def collect_layout(self) -> dict:
         layout = load_layout(self.layout_file)
         builtins, plugins = [], []
@@ -592,6 +612,8 @@ class LayoutWindow:
             raise ValueError(_tr('请输入启动器命令。'))
         layout["options"]["start_launcher_command"] = command
         layout["options"]["start_launcher_custom"] = custom
+        if self.clock_options is not None:
+            layout["options"]["clock"] = self.clock_options
         layout["apiVersion"] = 1
         return layout
 

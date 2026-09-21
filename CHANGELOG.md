@@ -1,5 +1,43 @@
 # Changelog / 更新记录
 
+## 1.28-D — 2026-09-21
+
+开发分支 / Development branch: `Pre-1.30`.
+
+### 最新更新
+
+Major 1.28    Minor：D    构建日期：2026-09-21
+
+- 优化了 Peek，出现更早、切换更流畅，按桌面平铺顺序排列，并增加浮入淡出效果。
+- 将设置入口统一为“桌面设置”和“任务栏设置”，任务栏样式、组件布局和插件配置终于放到一起了。
+- 取消了滚轮对任务栏设置控件的误调整，滚动页面时不再顺手改掉配置。
+- 任务栏项目卡右键新增“打开新窗口”和“以管理员权限运行”。
+- 桌面图标支持原位重命名，非法名称和重名直接提示，不再另外弹出一个平铺窗口。
+- 修复了部分输入法主题下，重命名切换中文导致桌面会话卡死的问题。
+- 新建文件和文件夹也使用原位编辑，默认名称为 text.txt、markdown.md 和 folder；取消不会留下空文件。
+- 新增固定应用：点击启动，本桌面打开后进入活动区，关闭后回到原来的固定位置。
+- 同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。
+- 固定区分隔线实时跟随聚焦背景色，没有活动窗口时也会保留。（C）
+- 检查更新新增 Beta 渠道，支持 mnws -u --preview 和 mnws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
+- 修复了任务栏在开启窗口预览下偶发的卡顿bug。（1.28）
+
+### Latest updates
+
+Major 1.28    Minor: D    Build date: 2026-09-21
+
+- Improve Peek responsiveness, order windows by workspace and tile position, and add float/fade transitions.
+- Unify settings into Desktop Settings and Taskbar Settings, bringing taskbar appearance, component layout and plugin configuration together.
+- Prevent accidental taskbar setting changes when scrolling; the wheel now scrolls the settings page.
+- Add Open new window and Run as administrator to taskbar card context menus.
+- Support inline desktop renaming, with inline invalid-name and collision errors instead of a separate tiled dialog.
+- Fix desktop-session freezes when switching to Chinese input during renaming with certain input method themes.
+- Use inline editing for new files and folders, defaulting to text.txt, markdown.md and folder; cancelling leaves no files behind.
+- Add pinned apps: click to launch, move into the active area when opened on this workspace, and return to the saved pin position when closed.
+- Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here.
+- Keep the pinned-area separator in sync with the focused background color, including when no windows are active. (C)
+- Add a Beta update channel via mnws -u --preview or mnws --update --preview and a Settings option; stable releases remain the default. (D)
+- Fix intermittent taskbar stalls with window previews enabled. (1.28)
+
 ## 1.27-D — 2026-09-21
 
 开发分支 / Development branch: `Pre-1.30`.

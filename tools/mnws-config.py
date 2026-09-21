@@ -950,6 +950,8 @@ class ConfigWindow(Gtk.Window):
             if result and result['url']:
                 self.update_link.set_uri(result['url'])
                 self.update_link.show()
+            if result and result.get('available') and self.confirm_update(result):
+                self.install_update(result)
             return False
         def worker():
             try:
@@ -958,6 +960,45 @@ class ConfigWindow(Gtk.Window):
             except (OSError, ValueError, RuntimeError) as error:
                 GLib.idle_add(finish, None, str(error))
         threading.Thread(target=worker, daemon=True).start()
+
+    def confirm_update(self, result):
+        dialog = Gtk.MessageDialog(transient_for=self, modal=True, destroy_with_parent=True,
+                                   message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.NONE,
+                                   text=_tr('是否现在安装更新？'))
+        dialog.format_secondary_text(result['text'] + '\n' + _tr('将保留现有配置，并在准备完成后重启正在运行的 MNWS 组件。'))
+        dialog.add_button(_tr('取消'), Gtk.ResponseType.CANCEL)
+        dialog.add_button(_tr('确定'), Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        response = dialog.run()
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK:
+            self.update_result.set_text(_tr('已取消。'))
+        return response == Gtk.ResponseType.OK
+
+    def install_update(self, result):
+        import threading
+        from mnws_update import install_update
+        self.update_button.set_sensitive(False)
+        self.update_preview.set_sensitive(False)
+        self.update_result.set_text(_tr('正在准备更新组件，请稍候…'))
+        def show_progress(text):
+            if self.get_realized():
+                self.update_result.set_text(text)
+            return False
+        def finish(text):
+            if self.get_realized():
+                self.update_button.set_sensitive(True)
+                self.update_preview.set_sensitive(True)
+                self.update_result.set_text(text)
+            return False
+        def worker():
+            try:
+                text = install_update(result, lambda text: GLib.idle_add(show_progress, text))
+            except (OSError, ValueError, RuntimeError) as error:
+                text = str(error)
+            GLib.idle_add(finish, text)
+        # Closing Settings must not terminate a file replacement halfway through.
+        threading.Thread(target=worker, daemon=False).start()
 
     def show_message(self, title, message):
         dialog = Gtk.MessageDialog(

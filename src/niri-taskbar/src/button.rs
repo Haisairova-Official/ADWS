@@ -96,11 +96,23 @@ impl Button {
             let fg=style.lookup_color("on_primary").or_else(||style.lookup_color("theme_selected_fg_color")).unwrap_or(gtk::gdk::RGBA::new(1.,1.,1.,1.));
             cr.set_source_rgba(bg.red(),bg.green(),bg.blue(),1.);cr.arc(size/2.,size/2.,(size/2.-1.).max(1.),0.,std::f64::consts::TAU);let _=cr.fill_preserve();
             cr.set_source_rgba(fg.red(),fg.green(),fg.blue(),1.);cr.set_line_width(2.);let _=cr.stroke();
-            let text=if draw_dots.get(){"···".to_string()}else if number.get()>99{"99+".to_string()}else{number.get().to_string()};
-            cr.select_font_face("Sans",gtk::cairo::FontSlant::Normal,gtk::cairo::FontWeight::Bold);
-            cr.set_font_size(size*if text.len()>2{0.38}else{0.58});
-            if let Ok(ext)=cr.text_extents(&text){cr.move_to((size-ext.width())/2.-ext.x_bearing(),(size-ext.height())/2.-ext.y_bearing());}
-            cr.set_source_rgba(fg.red(),fg.green(),fg.blue(),1.);let _=cr.show_text(&text);
+            if draw_dots.get() {
+                // Solid circles give consistent weight and compact spacing
+                // regardless of which fonts the user has installed.
+                let radius = (size - 4.).max(1.) * 0.11;
+                let step = radius * 2.5;
+                for offset in [-step, 0., step] {
+                    cr.new_sub_path();
+                    cr.arc(size / 2. + offset, size / 2., radius, 0., std::f64::consts::TAU);
+                }
+                let _ = cr.fill();
+            } else {
+                let text=if number.get()>99{"99+".to_string()}else{number.get().to_string()};
+                cr.select_font_face("Sans",gtk::cairo::FontSlant::Normal,gtk::cairo::FontWeight::Bold);
+                cr.set_font_size(size*if text.len()>2{0.38}else{0.58});
+                if let Ok(ext)=cr.text_extents(&text){cr.move_to((size-ext.width())/2.-ext.x_bearing(),(size-ext.height())/2.-ext.y_bearing());}
+                cr.set_source_rgba(fg.red(),fg.green(),fg.blue(),1.);let _=cr.show_text(&text);
+            }
             gtk::glib::Propagation::Stop
         });
         badge.style_context().add_class("mnws-window-count");
@@ -150,8 +162,13 @@ impl Button {
         button
     }
 
+    pub fn dismiss_hover(&self) {
+        if let Some(hover) = self.hover.borrow().as_ref() { hover.dismiss(); }
+    }
+
     pub fn set_group(&self, members: Vec<(u64, String)>, recent_window: u64) {
         self.recent_window.set(recent_window);
+        if *self.members.borrow() == members { return; }
         let count = members.len();
         self.count.set(count);
         self.badge.queue_draw();
@@ -224,29 +241,52 @@ impl Button {
 
     fn connect_click_handler(&self, _window_id: u64) {
         let state = self.state.clone();
-
         let app_id = self.app_id.clone();
-        let press_app_id = app_id.clone();
-        let members = self.recent_window.clone();
-        let press_state=state.clone();let press_members=members.clone();let popup=self.hover_popup.clone();let hover=self.hover.clone();
-        self.button.connect_button_press_event(move |_,event| {
-            if event.button()!=1{return gtk::glib::Propagation::Proceed;}
-            if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
-            if let Some(p)=popup.borrow().as_ref(){p.hide();}
-            let id=press_members.get();
-            if id==0 {if let Some(app)=&press_app_id {crate::panel::launch_application(app,false);} return gtk::glib::Propagation::Stop;}
-            if let Err(error)=press_state.niri().activate_window(id){tracing::warn!(%error,id,"focus on press failed");}
+        let activate: Rc<dyn Fn(u64)> = Rc::new(move |id| {
+            if id == 0 {
+                if let Some(app) = &app_id { crate::panel::launch_application(app, false); }
+            } else if let Err(error) = state.niri().activate_window(id) {
+                tracing::warn!(%error, id, "window activation failed");
+            }
+        });
+        let pressed = Rc::new(std::cell::Cell::new(None::<u64>));
+        let target = self.recent_window.clone();
+        let pending = pressed.clone();
+        let hover = self.hover.clone();
+        self.button.add_events(gtk::gdk::EventMask::BUTTON_PRESS_MASK | gtk::gdk::EventMask::BUTTON_RELEASE_MASK);
+        self.button.connect_button_press_event(move |_, event| {
+            if event.button() != 1 { return gtk::glib::Propagation::Proceed; }
+            // Capture MRU now; a workspace update between press/release must
+            // not retarget this click. Cancel even a preview on another card.
+            pending.set(Some(target.get()));
+            crate::hover::HoverPreview::dismiss_active();
+            if let Some(hover) = hover.borrow().as_ref() { hover.dismiss(); }
             gtk::glib::Propagation::Stop
         });
-        let hover=self.hover.clone();
-        // Keep keyboard activation available; pointer presses are consumed above.
-        self.button.connect_clicked(move |_| {
-            if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
-            let id = members.get();
-            if id==0 {if let Some(app)=&app_id {crate::panel::launch_application(app,false);} return;}
-            if let Err(e) = state.niri().activate_window(id) {
-                tracing::warn!(%e, id, "error trying to activate window");
+        let pending = pressed.clone();
+        let run = activate.clone();
+        let hover = self.hover.clone();
+        self.button.connect_button_release_event(move |button, event| {
+            if event.button() != 1 { return gtk::glib::Propagation::Proceed; }
+            let Some(id) = pending.take() else { return gtk::glib::Propagation::Stop; };
+            if let Some(hover) = hover.borrow().as_ref() { hover.dismiss(); }
+            let (x, y) = event.position();
+            if x >= 0. && y >= 0. && x < button.allocated_width() as f64 && y < button.allocated_height() as f64 {
+                // Finish the Wayland pointer release before sending FocusWindow;
+                // sending it during an implicit pointer grab can eat the first click.
+                let run = run.clone();
+                gtk::glib::idle_add_local_once(move || run(id));
             }
+            gtk::glib::Propagation::Stop
+        });
+        self.button.connect_unmap(move |_| { pressed.set(None); });
+        let target = self.recent_window.clone();
+        let hover = self.hover.clone();
+        // Pointer signals are consumed above; keep keyboard activation separate.
+        self.button.connect_clicked(move |_| {
+            crate::hover::HoverPreview::dismiss_active();
+            if let Some(hover) = hover.borrow().as_ref() { hover.dismiss(); }
+            activate(target.get());
         });
     }
 

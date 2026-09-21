@@ -1,3 +1,4 @@
+use waybar_cffi::gtk::prelude::ContainerExtManual;
 mod i18n;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, btree_map::Entry},
@@ -519,23 +520,43 @@ impl Instance {
             }
         }
         if displayed != self.displayed || pinned_displayed != self.pinned_displayed {
-            for child in self.container.children() { self.container.remove(&child); }
+            // Close previews before their anchors move. Keep surviving widgets mapped:
+            // rebuilding the whole grid synthesizes crossing events and reloads icons.
+            for button in self.buttons.values().chain(self.pinned_buttons.values()) {
+                button.dismiss_hover();
+            }
+            let mut placements: Vec<(gtk::Widget, i32, i32, i32, i32)> = Vec::new();
             let vertical=self.state.config().vertical();
             let lanes=self.state.config().rows() as i32;
             for (index,id) in pinned_displayed.iter().enumerate() {
                 let i=index as i32;
-                if vertical {self.container.attach(self.pinned_buttons[id].widget(),0,i,lanes,1);}
-                else {self.container.attach(self.pinned_buttons[id].widget(),i,0,1,lanes);}
+                if vertical {placements.push((self.pinned_buttons[id].widget().clone().into(),0,i,lanes,1));}
+                else {placements.push((self.pinned_buttons[id].widget().clone().into(),i,0,1,lanes));}
             }
             let mut offset=pinned_displayed.len() as i32;
             if !pinned_displayed.is_empty() {
-                if vertical {self.container.attach(&self.separator,0,offset,lanes,1);}
-                else {self.container.attach(&self.separator,offset,0,1,lanes);}
+                if vertical {placements.push((self.separator.clone().into(),0,offset,lanes,1));}
+                else {placements.push((self.separator.clone().into(),offset,0,1,lanes));}
                 offset+=1;
             }
             for (index,id) in displayed.iter().enumerate() {
                 let (column,row) = grouping::cell(index,self.state.config().rows(),vertical);
-                self.container.attach(self.buttons[id].widget(),column+if vertical {0}else{offset},row+if vertical {offset}else{0},1,1);
+                placements.push((self.buttons[id].widget().clone().into(),column+if vertical {0}else{offset},row+if vertical {offset}else{0},1,1));
+            }
+            for child in self.container.children() {
+                if !placements.iter().any(|(widget, ..)| *widget == child) {
+                    self.container.remove(&child);
+                }
+            }
+            for (widget, left, top, width, height) in placements {
+                if widget.parent().is_some() {
+                    self.container.child_set_property(&widget, "left-attach", &left);
+                    self.container.child_set_property(&widget, "top-attach", &top);
+                    self.container.child_set_property(&widget, "width", &width);
+                    self.container.child_set_property(&widget, "height", &height);
+                } else {
+                    self.container.attach(&widget, left, top, width, height);
+                }
             }
             self.pinned_displayed=pinned_displayed;
             self.displayed = displayed;

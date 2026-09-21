@@ -89,11 +89,16 @@ fn panel_geometry_groups_and_colors() {
                     for _ in 0..3 {let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);}
                     settle();settle();
                     assert_eq!(popup.child().unwrap(),content,"repeated crossing rebuilt popup");
-                    // One mouse press focuses the MRU window, even with the popup open.
+                    // One complete click focuses MRU after releasing the pointer grab.
                     let mut press=gtk::gdk::Event::new(gtk::gdk::EventType::ButtonPress).downcast::<gtk::gdk::EventButton>().unwrap();
                     press.as_mut().button=1;
+                    let mut release=gtk::gdk::Event::new(gtk::gdk::EventType::ButtonRelease).downcast::<gtk::gdk::EventButton>().unwrap();
+                    release.as_mut().button=1;
                     assert!(first.emit_by_name::<bool>("button-press-event",&[&*press]));
                     assert!(!popup.is_visible());
+                    assert!(requests.lock().unwrap().is_empty(), "focus must wait for release");
+                    assert!(first.emit_by_name::<bool>("button-release-event",&[&*release]));
+                    settle();
                     let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();settle();
                     fn choices(widget:&gtk::Widget)->Vec<gtk::Button>{
                         if let Ok(button)=widget.clone().downcast::<gtk::Button>(){return vec![button];}
@@ -118,7 +123,17 @@ fn panel_geometry_groups_and_colors() {
                     // Click while the initial hover timer is pending: no delayed reopen.
                     let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);
                     assert!(first.emit_by_name::<bool>("button-press-event",&[&*press]));
+                    let before=requests.lock().unwrap().len();
+                    instance.buttons[&1].set_group(vec![(1,"Changed MRU".into()),(2,"Original target".into())],1);
+                    assert!(first.emit_by_name::<bool>("button-release-event",&[&*release]));
                     settle();assert!(!popup.is_visible(),"click did not cancel pending preview");
+                    let actions=requests.lock().unwrap();
+                    assert_eq!(actions.len(),before+1,"first click before Peek must send exactly one action");
+                    assert_eq!(actions.last().unwrap()["Action"]["FocusWindow"]["id"],2);
+                    drop(actions);
+                    // A release without a matching press must not duplicate it.
+                    assert!(first.emit_by_name::<bool>("button-release-event",&[&*release]));
+                    settle();assert_eq!(requests.lock().unwrap().len(),before+1);
                     let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();
                     let child=popup.child().unwrap();
                     instance.buttons[&1].set_group(vec![(2,"Updated title".into()),(1,"Other title".into())],2);
@@ -235,8 +250,16 @@ fn pins_follow_workspaces_monitor_mru_and_live_colors() {
         // One click on the three-dot pin focuses the most recently used remote window.
         instance.pinned_buttons["firefox.desktop"].widget().clone().downcast::<gtk::Button>().unwrap().emit_clicked();
         assert_eq!(requests.lock().unwrap().last().unwrap(),&json!({"Action":{"FocusWindow":{"id":3}}}));
+        let unmaps=std::rc::Rc::new(std::cell::Cell::new(0));
+        let count=unmaps.clone();
+        instance.pinned_buttons["idle.desktop"].widget().connect_unmap(move |_| count.set(count.get()+1));
+        // A pending hover on a surviving pin must be cancelled when its position changes.
+        let _:bool=instance.pinned_buttons["idle.desktop"].widget().emit_by_name("enter-notify-event",&[&enter]);
         let changed=stream.with_event(niri_ipc::Event::WorkspaceActivated{id:11,focused:true}).unwrap();
         MainContext::default().block_on(instance.process_window_snapshot(changed,filter.clone()));
+        settle();
+        assert_eq!(unmaps.get(),0,"surviving pins must stay mapped during workspace switches");
+        assert!(!popup.is_visible(),"pending Peek must not reopen after its anchor moves");
         assert_eq!(instance.pinned_displayed,vec!["foot.desktop","code.desktop","idle.desktop"]);
         assert_eq!(instance.displayed.len(),1);
         let active=instance.displayed[0];

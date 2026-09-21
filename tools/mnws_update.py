@@ -1,4 +1,4 @@
-"""Read-only GitHub Release checks shared by CLI and GTK settings."""
+"""GitHub Release checks and confirmed updates shared by CLI and GTK settings."""
 import argparse
 from decimal import Decimal
 import json
@@ -102,15 +102,39 @@ def preview_release(url):
     return None
 
 
-def check_update(preview=False):
-    current = version_key(current_version())
-    api = PREVIEW_API if preview else API
-    urls = [api]
-    if mainland_china():
+def github_urls(url, use_proxy):
+    urls = [url]
+    if use_proxy:
         proxy = os.environ.get('MNWS_GITHUB_PROXY', DEFAULT_PROXY).strip()
         parsed = urllib.parse.urlparse(proxy)
         if parsed.scheme == 'https' and parsed.netloc and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment:
-            urls.insert(0, proxy.rstrip('/') + '/' + api)
+            urls.insert(0, proxy.rstrip('/') + '/' + url)
+    return urls
+
+
+def confirm_install():
+    try:
+        while True:
+            answer = input(_tr('是否现在安装更新？（Y/n）')).strip().lower()
+            if answer in ('', 'y', 'yes'):
+                return True
+            if answer in ('n', 'no'):
+                return False
+            print(_tr('请输入 y 或 n。'))
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+
+def install_update(result, progress=print):
+    from mnws_upgrade import install_update as install
+    return install(result, progress)
+
+
+def check_update(preview=False):
+    current = version_key(current_version())
+    api = PREVIEW_API if preview else API
+    use_proxy = mainland_china()
+    urls = github_urls(api, use_proxy)
     errors = []
     for url in urls:
         try:
@@ -124,14 +148,14 @@ def check_update(preview=False):
                 return {'available': False, 'text': message('updates.none'), 'url': None}
             tag = release['tag_name']
             link = f'https://github.com/{REPOSITORY}/releases/tag/' + urllib.parse.quote(tag, safe='')
-            return {'available': True, 'text': _tr('发现新版本：%s') % tag, 'url': link}
+            return {'available': True, 'text': _tr('发现新版本：%s') % tag, 'url': link, 'release': release, 'use_proxy': use_proxy}
         except (OSError, ValueError) as error:
             errors.append(str(error))
     raise RuntimeError(_tr('检查更新失败，请检查网络后重试。') + '\n' + '\n'.join(errors))
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='mnws --update', description=_tr('检查 GitHub Release 更新；默认稳定渠道，不自动安装。'))
+    parser = argparse.ArgumentParser(prog='mnws --update', description=_tr('检查 GitHub Release 更新，并在确认后安装；默认稳定渠道。'))
     parser.add_argument('--preview', action='store_true', help=_tr('使用 Beta 渠道，包含预发布版本。'))
     args = parser.parse_args(argv)
     try:
@@ -139,7 +163,15 @@ def main(argv=None):
         print(result['text'])
         if result['url']:
             print(result['url'])
+        if result.get('available'):
+            if not confirm_install():
+                print(_tr('已取消。'))
+                return 0
+            print(install_update(result))
         return 0
+    except KeyboardInterrupt:
+        print(_tr('已取消。'), file=sys.stderr)
+        return 130
     except (OSError, ValueError, RuntimeError) as error:
         print(str(error), file=sys.stderr)
         return 1

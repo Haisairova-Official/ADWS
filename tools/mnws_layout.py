@@ -620,6 +620,9 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
     for module in [name for name in left_names+center_names+right_names
                    if name == 'clock' or name.startswith('custom/')]:
         definition = module_definition(module, cfg, config_path)
+        if module == 'clock':
+            from mnws_clock import definition as clock_definition
+            definition = clock_definition(options, definition, PROJECT_ROOT)
         if module == 'custom/applauncher' and not definition:
             definition = launcher_definition(cfg, config_path)
         if vertical or 'position' in options:

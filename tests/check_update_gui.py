@@ -42,12 +42,41 @@ with patch.object(config.ConfigWindow, 'refresh_statuses'), patch.object(config,
         assert window.update_result.get_text() == 'No updates found.'
         assert not window.update_link.get_visible()
     window.update_preview.set_active(True)
-    with patch('mnws_update.check_update', return_value={'available':True,'text':'New version available','url':'https://github.com/Haisairova-Official/MNWS/releases/tag/v1.3'}) as check:
+    with patch('mnws_update.check_update', return_value={'available':True,'text':'New version available','url':'https://github.com/Haisairova-Official/MNWS/releases/tag/v1.3'}) as check, patch.object(window, 'confirm_update', return_value=False):
         window.check_updates()
         settle(lambda: window.update_button.get_sensitive())
         assert window.update_link.get_visible()
         assert window.update_preview.get_sensitive()
         check.assert_called_once_with(preview=True)
+    result = {'available':True,'text':'New version available','url':'https://github.com/Haisairova-Official/MNWS/releases/tag/v1.3'}
+    with patch.object(Gtk.MessageDialog, 'run', return_value=Gtk.ResponseType.CANCEL):
+        assert not window.confirm_update(result)
+        assert window.update_result.get_text() == config._tr('已取消。')
+    started = threading.Event()
+    release = threading.Event()
+    def slow_install(selected, progress):
+        assert selected == result
+        progress('Downloading test update')
+        started.set()
+        release.wait(2)
+        return 'Update installed; backup saved'
+    with patch('mnws_update.check_update', return_value=result), patch.object(Gtk.MessageDialog, 'run', return_value=Gtk.ResponseType.OK), patch('mnws_update.install_update', side_effect=slow_install) as install:
+        window.check_updates()
+        settle(started.is_set)
+        assert not window.update_button.get_sensitive()
+        assert not window.update_preview.get_sensitive()
+        ticks = []
+        config.GLib.idle_add(lambda: ticks.append(True) and False)
+        settle(lambda: bool(ticks))
+        release.set()
+        settle(lambda: window.update_button.get_sensitive())
+        install.assert_called_once()
+        assert window.update_result.get_text() == 'Update installed; backup saved'
+    with patch('mnws_update.install_update', side_effect=RuntimeError('Install failed; old version retained')):
+        window.install_update(result)
+        settle(lambda: window.update_button.get_sensitive())
+        assert window.update_result.get_text() == 'Install failed; old version retained'
+        assert window.update_preview.get_sensitive()
     with patch('mnws_update.check_update', side_effect=RuntimeError('Network unavailable')):
         window.check_updates()
         settle(lambda: window.update_button.get_sensitive())

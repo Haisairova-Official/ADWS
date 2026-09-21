@@ -6,7 +6,7 @@ use std::{
     rc::{Rc, Weak},
     time::Duration,
 };
-use waybar_cffi::gtk::{self as gtk, gio, glib, prelude::*};
+use waybar_cffi::gtk::{self as gtk, glib, prelude::*};
 
 type Members = Rc<RefCell<Vec<(u64, String)>>>;
 thread_local! { static ACTIVE: RefCell<Weak<HoverPreview>> = RefCell::new(Weak::new()); }
@@ -19,7 +19,7 @@ pub(crate) struct HoverPreview {
     generation: Cell<u64>,
     over_button: Cell<bool>,
     over_popup: Cell<bool>,
-    capture: RefCell<Option<gio::Subprocess>>,
+    capture: RefCell<Option<crate::preview::Capture>>,
     titles: RefCell<HashMap<u64, gtk::Label>>,
     cards: RefCell<HashMap<u64, gtk::Button>>,
     items: RefCell<Option<gtk::Box>>,
@@ -58,7 +58,8 @@ impl HoverPreview {
             );
             let weak = Rc::downgrade(&this);
             widget.connect_enter_notify_event(move |_, event| {
-                if event.detail() == gtk::gdk::NotifyType::Inferior
+                if event.state().contains(gtk::gdk::ModifierType::BUTTON1_MASK)
+                    || event.detail() == gtk::gdk::NotifyType::Inferior
                     || event.mode() != gtk::gdk::CrossingMode::Normal
                 {
                     return glib::Propagation::Proceed;
@@ -240,9 +241,11 @@ impl HoverPreview {
         next
     }
     fn stop_capture(&self) {
-        if let Some(process) = self.capture.borrow_mut().take() {
-            process.send_signal(15);
-        }
+        self.capture.borrow_mut().take();
+    }
+    pub fn dismiss_active() {
+        let current = ACTIVE.with(|active| active.borrow().upgrade());
+        if let Some(current) = current { current.dismiss(); }
     }
     pub fn dismiss(&self) {
         // hide() alone does not emit a signal if the popup has not appeared yet.

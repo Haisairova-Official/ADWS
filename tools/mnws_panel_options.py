@@ -74,4 +74,9 @@ def styles(options):
         lines.append('#clock, #custom-applauncher { min-width: 0; padding: 0.3em 0; }')
         lines.append('.niri-taskbar { padding: 0.35em 0; } .niri-taskbar button { padding: 0.55em 0.12em; }')
         lines.append(f'#clock {{ font-size: {min(16.6, values["thickness"] / 5):.2f}px; }}')
+    from mnws_clock import preferences, display_pattern
+    clock = preferences(options)
+    if '\n' in display_pattern(clock):
+        size = min(16.6, values['thickness'] / (5 if values['position'] in ('left', 'right') else 3.2))
+        lines.append(f'window#waybar #clock {{ font-size: {size:.2f}px; padding-top: 0; padding-bottom: 0; }}')
     return '\n'.join(lines)

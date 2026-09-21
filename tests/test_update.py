@@ -114,3 +114,24 @@ class UpdateTests(unittest.TestCase):
             for flag in ['-u','--update']:
                 result=subprocess.run(['bash',str(root/'mnws'),flag,'--preview'],env={**os.environ,'PATH':folder+os.pathsep+os.environ['PATH']},capture_output=True,text=True,check=True)
                 self.assertEqual(result.stdout.splitlines(),[str(root/'tools/mnws_update.py'),'--preview'])
+
+    def test_install_requires_confirmation(self):
+        result={'available':True,'text':'new','url':'https://github.com/release','release':{'tag_name':'v1.30'}}
+        with patch.object(update,'check_update',return_value=result), patch.object(update,'install_update',return_value='installed') as install, patch('builtins.print'):
+            with patch('builtins.input',return_value='n'):
+                self.assertEqual(update.main([]),0)
+                install.assert_not_called()
+            with patch('builtins.input',side_effect=EOFError):
+                self.assertEqual(update.main([]),0)
+                install.assert_not_called()
+            with patch('builtins.input',side_effect=['wrong','']):
+                self.assertEqual(update.main(['--preview']),0)
+                install.assert_called_once_with(result)
+            install.reset_mock()
+            with patch('builtins.input',return_value='Y'), patch.object(update,'install_update',side_effect=RuntimeError('failed')):
+                self.assertEqual(update.main([]),1)
+
+    def test_no_update_does_not_prompt_or_install(self):
+        with patch.object(update,'check_update',return_value={'available':False,'text':'none','url':None}), patch('builtins.input') as ask, patch.object(update,'install_update') as install, patch('builtins.print'):
+            self.assertEqual(update.main([]),0)
+            ask.assert_not_called();install.assert_not_called()
