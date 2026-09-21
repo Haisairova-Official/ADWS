@@ -34,9 +34,9 @@ static void test_motion(Panel *p) {
     g_assert_false(p->animations);
     enable_motion(p);
     configure_controls(p);
-    animate_for(MNWS_MOTION_DURATION_US / 1000 + 80);
-    MnwsMotion *left = (MnwsMotion *)p->previous_motion;
-    MnwsMotion *lyrics = (MnwsMotion *)gtk_widget_get_parent(p->box);
+    animate_for(ADWS_MOTION_DURATION_US / 1000 + 80);
+    AdwsMotion *left = (AdwsMotion *)p->previous_motion;
+    AdwsMotion *lyrics = (AdwsMotion *)gtk_widget_get_parent(p->box);
     g_assert_cmpfloat(left->width, ==, 0.);
     g_assert_cmpuint(left->tick, ==, 0);
     show_controls(p, TRUE);
@@ -54,24 +54,24 @@ static void test_motion(Panel *p) {
     animate_for(65);
     g_assert_cmpfloat(left->width, <, visible_width);
     show_controls(p, TRUE);
-    animate_for(MNWS_MOTION_DURATION_US / 1000 + 80);
+    animate_for(ADWS_MOTION_DURATION_US / 1000 + 80);
     g_assert_cmpuint(left->tick, ==, 0);
     g_assert_cmpfloat(left->width, ==, left->target_width);
     GdkPixbuf *animated_shot = gtk_offscreen_window_get_pixbuf(GTK_OFFSCREEN_WINDOW(gtk_widget_get_toplevel(p->event_box)));
-    gdk_pixbuf_save(animated_shot, "/tmp/mnws-animated-controls.png", "png", NULL, NULL);
+    gdk_pixbuf_save(animated_shot, "/tmp/adws-animated-controls.png", "png", NULL, NULL);
     g_object_unref(animated_shot);
     double old_width = lyrics->width;
     update(p, "{\"primary\":\"Short\",\"secondary\":\"\"}");
     animate_for(65);
     g_assert_cmpfloat(lyrics->width, <, old_width);
     g_assert_cmpfloat(lyrics->width, >, lyrics->target_width);
-    animate_for(MNWS_MOTION_DURATION_US / 1000 + 80);
+    animate_for(ADWS_MOTION_DURATION_US / 1000 + 80);
     g_assert_cmpuint(lyrics->tick, ==, 0);
     g_assert_cmpfloat(lyrics->width, ==, lyrics->target_width);
     GdkRectangle bounds = {0, 0, 400, 36};
     g_assert_false(hover_step(p, &bounds, 200, 18, FALSE));
     cancel_hover_timer(p);
-    animate_for(MNWS_MOTION_DURATION_US / 1000 + 80);
+    animate_for(ADWS_MOTION_DURATION_US / 1000 + 80);
     g_assert_cmpuint(left->tick, ==, 0);
     g_assert_cmpfloat(left->width, ==, 0.);
     g_assert_false(gtk_widget_get_visible(p->previous_button));
@@ -134,14 +134,14 @@ static void test_hover_leave(Panel *p) {
 
 int main(int argc, char **argv) {
     gtk_init(&argc, &argv);
-    if (g_getenv("MNWS_TEST_STYLE")) {
+    if (g_getenv("ADWS_TEST_STYLE")) {
         GtkCssProvider *live = gtk_css_provider_new();
         GError *error = NULL;
-        g_assert_true(gtk_css_provider_load_from_path(live, g_getenv("MNWS_TEST_STYLE"), &error));
+        g_assert_true(gtk_css_provider_load_from_path(live, g_getenv("ADWS_TEST_STYLE"), &error));
         gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(live), GTK_STYLE_PROVIDER_PRIORITY_USER);
         g_object_unref(live);
     }
-    MnwsStart *image_start = g_object_new(mnws_start_get_type(), NULL);
+    AdwsStart *image_start = g_object_new(adws_start_get_type(), NULL);
     g_object_ref_sink(image_start);
     image_start->normal = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 400, 100);
     image_start->hover = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 400, 100);
@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
     g_assert_cmpint(pixel[0], ==, 0);
     g_object_unref(shot);
     g_assert_true(gtk_widget_get_events(GTK_WIDGET(image_start)) & GDK_BUTTON_PRESS_MASK);
-    gchar *click_dir = g_dir_make_tmp("mnws-click-XXXXXX", NULL);
+    gchar *click_dir = g_dir_make_tmp("adws-click-XXXXXX", NULL);
     gchar *click_file = g_build_filename(click_dir, "activated", NULL);
     gchar *quoted = g_shell_quote(click_file);
     image_start->command = g_strdup_printf("printf x >> %s", quoted);
@@ -245,7 +245,7 @@ int main(int argc, char **argv) {
     wbcffi_init_info info = {.obj = (wbcffi_module *)root, .get_root_widget = test_root};
     wbcffi_config_entry entries[] = {
         {"exec", "\"/usr/bin/sleep 30\""},
-        {"widget_name", "\"custom-mnws-org-mnws-neteaselyrics\""},
+        {"widget_name", "\"custom-adws-org-adws-neteaselyrics\""},
         {"width", "420"}, {"font_family", "\"Sans\""},
         {"primary_color", "\"#ff0000\""}, {"secondary_color", "\"#00ff00\""},
         {"separator_color", "\"#0000ff\""},
@@ -256,7 +256,7 @@ int main(int argc, char **argv) {
     gtk_widget_set_size_request(window, -1, 36);
     gtk_widget_show_all(window);
     g_assert_true(gtk_widget_get_events(p->event_box) & GDK_BUTTON_RELEASE_MASK);
-    gchar *settings_dir = g_dir_make_tmp("mnws-settings-click-XXXXXX", NULL);
+    gchar *settings_dir = g_dir_make_tmp("adws-settings-click-XXXXXX", NULL);
     gchar *settings_file = g_build_filename(settings_dir, "opened", NULL);
     gchar *settings_quoted = g_shell_quote(settings_file);
     p->right_command = g_strdup_printf("touch %s", settings_quoted);
@@ -273,7 +273,7 @@ int main(int argc, char **argv) {
     gdk_event_free(settings_click);
     unlink(settings_file); rmdir(settings_dir);
     g_free(settings_file); g_free(settings_dir);
-    gchar *control_dir = g_dir_make_tmp("mnws-controls-XXXXXX", NULL);
+    gchar *control_dir = g_dir_make_tmp("adws-controls-XXXXXX", NULL);
     gchar *pause_file = g_build_filename(control_dir, "pause", NULL);
     gchar *previous_file = g_build_filename(control_dir, "previous", NULL);
     gchar *next_file = g_build_filename(control_dir, "next", NULL);
@@ -323,7 +323,7 @@ int main(int argc, char **argv) {
     g_assert(foreground && foreground->color.red == 65535 && foreground->color.green == 0);
     pango_attr_iterator_destroy(attrs);
     GdkPixbuf *image = gtk_offscreen_window_get_pixbuf(GTK_OFFSCREEN_WINDOW(window));
-    gdk_pixbuf_save(image, "/tmp/mnws-bilingual-preview.png", "png", NULL, NULL);
+    gdk_pixbuf_save(image, "/tmp/adws-bilingual-preview.png", "png", NULL, NULL);
     g_object_unref(image);
     int previous_unit = p->font_unit;
     int heights[] = {54, 72, 30, 36};
@@ -380,7 +380,7 @@ int main(int argc, char **argv) {
                    lyrics_width + previous.width + next.width);
     g_assert_cmpint(gtk_widget_get_allocated_height(dynamic_window), ==, 36);
     GdkPixbuf *controls_shot = gtk_offscreen_window_get_pixbuf(GTK_OFFSCREEN_WINDOW(dynamic_window));
-    gdk_pixbuf_save(controls_shot, "/tmp/mnws-hover-symbols.png", "png", NULL, NULL);
+    gdk_pixbuf_save(controls_shot, "/tmp/adws-hover-symbols.png", "png", NULL, NULL);
     g_object_unref(controls_shot);
     test_hover_leave(dynamic);
     test_hover_enter(dynamic);
@@ -397,15 +397,15 @@ int main(int argc, char **argv) {
     g_assert_cmpint(natural, ==, lyrics_width);
     test_motion(dynamic);
     dynamic->disposed = TRUE;
-    ((MnwsRows *)dynamic->box)->panel = NULL;
+    ((AdwsRows *)dynamic->box)->panel = NULL;
     gtk_widget_destroy(dynamic_window);
     panel_unref(dynamic);
     p->has_color[0] = p->has_color[1] = FALSE;
     p->has_separator_color = FALSE;
     const char *palettes[] = {
-        "@define-color theme_bg_color #181818; @define-color accent_color #80bfff; .mnws-rows {color: #eeeeee;}",
-        "@define-color theme_bg_color #ffffff; @define-color accent_color #2255aa; .mnws-rows {color: #111111;}",
-        "@define-color theme_bg_color #ffffff; @define-color accent_color #111111; .mnws-rows {color: #111111;}"
+        "@define-color theme_bg_color #181818; @define-color accent_color #80bfff; .adws-rows {color: #eeeeee;}",
+        "@define-color theme_bg_color #ffffff; @define-color accent_color #2255aa; .adws-rows {color: #111111;}",
+        "@define-color theme_bg_color #ffffff; @define-color accent_color #111111; .adws-rows {color: #111111;}"
     };
     GtkCssProvider *palette = gtk_css_provider_new();
     gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(palette), GTK_STYLE_PROVIDER_PRIORITY_USER + 1);
@@ -423,8 +423,8 @@ int main(int argc, char **argv) {
     }
     // Named palette changes can leave the parent's computed foreground unchanged.
     const char *named_palettes[] = {
-        "@define-color surface_container_high #101820; @define-color primary #55bbdd; @define-color outline #777777; .mnws-rows {color: #eeeeee;}",
-        "@define-color surface_container_high #101820; @define-color primary #dd9955; @define-color outline #669977; .mnws-rows {color: #eeeeee;}"
+        "@define-color surface_container_high #101820; @define-color primary #55bbdd; @define-color outline #777777; .adws-rows {color: #eeeeee;}",
+        "@define-color surface_container_high #101820; @define-color primary #dd9955; @define-color outline #669977; .adws-rows {color: #eeeeee;}"
     };
     for (guint i=0; i<G_N_ELEMENTS(named_palettes); i++) {
         gtk_css_provider_load_from_data(palette, named_palettes[i], -1, NULL);
@@ -442,18 +442,18 @@ int main(int argc, char **argv) {
     g_object_unref(palette);
     enable_motion(p);
     configure_controls(p);
-    animate_for(MNWS_MOTION_DURATION_US / 1000 + 80);
+    animate_for(ADWS_MOTION_DURATION_US / 1000 + 80);
     for (int i = 0; i < 20; i++) {
         show_controls(p, i % 2 == 0);
         cancel_hover_timer(p);
         animate_for(8);
     }
     show_controls(p, FALSE);
-    animate_for(MNWS_MOTION_DURATION_US / 1000 + 80);
+    animate_for(ADWS_MOTION_DURATION_US / 1000 + 80);
     gtk_widget_get_preferred_width(p->event_box, &minimum, &natural);
     g_assert_cmpint(natural, ==, 420);
-    g_assert_cmpuint(((MnwsMotion *)p->previous_motion)->tick, ==, 0);
-    g_assert_cmpuint(((MnwsMotion *)p->next_motion)->tick, ==, 0);
+    g_assert_cmpuint(((AdwsMotion *)p->previous_motion)->tick, ==, 0);
+    g_assert_cmpuint(((AdwsMotion *)p->next_motion)->tick, ==, 0);
     g_assert_false(gtk_widget_get_visible(p->previous_button));
     g_assert_cmpint(gtk_widget_get_allocated_height(window), ==, 36);
     wbcffi_deinit(p);

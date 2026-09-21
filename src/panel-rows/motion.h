@@ -6,11 +6,11 @@ typedef struct {
     double width, from_width, target_width, opacity, from_opacity, target_opacity;
     gint64 started;
     guint tick;
-} MnwsMotion;
-typedef struct { GtkEventBoxClass parent; } MnwsMotionClass;
-G_DEFINE_TYPE(MnwsMotion, mnws_motion, GTK_TYPE_EVENT_BOX)
+} AdwsMotion;
+typedef struct { GtkEventBoxClass parent; } AdwsMotionClass;
+G_DEFINE_TYPE(AdwsMotion, adws_motion, GTK_TYPE_EVENT_BOX)
 
-#define MNWS_MOTION_DURATION_US 280000
+#define ADWS_MOTION_DURATION_US 280000
 
 /* cubic-bezier(.4, 0, .2, 1). Solve x(u) for elapsed time before reading
  * y(u); treating time as u would be a different curve. Both ends start/stop
@@ -29,8 +29,8 @@ static double motion_ease(double t) {
     return 3. * (1.-u) * u*u + u*u*u;
 }
 
-static void motion_sample(MnwsMotion *m, gint64 now) {
-    double t = CLAMP((now - m->started) / (double)MNWS_MOTION_DURATION_US, 0., 1.);
+static void motion_sample(AdwsMotion *m, gint64 now) {
+    double t = CLAMP((now - m->started) / (double)ADWS_MOTION_DURATION_US, 0., 1.);
     double ease = motion_ease(t);
     m->width = m->from_width + (m->target_width - m->from_width) * ease;
     m->opacity = m->from_opacity + (m->target_opacity - m->from_opacity) * ease;
@@ -40,19 +40,19 @@ static void motion_sample(MnwsMotion *m, gint64 now) {
 
 static gboolean motion_tick(GtkWidget *widget, GdkFrameClock *clock, gpointer data) {
     (void)data;
-    MnwsMotion *m = (MnwsMotion *)widget;
+    AdwsMotion *m = (AdwsMotion *)widget;
     gint64 now = gdk_frame_clock_get_frame_time(clock);
     motion_sample(m, now);
     gtk_widget_queue_resize(widget);
     gtk_widget_queue_draw(widget);
-    if (now - m->started < MNWS_MOTION_DURATION_US) return G_SOURCE_CONTINUE;
+    if (now - m->started < ADWS_MOTION_DURATION_US) return G_SOURCE_CONTINUE;
     m->tick = 0;
     GtkWidget *child = gtk_bin_get_child(GTK_BIN(m));
     if (m->fade && !m->revealed && child) gtk_widget_hide(child);
     return G_SOURCE_REMOVE;
 }
 
-static void motion_target(MnwsMotion *m, double width, double opacity) {
+static void motion_target(AdwsMotion *m, double width, double opacity) {
     if (m->initialized && m->target_width == width && m->target_opacity == opacity) return;
     GtkWidget *widget = GTK_WIDGET(m);
     gboolean enabled = TRUE;
@@ -83,7 +83,7 @@ static void motion_target(MnwsMotion *m, double width, double opacity) {
 }
 
 static void motion_extent(GtkWidget *widget, int *minimum, int *natural) {
-    MnwsMotion *m = (MnwsMotion *)widget;
+    AdwsMotion *m = (AdwsMotion *)widget;
     int child_min = 0, child_nat = 0;
     GtkWidget *child = gtk_bin_get_child(GTK_BIN(m));
     if (child && m->revealed) {
@@ -95,13 +95,13 @@ static void motion_extent(GtkWidget *widget, int *minimum, int *natural) {
 }
 
 static void motion_width(GtkWidget *widget, int *minimum, int *natural) {
-    if (((MnwsMotion *)widget)->vertical)
-        GTK_WIDGET_CLASS(mnws_motion_parent_class)->get_preferred_width(widget, minimum, natural);
+    if (((AdwsMotion *)widget)->vertical)
+        GTK_WIDGET_CLASS(adws_motion_parent_class)->get_preferred_width(widget, minimum, natural);
     else motion_extent(widget, minimum, natural);
 }
 static void motion_height(GtkWidget *widget, int *minimum, int *natural) {
-    if (((MnwsMotion *)widget)->vertical) motion_extent(widget, minimum, natural);
-    else GTK_WIDGET_CLASS(mnws_motion_parent_class)->get_preferred_height(widget, minimum, natural);
+    if (((AdwsMotion *)widget)->vertical) motion_extent(widget, minimum, natural);
+    else GTK_WIDGET_CLASS(adws_motion_parent_class)->get_preferred_height(widget, minimum, natural);
 }
 static void motion_width_for_height(GtkWidget *widget, int height, int *minimum, int *natural) {
     (void)height; motion_width(widget, minimum, natural);
@@ -113,7 +113,7 @@ static void motion_height_for_width(GtkWidget *widget, int width, int *minimum, 
 static void motion_allocate(GtkWidget *widget, GtkAllocation *allocation) {
     GtkWidget *child = gtk_bin_get_child(GTK_BIN(widget));
     int minimum = 0, natural = 0;
-    gboolean vertical = ((MnwsMotion *)widget)->vertical;
+    gboolean vertical = ((AdwsMotion *)widget)->vertical;
     if (child && gtk_widget_get_visible(child)) {
         if (vertical) gtk_widget_get_preferred_height(child, &minimum, &natural);
         else gtk_widget_get_preferred_width(child, &minimum, &natural);
@@ -123,7 +123,7 @@ static void motion_allocate(GtkWidget *widget, GtkAllocation *allocation) {
     GtkAllocation full = *allocation;
     if (vertical) full.height = MAX(full.height, natural);
     else full.width = MAX(full.width, natural);
-    GTK_WIDGET_CLASS(mnws_motion_parent_class)->size_allocate(widget, &full);
+    GTK_WIDGET_CLASS(adws_motion_parent_class)->size_allocate(widget, &full);
     gtk_widget_set_allocation(widget, allocation);
     gtk_widget_set_clip(widget, allocation);
     if (gtk_widget_get_realized(widget))
@@ -135,13 +135,13 @@ static gboolean motion_draw(GtkWidget *widget, cairo_t *cr) {
     cairo_save(cr);
     cairo_rectangle(cr, 0, 0, gtk_widget_get_allocated_width(widget), gtk_widget_get_allocated_height(widget));
     cairo_clip(cr);
-    gboolean result = GTK_WIDGET_CLASS(mnws_motion_parent_class)->draw(widget, cr);
+    gboolean result = GTK_WIDGET_CLASS(adws_motion_parent_class)->draw(widget, cr);
     cairo_restore(cr);
     return result;
 }
 
 static void motion_unmap(GtkWidget *widget) {
-    MnwsMotion *m = (MnwsMotion *)widget;
+    AdwsMotion *m = (AdwsMotion *)widget;
     if (m->tick) gtk_widget_remove_tick_callback(widget, m->tick);
     m->tick = 0;
     m->width = m->target_width;
@@ -151,10 +151,10 @@ static void motion_unmap(GtkWidget *widget) {
         gtk_widget_set_opacity(child, m->opacity);
         if (!m->revealed) gtk_widget_hide(child);
     }
-    GTK_WIDGET_CLASS(mnws_motion_parent_class)->unmap(widget);
+    GTK_WIDGET_CLASS(adws_motion_parent_class)->unmap(widget);
 }
 
-static void mnws_motion_class_init(MnwsMotionClass *klass) {
+static void adws_motion_class_init(AdwsMotionClass *klass) {
     GtkWidgetClass *widget = GTK_WIDGET_CLASS(klass);
     widget->get_preferred_width = motion_width;
     widget->get_preferred_height = motion_height;
@@ -164,14 +164,14 @@ static void mnws_motion_class_init(MnwsMotionClass *klass) {
     widget->draw = motion_draw;
     widget->unmap = motion_unmap;
 }
-static void mnws_motion_init(MnwsMotion *m) {
+static void adws_motion_init(AdwsMotion *m) {
     m->revealed = TRUE;
     m->opacity = m->target_opacity = 1.;
     gtk_event_box_set_visible_window(GTK_EVENT_BOX(m), TRUE);
 }
 
 static GtkWidget *motion_wrap(GtkWidget *child, gboolean fade) {
-    MnwsMotion *m = g_object_new(mnws_motion_get_type(), NULL);
+    AdwsMotion *m = g_object_new(adws_motion_get_type(), NULL);
     m->fade = fade;
     gtk_container_add(GTK_CONTAINER(m), child);
     gtk_widget_show(GTK_WIDGET(m));
@@ -179,7 +179,7 @@ static GtkWidget *motion_wrap(GtkWidget *child, gboolean fade) {
 }
 
 static void motion_reveal(GtkWidget *widget, gboolean revealed) {
-    MnwsMotion *m = (MnwsMotion *)widget;
+    AdwsMotion *m = (AdwsMotion *)widget;
     if (m->initialized && m->revealed == revealed) return;
     m->revealed = revealed;
     GtkWidget *child = gtk_bin_get_child(GTK_BIN(m));

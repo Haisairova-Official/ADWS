@@ -9,17 +9,17 @@ import tempfile
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-import mnws_health as health
-from mnws_i18n import tr as _tr
-import mnws_layout as layout
-import mnws_runtime as runtime
+import adws_health as health
+from adws_i18n import tr as _tr
+import adws_layout as layout
+import adws_runtime as runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallationTests(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(prefix='mnws-install-test-')
+        temp = tempfile.TemporaryDirectory(prefix='adws-install-test-')
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         self.home = self.root / 'home'
@@ -37,11 +37,11 @@ class InstallationTests(unittest.TestCase):
             file.chmod(0o755)
         self.libs = self.home / '.local/lib/waybar'
         self.libs.mkdir(parents=True)
-        for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libmnws_panel.so'):
+        for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so'):
             (self.libs / name).touch()
 
     def install(self):
-        return subprocess.run(['bash', str(ROOT / 'scripts/mnws-install.sh')],
+        return subprocess.run(['bash', str(ROOT / 'scripts/adws-install.sh')],
                               env=self.env, input="n\n", capture_output=True, text=True)
 
     def config_files(self):
@@ -82,14 +82,14 @@ class InstallationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('libniri_taskbar.so', result.stdout)
         self.assertFalse((self.config / 'waybar').exists())
-        self.assertFalse((self.home / '.local/bin/mnws').exists())
+        self.assertFalse((self.home / '.local/bin/adws').exists())
 
     def test_old_template_links_are_detached_without_touching_source(self):
-        from mnws_include import detach_template_link
-        source_root = self.root / 'old-MNWS'
+        from adws_include import detach_template_link
+        source_root = self.root / 'old-ADWS'
         (source_root / 'tools').mkdir(parents=True)
-        (source_root / 'tools/mnws_layout.py').touch()
-        (source_root / 'mnws').touch()
+        (source_root / 'tools/adws_layout.py').touch()
+        (source_root / 'adws').touch()
         source = source_root / 'config/waybar/config-bottom.jsonc'
         source.parent.mkdir(parents=True)
         source.write_text('{"height":36}')
@@ -124,7 +124,7 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn('7', message)
         self.assertIn('taskbar.log', message)
-        self.assertIn('bad config test', (self.state / 'mnws/taskbar.log').read_text())
+        self.assertIn('bad config test', (self.state / 'adws/taskbar.log').read_text())
 
     def test_missing_module_blocks_write_and_restart(self):
         config, style = self.config_files()
@@ -152,9 +152,9 @@ class InstallationTests(unittest.TestCase):
         # Fake Cargo makes the compiler invocation observable without downloading crates.
         source = self.root / 'project'
         (source / 'src/niri-taskbar/target/release').mkdir(parents=True)
-        shutil.copy2(ROOT / 'mnws', source / 'mnws')
+        shutil.copy2(ROOT / 'adws', source / 'adws')
         (source / 'scripts').mkdir()
-        shutil.copy2(ROOT / 'scripts/mnws-i18n.sh', source / 'scripts/mnws-i18n.sh')
+        shutil.copy2(ROOT / 'scripts/adws-i18n.sh', source / 'scripts/adws-i18n.sh')
         artifact = source / 'src/niri-taskbar/target/release/libniri_taskbar.so'
         artifact.write_text('new library')
         old = self.libs / 'libniri_taskbar.so'
@@ -164,7 +164,7 @@ class InstallationTests(unittest.TestCase):
         cargo = self.bin / 'cargo'
         cargo.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/cargo-args"\nexit 0\n')
         cargo.chmod(0o755)
-        result = subprocess.run([str(source / 'mnws'), 'build-taskbar'], env=self.env, capture_output=True, text=True)
+        result = subprocess.run([str(source / 'adws'), 'build-taskbar'], env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         flags = (self.home / 'cargo-args').read_text()
         self.assertNotIn('--offline', flags)

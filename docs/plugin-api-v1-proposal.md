@@ -2,16 +2,16 @@
 > 当前代码差异及待明确事项见 [接入清单](plugin-api-v1-plan.md)。
 > 本文不是当前已发布插件格式的兼容性承诺。
 
-# MNWS Plugin API v1.0
+# ADWS Plugin API v1.0
 
 ## 1. 目标
 
 v1.0 只解决四件事：
 
-1. `.mplg` 可以被 MNWS 安装和识别
+1. `.mplg` 可以被 ADWS 安装和识别
 2. 插件可以向任务栏输出内容
 3. 插件可以声明设置项
-4. MNWS 可以统一管理插件启用、禁用、配置和运行
+4. ADWS 可以统一管理插件启用、禁用、配置和运行
 
 不追求“大而全”。
 
@@ -19,7 +19,7 @@ v1.0 只解决四件事：
 
 # 2. `.mplg` 定位
 
-`.mplg` 是 MNWS 插件包。
+`.mplg` 是 ADWS 插件包。
 
 v1.0 暂时只支持：
 
@@ -98,9 +98,9 @@ v1.0 不强制全小写。
   "id": "org.AkiACG_Community.NCMLyricsBar",
   "name": "NCMLyricsBar",
   "version": "1.0.0",
-  "description": "NetEase Cloud Music lyrics for MNWS",
+  "description": "NetEase Cloud Music lyrics for ADWS",
 
-  "mnws": {
+  "adws": {
     "api": 1,
     "minVersion": "1.25"
   },
@@ -132,7 +132,7 @@ renderer
 
 ```text
 description
-mnws
+adws
 defaults
 settingsSchema
 ```
@@ -144,19 +144,19 @@ settingsSchema
 只需要：
 
 ```json
-"mnws": {
+"adws": {
   "api": 1,
   "minVersion": "1.25"
 }
 ```
 
-MNWS 加载时检查：
+ADWS 加载时检查：
 
 ```text
 api != 1
 → 拒绝加载
 
-MNWS version < minVersion
+ADWS version < minVersion
 → 拒绝加载
 ```
 
@@ -174,7 +174,7 @@ v1.0 只保留两个 renderer。
 
 ```json
 {
-  "text": "Hello MNWS",
+  "text": "Hello ADWS",
   "tooltip": "Example plugin"
 }
 ```
@@ -200,7 +200,7 @@ v1.0 只保留两个 renderer。
 }
 ```
 
-由 MNWS 原生 renderer 负责：
+由 ADWS 原生 renderer 负责：
 
 - 字体
 - 对齐
@@ -218,7 +218,7 @@ v1.0 只保留两个 renderer。
 v1.0 采用最简单的模型：
 
 ```text
-MNWS
+ADWS
   ↓ execute
 main.py
   ↓ stdout
@@ -247,7 +247,7 @@ exit != 0
 import json
 
 print(json.dumps({
-    "text": "Hello MNWS",
+    "text": "Hello ADWS",
     "tooltip": "Hello World plugin"
 }))
 ```
@@ -264,7 +264,7 @@ print(json.dumps({
 --settings-json
 ```
 
-例如 MNWS 执行：
+例如 ADWS 执行：
 
 ```bash
 python main.py --settings-json '{"offset":200,"color":"#fff"}'
@@ -311,7 +311,7 @@ url
 }
 ```
 
-MNWS 自动根据 schema 生成设置界面。
+ADWS 自动根据 schema 生成设置界面。
 
 配置保存在：
 
@@ -397,17 +397,17 @@ zh*
 统一：
 
 ```text
-~/.local/share/mnws/plugins/
+~/.local/share/adws/plugins/
 ```
 
 例如：
 
 ```text
-~/.local/share/mnws/plugins/
+~/.local/share/adws/plugins/
 └── org.AkiACG_Community.NCMLyricsBar_1.0.0.mplg
 ```
 
-MNWS 扫描此目录。
+ADWS 扫描此目录。
 
 ---
 
@@ -418,13 +418,13 @@ MNWS 扫描此目录。
 建议：
 
 ```text
-$XDG_CACHE_HOME/mnws/plugins/
+$XDG_CACHE_HOME/adws/plugins/
 ```
 
 例如：
 
 ```text
-~/.cache/mnws/plugins/
+~/.cache/adws/plugins/
 └── org.AkiACG_Community.NCMLyricsBar/
 ```
 
@@ -468,12 +468,12 @@ remove
 建议 v1.0 提供：
 
 ```bash
-mnws mplg list
-mnws mplg build <directory>
-mnws mplg install <file.mplg>
-mnws mplg remove <id>
-mnws mplg validate <file.mplg>
-mnws mplg run <id>
+adws mplg list
+adws mplg build <directory>
+adws mplg install <file.mplg>
+adws mplg remove <id>
+adws mplg validate <file.mplg>
+adws mplg run <id>
 ```
 
 已有功能能复用就直接复用。
@@ -483,7 +483,7 @@ mnws mplg run <id>
 # 16. `build`
 
 ```bash
-mnws mplg build plugins/NCMLyricsBar
+adws mplg build plugins/NCMLyricsBar
 ```
 
 执行：
@@ -538,7 +538,7 @@ permission enforcement
 任务栏不要崩
 ```
 
-MNWS 应：
+ADWS 应：
 
 ```text
 记录 stderr
@@ -565,7 +565,7 @@ stdout → protocol
 stderr → logs
 ```
 
-MNWS 可以给 stderr 自动加前缀：
+ADWS 可以给 stderr 自动加前缀：
 
 ```text
 [plugin:org.AkiACG_Community.NCMLyricsBar]
@@ -585,7 +585,7 @@ org.AkiACG_Community.NCMLyricsBar
 
 并作为：
 
-> MNWS Plugin API v1.0 Reference Plugin
+> ADWS Plugin API v1.0 Reference Plugin
 
 它用于验证：
 
@@ -615,14 +615,14 @@ plugins/sample/
 例如：
 
 ```text
-org.mnws.sample.HelloWorld
+org.adws.sample.HelloWorld
 ```
 
 输出：
 
 ```json
 {
-  "text": "Hello MNWS"
+  "text": "Hello ADWS"
 }
 ```
 
@@ -660,7 +660,7 @@ MUI-specific API
 # 23. v1.0 最终结构
 
 ```text
-                   MNWS
+                   ADWS
                      │
                Plugin Manager
                      │
@@ -672,7 +672,7 @@ MUI-specific API
               │             │
               └──────┬──────┘
                      │
-               MNWS Renderer
+               ADWS Renderer
                      │
                   Waybar
 ```
@@ -720,22 +720,22 @@ NCMLyricsBar reference plugin
 
 满足以下条件即可宣布：
 
-> MNWS Plugin API v1.0
+> ADWS Plugin API v1.0
 
 ```text
 ✓ 第三方可以自己写 plugin.json
 ✓ 可以 build 成 .mplg
-✓ MNWS 可以安装并扫描
+✓ ADWS 可以安装并扫描
 ✓ 可以放入任务栏
 ✓ 支持 text/rows 两种 renderer
 ✓ 可以声明设置
 ✓ 中文/英文可正常显示
-✓ 插件出错不会拖垮 MNWS
-✓ 不需要修改 MNWS Core 才能添加新插件
+✓ 插件出错不会拖垮 ADWS
+✓ 不需要修改 ADWS Core 才能添加新插件
 ```
 
 最后一条最重要：
 
-> **一个新插件如果只使用公开 v1.0 API，就不应该需要修改 MNWS Core。**
+> **一个新插件如果只使用公开 v1.0 API，就不应该需要修改 ADWS Core。**
 
 只要这一点成立，v1.0 就成功了。

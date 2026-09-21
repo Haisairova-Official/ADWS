@@ -2,7 +2,7 @@
 
 - `closed.png`: default / 默认闭嘴
 - `open.png`: hover / 鼠标移入张嘴
-- Both are 800 × 930 PNGs with transparency; MNWS scales them proportionally to the taskbar height. / 两图尺寸一致并带透明背景，MNWS 按任务栏高度等比显示。
+- Both are 800 × 930 PNGs with transparency; ADWS scales them proportionally to the taskbar height. / 两图尺寸一致并带透明背景，ADWS 按任务栏高度等比显示。
 
 Original image resources, downloaded unchanged from [Popcat](https://popcat.click/) on 2026-09-18:
 

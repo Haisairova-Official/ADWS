@@ -655,7 +655,7 @@ class DesktopGuiTests(unittest.TestCase):
             box = view.rename_editor.get_allocation()
             self.assertEqual(view.rename_editor.translate_coordinates(view.area, 0, 0), (rect[0]+5, rect[1]+cfg.icon_size+14))
             self.assertLessEqual(box.width, cfg.cell_width)
-            if destination := os.environ.get('MNWS_TEST_RENAME_SCREENSHOT'):
+            if destination := os.environ.get('ADWS_TEST_RENAME_SCREENSHOT'):
                 surface = self.cairo.ImageSurface(self.cairo.FORMAT_ARGB32, view.get_allocated_width(), view.get_allocated_height())
                 self.Gtk.Widget.draw(view, self.cairo.Context(surface))
                 surface.write_to_png(destination)
@@ -804,7 +804,7 @@ class DesktopGuiTests(unittest.TestCase):
             self.assertFalse((self.desktop/'missing').exists())
             view.cancel_rename()
             self.assertFalse((self.desktop/'text (2).txt').exists())
-            self.assertFalse(list(self.desktop.glob('.mnws-draft-*')))
+            self.assertFalse(list(self.desktop.glob('.adws-draft-*')))
             view.close()
         self.run_preview(self.Config(), scenario)
 

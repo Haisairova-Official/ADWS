@@ -3,8 +3,8 @@ from pathlib import Path
 import sys
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-import mnws_clock as clock
-from mnws_layout_gui import LayoutWindow, _gtk
+import adws_clock as clock
+from adws_layout_gui import LayoutWindow, _gtk
 Gdk, Gtk = _gtk()
 from gi.repository import GLib
 
@@ -51,7 +51,7 @@ Gtk.main()
 # Saving the standalone dialog reloads the layout, preserving concurrent edits.
 initial = {'options': {'clock': {}}}
 fresh = {'options': {'thickness': 72}, 'plugins': [{'package': 'keep-me'}]}
-with patch('mnws_layout.load_layout', side_effect=[initial, fresh]), patch('mnws_layout.save_layout') as save, patch('mnws_layout.apply_layout', return_value=(True, 'ok')) as apply, patch.object(clock.ClockDialog, 'run', return_value=values):
+with patch('adws_layout.load_layout', side_effect=[initial, fresh]), patch('adws_layout.save_layout') as save, patch('adws_layout.apply_layout', return_value=(True, 'ok')) as apply, patch.object(clock.ClockDialog, 'run', return_value=values):
     assert clock.main() == 0
     saved = save.call_args.args[0]
     assert saved['options'] == {'thickness': 72, 'clock': values}

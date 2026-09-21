@@ -25,7 +25,7 @@ pub fn path() -> PathBuf {
         .unwrap_or_else(|| {
             PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config")
         })
-        .join("mnws/taskbar-pins.json")
+        .join("adws/taskbar-pins.json")
 }
 pub fn load() -> Result<Vec<Pin>, String> {
     let data = match std::fs::read(path()) {
@@ -114,7 +114,7 @@ pub fn focus_color(
 pub fn separator(vertical: bool) -> waybar_cffi::gtk::DrawingArea {
     use waybar_cffi::gtk::{self as gtk, prelude::*};
     let line = gtk::DrawingArea::new();
-    line.style_context().add_class("mnws-pin-separator");
+    line.style_context().add_class("adws-pin-separator");
     if vertical {
         line.set_size_request(-1, 9);
     } else {

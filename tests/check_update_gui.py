@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'tools'))
-spec = importlib.util.spec_from_file_location('mnws_config', ROOT/'tools/mnws-config.py')
+spec = importlib.util.spec_from_file_location('adws_config', ROOT/'tools/adws-config.py')
 config = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(config)
 Gtk = config.Gtk
@@ -30,7 +30,7 @@ with patch.object(config.ConfigWindow, 'refresh_statuses'), patch.object(config,
         assert not preview
         ready.wait(2)
         return {'available':False,'text':'No updates found.','url':None}
-    with patch('mnws_update.check_update', side_effect=slow_check):
+    with patch('adws_update.check_update', side_effect=slow_check):
         window.check_updates()
         assert not window.update_button.get_sensitive()
         assert not window.update_preview.get_sensitive()
@@ -42,13 +42,13 @@ with patch.object(config.ConfigWindow, 'refresh_statuses'), patch.object(config,
         assert window.update_result.get_text() == 'No updates found.'
         assert not window.update_link.get_visible()
     window.update_preview.set_active(True)
-    with patch('mnws_update.check_update', return_value={'available':True,'text':'New version available','url':'https://github.com/Haisairova-Official/MNWS/releases/tag/v1.3'}) as check, patch.object(window, 'confirm_update', return_value=False):
+    with patch('adws_update.check_update', return_value={'available':True,'text':'New version available','url':'https://github.com/Haisairova-Official/ADWS/releases/tag/v1.3'}) as check, patch.object(window, 'confirm_update', return_value=False):
         window.check_updates()
         settle(lambda: window.update_button.get_sensitive())
         assert window.update_link.get_visible()
         assert window.update_preview.get_sensitive()
         check.assert_called_once_with(preview=True)
-    result = {'available':True,'text':'New version available','url':'https://github.com/Haisairova-Official/MNWS/releases/tag/v1.3'}
+    result = {'available':True,'text':'New version available','url':'https://github.com/Haisairova-Official/ADWS/releases/tag/v1.3'}
     with patch.object(Gtk.MessageDialog, 'run', return_value=Gtk.ResponseType.CANCEL):
         assert not window.confirm_update(result)
         assert window.update_result.get_text() == config._tr('已取消。')
@@ -60,7 +60,7 @@ with patch.object(config.ConfigWindow, 'refresh_statuses'), patch.object(config,
         started.set()
         release.wait(2)
         return 'Update installed; backup saved'
-    with patch('mnws_update.check_update', return_value=result), patch.object(Gtk.MessageDialog, 'run', return_value=Gtk.ResponseType.OK), patch('mnws_update.install_update', side_effect=slow_install) as install:
+    with patch('adws_update.check_update', return_value=result), patch.object(Gtk.MessageDialog, 'run', return_value=Gtk.ResponseType.OK), patch('adws_update.install_update', side_effect=slow_install) as install:
         window.check_updates()
         settle(started.is_set)
         assert not window.update_button.get_sensitive()
@@ -72,12 +72,12 @@ with patch.object(config.ConfigWindow, 'refresh_statuses'), patch.object(config,
         settle(lambda: window.update_button.get_sensitive())
         install.assert_called_once()
         assert window.update_result.get_text() == 'Update installed; backup saved'
-    with patch('mnws_update.install_update', side_effect=RuntimeError('Install failed; old version retained')):
+    with patch('adws_update.install_update', side_effect=RuntimeError('Install failed; old version retained')):
         window.install_update(result)
         settle(lambda: window.update_button.get_sensitive())
         assert window.update_result.get_text() == 'Install failed; old version retained'
         assert window.update_preview.get_sensitive()
-    with patch('mnws_update.check_update', side_effect=RuntimeError('Network unavailable')):
+    with patch('adws_update.check_update', side_effect=RuntimeError('Network unavailable')):
         window.check_updates()
         settle(lambda: window.update_button.get_sensitive())
         assert window.update_result.get_text() == 'Network unavailable'
@@ -86,7 +86,7 @@ with patch.object(config.ConfigWindow, 'refresh_statuses'), patch.object(config,
     import cairo
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, window.get_allocated_width(), window.get_allocated_height())
     window.draw(cairo.Context(surface))
-    surface.write_to_png('/tmp/mnws-update-preview.png')
+    surface.write_to_png('/tmp/adws-update-preview.png')
     window.notebook.set_current_page(1)
     window.resize(800, 760)
     settle(lambda: window.get_allocated_width() >= 800)
@@ -96,6 +96,6 @@ with patch.object(config.ConfigWindow, 'refresh_statuses'), patch.object(config,
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, window.get_allocated_width(), window.get_allocated_height())
     window.draw(cairo.Context(surface))
     language = 'zh' if os.environ.get('LANGUAGE','').startswith('zh') else 'en'
-    surface.write_to_png(f'/tmp/mnws-components-{language}.png')
+    surface.write_to_png(f'/tmp/adws-components-{language}.png')
     window.hide()
 print('Update UI remained responsive; results/errors recovered correctly and switches retained natural width.')

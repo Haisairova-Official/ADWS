@@ -115,13 +115,13 @@ window#waybar.mode-invisible > box {
 
 
 
-/* ==== MNWS 插件布局（自动生成）==== */
-.niri-taskbar button:hover:not(.focused) { background-image: none; background-color: #241f31; }
+/* ==== ADWS 插件布局（自动生成）==== */
+.niri-taskbar button.urgent { background-image: none; background-color: #f6d32d; }
 .niri-taskbar button { min-width: 0; min-height: 0; transition: background-color 280ms cubic-bezier(0.4, 0, 0.2, 1), color 280ms ease-in-out; }
 #custom-applauncher { transition: background-color 280ms ease-in-out, color 280ms ease-in-out; }
-/* ==== MNWS 插件布局 END ==== */
+/* ==== ADWS 插件布局 END ==== */
 
-/* ==== MNWS 任务栏样式（自动生成）==== */
+/* ==== ADWS 任务栏样式（自动生成）==== */
 window#waybar > box {
     background: @surface_container_high;
     border-radius: 12px;

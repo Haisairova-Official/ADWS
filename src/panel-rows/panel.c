@@ -1,5 +1,5 @@
 #include <signal.h>
-#include "../mnws-i18n.h"
+#include "../adws-i18n.h"
 /* Waybar CFFI v2 renderer for panel.rows-v1: primary / separator / secondary. */
 #include <gtk/gtk.h>
 #include <json-glib/json-glib.h>
@@ -50,9 +50,9 @@ typedef struct {
     GdkRGBA separator_color;
 } Panel;
 
-typedef struct { GtkBox parent; Panel *panel; } MnwsRows;
-typedef struct { GtkBoxClass parent; } MnwsRowsClass;
-G_DEFINE_TYPE(MnwsRows, mnws_rows, GTK_TYPE_BOX)
+typedef struct { GtkBox parent; Panel *panel; } AdwsRows;
+typedef struct { GtkBoxClass parent; } AdwsRowsClass;
+G_DEFINE_TYPE(AdwsRows, adws_rows, GTK_TYPE_BOX)
 
 static int measure(PangoLayout *layout, PangoFontDescription *font, int size) {
     pango_font_description_set_absolute_size(font, size);
@@ -233,9 +233,9 @@ static gboolean draw_separator(GtkWidget *widget, cairo_t *cr, gpointer data) {
 }
 
 static void rows_height(GtkWidget *widget, int *minimum, int *natural) {
-    Panel *p = ((MnwsRows *)widget)->panel;
+    Panel *p = ((AdwsRows *)widget)->panel;
     if (p && p->vertical) {
-        GTK_WIDGET_CLASS(mnws_rows_parent_class)->get_preferred_height(widget, minimum, natural);
+        GTK_WIDGET_CLASS(adws_rows_parent_class)->get_preferred_height(widget, minimum, natural);
         return;
     }
     // The bar determines the height. Old font metrics must not prevent a shrink.
@@ -246,23 +246,23 @@ static void rows_height_for_width(GtkWidget *widget, int width, int *minimum, in
     rows_height(widget, minimum, natural);
 }
 static void rows_width(GtkWidget *widget, int *minimum, int *natural) {
-    Panel *p = ((MnwsRows *)widget)->panel;
+    Panel *p = ((AdwsRows *)widget)->panel;
     if (p && p->vertical) *minimum = *natural = 0;
-    else GTK_WIDGET_CLASS(mnws_rows_parent_class)->get_preferred_width(widget, minimum, natural);
+    else GTK_WIDGET_CLASS(adws_rows_parent_class)->get_preferred_width(widget, minimum, natural);
 }
 static void rows_width_for_height(GtkWidget *widget, int height, int *minimum, int *natural) {
     (void)height; rows_width(widget, minimum, natural);
 }
 static void rows_allocate(GtkWidget *widget, GtkAllocation *allocation) {
-    Panel *p = ((MnwsRows *)widget)->panel;
-    GTK_WIDGET_CLASS(mnws_rows_parent_class)->size_allocate(widget, allocation);
+    Panel *p = ((AdwsRows *)widget)->panel;
+    GTK_WIDGET_CLASS(adws_rows_parent_class)->size_allocate(widget, allocation);
     int thickness = p && p->vertical ? allocation->width : allocation->height;
     if (p && !p->disposed && p->allocated_height != thickness) {
         p->allocated_height = thickness;
         schedule_refresh(p);
     }
 }
-static void mnws_rows_class_init(MnwsRowsClass *klass) {
+static void adws_rows_class_init(AdwsRowsClass *klass) {
     GtkWidgetClass *widget = GTK_WIDGET_CLASS(klass);
     widget->get_preferred_width = rows_width;
     widget->get_preferred_width_for_height = rows_width_for_height;
@@ -270,7 +270,7 @@ static void mnws_rows_class_init(MnwsRowsClass *klass) {
     widget->get_preferred_height_for_width = rows_height_for_width;
     widget->size_allocate = rows_allocate;
 }
-static void mnws_rows_init(MnwsRows *rows) { (void)rows; }
+static void adws_rows_init(AdwsRows *rows) { (void)rows; }
 
 static Panel *panel_ref(Panel *p) { p->refs++; return p; }
 static void panel_unref(gpointer data) {
@@ -325,9 +325,9 @@ static void update(Panel *p, const char *line) {
         p->state = g_strdup(state);
         if (*p->state) gtk_style_context_add_class(style, p->state);
     }
-    if (g_getenv("MNWS_PANEL_DEBUG")) {
+    if (g_getenv("ADWS_PANEL_DEBUG")) {
         GtkWidget *parent = gtk_widget_get_parent(p->box);
-        g_message("MNWS rows: payload=%zu/%zu allocation=%dx%d parent=%s %dx%d font-unit=%d",
+        g_message("ADWS rows: payload=%zu/%zu allocation=%dx%d parent=%s %dx%d font-unit=%d",
             strlen(primary), strlen(secondary), gtk_widget_get_allocated_width(p->box),
             gtk_widget_get_allocated_height(p->box), G_OBJECT_TYPE_NAME(parent),
             gtk_widget_get_allocated_width(parent), gtk_widget_get_allocated_height(parent), p->font_unit);
@@ -348,7 +348,7 @@ static void read_done(GObject *source, GAsyncResult *result, gpointer data) {
             read_next(p);
         } else {
             // Retry in the background while preserving the last rendered state.
-            if (error) g_warning("MNWS panel stream interrupted: %s", error->message);
+            if (error) g_warning("ADWS panel stream interrupted: %s", error->message);
             p->retry = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 5, start, panel_ref(p), panel_unref);
         }
     }
@@ -378,7 +378,7 @@ static gboolean start(gpointer data) {
         p->stream = g_data_input_stream_new(g_subprocess_get_stdout_pipe(p->process));
         read_next(p);
     } else {
-        g_warning("MNWS panel: %s", error ? error->message : "cannot launch plugin");
+        g_warning("ADWS panel: %s", error ? error->message : "cannot launch plugin");
         p->retry = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 5, start, panel_ref(p), panel_unref);
     }
     g_clear_error(&error);
@@ -412,7 +412,7 @@ static void spawn_command(const gchar *command, const gchar *label) {
     if (!g_shell_parse_argv(command, NULL, &argv, &error)
             || !g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
                               NULL, NULL, NULL, &error)) {
-        g_warning("MNWS panel %s: %s", label, error ? error->message : "cannot launch command");
+        g_warning("ADWS panel %s: %s", label, error ? error->message : "cannot launch command");
     }
     g_strfreev(argv);
     g_clear_error(&error);
@@ -476,7 +476,7 @@ static void enable_motion(Panel *p) {
         gtk_container_remove(GTK_CONTAINER(p->controls), child);
         GtkWidget *wrapper = i == 1 && !p->dynamic_width ? child : motion_wrap(child, i != 1);
         if (wrapper != child) {
-            ((MnwsMotion *)wrapper)->vertical = p->vertical;
+            ((AdwsMotion *)wrapper)->vertical = p->vertical;
             // Crossing events do not bubble through GtkEventBox windows. The
             // animation viewport must start the same deferred hover check.
             gtk_widget_add_events(wrapper, GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
@@ -577,10 +577,10 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
     if (!styled) {
         GtkCssProvider *css = gtk_css_provider_new();
         gtk_css_provider_load_from_data(css,
-            ".mnws-rows label { min-height: 0; padding: 0; }"
-            ".mnws-rows separator { min-height: 0; margin: 0; border: none;"
+            ".adws-rows label { min-height: 0; padding: 0; }"
+            ".adws-rows separator { min-height: 0; margin: 0; border: none;"
             " background-color: transparent; opacity: 1; }"
-            ".mnws-controls button { min-width: 0; min-height: 0; padding: 0 0.35em; }", -1, NULL);
+            ".adws-controls button { min-width: 0; min-height: 0; padding: 0 0.35em; }", -1, NULL);
         gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(css),
             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
         g_object_unref(css);
@@ -601,10 +601,10 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
     g_signal_connect(p->event_box, "enter-notify-event", G_CALLBACK(panel_crossing), p);
     g_signal_connect(p->event_box, "leave-notify-event", G_CALLBACK(panel_crossing), p);
     GtkWidget *content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    p->box = g_object_new(mnws_rows_get_type(), "orientation", GTK_ORIENTATION_VERTICAL, NULL);
-    ((MnwsRows *)p->box)->panel = p;
+    p->box = g_object_new(adws_rows_get_type(), "orientation", GTK_ORIENTATION_VERTICAL, NULL);
+    ((AdwsRows *)p->box)->panel = p;
     gtk_widget_set_name(p->event_box, name);
-    gtk_style_context_add_class(gtk_widget_get_style_context(p->box), "mnws-rows");
+    gtk_style_context_add_class(gtk_widget_get_style_context(p->box), "adws-rows");
     if (width > 0) gtk_widget_set_size_request(p->event_box, CLAMP(width, 80, 2000), -1);
     gtk_widget_set_hexpand(p->box, FALSE);
     gtk_widget_set_valign(p->box, GTK_ALIGN_FILL);
@@ -620,15 +620,15 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
     gtk_box_pack_start(GTK_BOX(p->box), p->separator, FALSE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(p->box), p->secondary, FALSE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(p->box), gtk_box_new(GTK_ORIENTATION_VERTICAL, 0), TRUE, TRUE, 0);
-    gtk_label_set_text(GTK_LABEL(p->primary), mnws_text("♫ 等待网易云", "♫ Waiting for NetEase"));
+    gtk_label_set_text(GTK_LABEL(p->primary), adws_text("♫ 等待网易云", "♫ Waiting for NetEase"));
     p->controls = content;
-    gtk_style_context_add_class(gtk_widget_get_style_context(p->controls), "mnws-controls");
+    gtk_style_context_add_class(gtk_widget_get_style_context(p->controls), "adws-controls");
     p->previous_button = gtk_button_new_from_icon_name("media-skip-backward-symbolic", GTK_ICON_SIZE_MENU);
     p->next_button = gtk_button_new_from_icon_name("media-skip-forward-symbolic", GTK_ICON_SIZE_MENU);
     gtk_widget_set_no_show_all(p->previous_button, TRUE);
     gtk_widget_set_no_show_all(p->next_button, TRUE);
-    atk_object_set_name(gtk_widget_get_accessible(p->previous_button), mnws_text("上一首", "Previous"));
-    atk_object_set_name(gtk_widget_get_accessible(p->next_button), mnws_text("下一首", "Next"));
+    atk_object_set_name(gtk_widget_get_accessible(p->previous_button), adws_text("上一首", "Previous"));
+    atk_object_set_name(gtk_widget_get_accessible(p->next_button), adws_text("下一首", "Next"));
     g_signal_connect(p->previous_button, "clicked", G_CALLBACK(previous_clicked), p);
     g_signal_connect(p->next_button, "clicked", G_CALLBACK(next_clicked), p);
     g_signal_connect(p->previous_button, "enter-notify-event", G_CALLBACK(panel_crossing), p);
@@ -674,7 +674,7 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
     for (size_t i = 0; i < count; i++) {
         if (strcmp(entries[i].key, "start_image")) continue;
         Panel *p = g_new0(Panel, 1);
-        MnwsStart *s = g_object_new(mnws_start_get_type(), NULL);
+        AdwsStart *s = g_object_new(adws_start_get_type(), NULL);
         p->start_image = GTK_WIDGET(s);
         for (size_t j = 0; j < count; j++) {
             gchar *value = config_string(entries[j].value);
@@ -692,7 +692,7 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
         }
         if (s->hover && (!s->normal || gdk_pixbuf_get_width(s->normal) != gdk_pixbuf_get_width(s->hover)
                 || gdk_pixbuf_get_height(s->normal) != gdk_pixbuf_get_height(s->hover))) {
-            g_warning("MNWS start: image dimensions differ; ignoring hover image");
+            g_warning("ADWS start: image dimensions differ; ignoring hover image");
             g_clear_object(&s->hover);
         }
         gtk_container_add(info->get_root_widget(info->obj), p->start_image);
@@ -700,7 +700,7 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
         gtk_widget_show(p->start_image);
         return p;
     }
-    const char *command = "", *name = "mnws-panel-rows";
+    const char *command = "", *name = "adws-panel-rows";
     int width = 420;
     gboolean vertical = FALSE;
     for (size_t i = 0; i < count; i++) {
@@ -772,7 +772,7 @@ void wbcffi_deinit(void *instance) {
     if (p->next_motion) g_signal_handlers_disconnect_by_data(p->next_motion, p);
     g_signal_handlers_disconnect_by_data(p->separator, p);
     g_signal_handlers_disconnect_by_func(p->box, G_CALLBACK(theme_changed), p);
-    ((MnwsRows *)p->box)->panel = NULL;
+    ((AdwsRows *)p->box)->panel = NULL;
     if (p->retry) { g_source_remove(p->retry); p->retry = 0; }
     g_cancellable_cancel(p->cancel);
     if (p->process) g_subprocess_send_signal(p->process, SIGTERM);

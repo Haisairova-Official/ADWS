@@ -1,0 +1,9 @@
+// ADWS settings and their dialogs, independent of UI language.
+window-rule {
+    match app-id="^adws-config$"
+    match app-id="^adws-layout$"
+    match app-id="^adws-clock$"
+    match app-id="^adws-setup$"
+    match app-id=r#"^adws_layout\.py$"#
+    open-floating true
+}

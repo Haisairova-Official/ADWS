@@ -7,8 +7,8 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-import mnws_layout_gui as gui
-from mnws_plugin_settings import SettingsDialog, validate_settings
+import adws_layout_gui as gui
+from adws_plugin_settings import SettingsDialog, validate_settings
 from gi.repository import Gtk
 
 
@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory() as temp:
     assert app.collect_layout()["plugins"][0]["animations"] is False
     row["animations"] = True
     assert app.collect_layout()["plugins"][0]["animations"] is True
-    capture(app.window, "/tmp/mnws-layout-settings-preview.png")
+    capture(app.window, "/tmp/adws-layout-settings-preview.png")
     dialog = SettingsDialog(app.window, "网易云歌词", manifest["settingsSchema"], settings, animations=False)
     dialog.dialog.show_all()
     settle()
@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory() as temp:
     assert values["primary_color"].startswith("rgb")
     assert values["interval"] == 0
     assert dialog.dialog.get_transient_for() == app.window
-    capture(dialog.dialog, "/tmp/mnws-plugin-settings-preview.png")
+    capture(dialog.dialog, "/tmp/adws-plugin-settings-preview.png")
     validate_settings({"api_mode": "custom", "api_url": "https://example.test/lyrics?title={title}"})
     try:
         validate_settings({"api_mode": "custom", "api_url": "https://example.test/{unknown}"})

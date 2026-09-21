@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib
-from mnws_theme import start, _watchers
+from adws_theme import start, _watchers
 
 def settle():
     end = time.monotonic() + .7
@@ -55,6 +55,6 @@ with tempfile.TemporaryDirectory() as tmp:
     colors.write_text('@define-color on_surface #0000ff;'); settle()
     assert item.get_style_context().get_color(Gtk.StateFlags.NORMAL).blue > .9
     menu.destroy()
-    assert menu._mnws_palette_watch.source == 0
+    assert menu._adws_palette_watch.source == 0
     for watcher in _watchers: watcher.close()
 print('Live theme update, atomic replacement, invalid-write recovery and singleton checks passed.')

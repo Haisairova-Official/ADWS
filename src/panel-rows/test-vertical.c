@@ -39,13 +39,13 @@ int main(int argc,char **argv) {
         gtk_widget_get_preferred_height(p->event_box,&minimum,&after);
         g_assert_cmpint(after,==,before);
         GdkPixbuf *shot=gtk_offscreen_window_get_pixbuf(GTK_OFFSCREEN_WINDOW(window));
-        gdk_pixbuf_save(shot,"/tmp/mnws130-vertical-lyrics.png","png",NULL,NULL);
+        gdk_pixbuf_save(shot,"/tmp/adws130-vertical-lyrics.png","png",NULL,NULL);
         g_object_unref(shot);
         wbcffi_deinit(p);gtk_widget_destroy(window);settle();
     }
-    GtkWidget *start=g_object_new(mnws_start_get_type(),NULL);
+    GtkWidget *start=g_object_new(adws_start_get_type(),NULL);
     g_object_ref_sink(start);
-    MnwsStart *s=(MnwsStart *)start;s->vertical=TRUE;
+    AdwsStart *s=(AdwsStart *)start;s->vertical=TRUE;
     s->normal=gdk_pixbuf_new(GDK_COLORSPACE_RGB,TRUE,8,100,50);
     int minimum,natural;
     start_height_for_width(start,48,&minimum,&natural);

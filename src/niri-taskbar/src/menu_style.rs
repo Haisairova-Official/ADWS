@@ -85,7 +85,7 @@ fn refresh_menu_palette() {
     };
 
     let css = format!(
-        "menu.mnws-menu {{\n\
+        "menu.adws-menu {{\n\
              background-color: {background};\n\
              color: {foreground};\n\
              {font_css}\n\
@@ -96,23 +96,23 @@ fn refresh_menu_palette() {
              box-shadow: none;\n\
              background-image: none;\n\
          }}\n\
-         menu.mnws-menu menuitem {{\n\
+         menu.adws-menu menuitem {{\n\
              color: {foreground};\n\
              padding: 5px 12px;\n\
              min-height: 16px;\n\
              border-radius: 9px;\n\
          }}\n\
-         menu.mnws-menu menuitem:hover,\n\
-         menu.mnws-menu menuitem:selected {{\n\
+         menu.adws-menu menuitem:hover,\n\
+         menu.adws-menu menuitem:selected {{\n\
              background-color: {hover};\n\
              color: {foreground};\n\
              border-radius: 9px;\n\
          }}\n\
-         menu.mnws-menu separator {{\n\
+         menu.adws-menu separator {{\n\
              background-color: {outline};\n\
              margin: 6px 0;\n\
          }}\n\
-         window.mnws-menu-popup, window.mnws-menu-popup decoration {{\n\
+         window.adws-menu-popup, window.adws-menu-popup decoration {{\n\
              background-color: transparent;\n\
              background-image: none;\n\
              border: none;\n\
@@ -131,13 +131,13 @@ pub fn apply(menu: &gtk::Menu) {
     refresh_menu_palette();
     // Screen-scoped selectors also reach menu items and the popup decoration;
     // a provider attached to the menu widget alone does not style those nodes.
-    menu.style_context().add_class("mnws-menu");
+    menu.style_context().add_class("adws-menu");
     if let Some(top) = menu.toplevel() {
-        top.style_context().add_class("mnws-menu-popup");
+        top.style_context().add_class("adws-menu-popup");
     }
     menu.connect_realize(|menu| {
         if let Some(top) = menu.toplevel() {
-            top.style_context().add_class("mnws-menu-popup");
+            top.style_context().add_class("adws-menu-popup");
         }
     });
 }
@@ -213,7 +213,7 @@ mod tests {
     #[ignore = "requires an isolated GTK display"]
     fn live_palette_replacement() {
         gtk::init().unwrap();
-        let root = std::env::temp_dir().join(format!("mnws-theme-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("adws-theme-test-{}", std::process::id()));
         let dir = root.join("waybar");
         std::fs::create_dir_all(&dir).unwrap();
         let old = std::env::var_os("XDG_CONFIG_HOME");

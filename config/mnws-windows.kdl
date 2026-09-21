@@ -1,7 +1,0 @@
-// MNWS 设置窗口；兼容修复前以脚本名出现的布局窗口。
-window-rule {
-    match app-id="^mnws-config$"
-    match app-id="^mnws-layout$"
-    match app-id=r#"^mnws_layout\.py$"#
-    open-floating true
-}

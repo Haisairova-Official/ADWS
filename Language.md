@@ -1,4 +1,4 @@
-# MNWS 语言文件制作指南 / Translation guide
+# ADWS 语言文件制作指南 / Translation guide
 
 语言文件放在项目根目录的 `language/` 文件夹中。使用 **UTF-8 编码的 JSON**，
 不要添加注释或尾随逗号。修改后重新打开程序，已经打开的窗口不会自动刷新翻译。
@@ -73,7 +73,7 @@ cp language/en.json language/ja.json
 工具和设置代码调用：
 
 ```python
-from mnws_i18n import message
+from adws_i18n import message
 
 text = message("updates.none")
 ```
@@ -96,9 +96,9 @@ python3 -m unittest discover -s tests -p 'test_update.py'
 还需要检查长文本、按钮、弹窗及概率文案。
 
 ```sh
-LC_ALL=zh_CN.UTF-8 LANGUAGE=zh_CN ./mnws -h
-LC_ALL=en_US.UTF-8 LANGUAGE=en ./mnws -h
-LC_ALL=en_US.UTF-8 LANGUAGE=en ./mnws config
+LC_ALL=zh_CN.UTF-8 LANGUAGE=zh_CN ./adws -h
+LC_ALL=en_US.UTF-8 LANGUAGE=en ./adws -h
+LC_ALL=en_US.UTF-8 LANGUAGE=en ./adws config
 ```
 
 系统需有对应 locale。显示语言取 `LC_ALL`、`LC_MESSAGES`、`LANG` 中第一个非空值；
@@ -112,8 +112,8 @@ LC_ALL=en_US.UTF-8 LANGUAGE=en ./mnws config
 1. 将翻译文件放入 `language/`，保留原有键及占位符，翻译 `_messages`。
 2. 扩展 `src/niri-desktop-layer/desktop_layer/i18n.py` 的语言选择与文件加载，
    定义缺项的英文回退，并调整 `prepare_gtk_language()`，避免 GTK 强制使用英文。
-3. 同步处理 `scripts/mnws-i18n.sh`、`src/niri-taskbar/src/i18n.rs`、
-   `src/mnws-i18n.h` 和独立插件中的语言选择及文本。
+3. 同步处理 `scripts/adws-i18n.sh`、`src/niri-taskbar/src/i18n.rs`、
+   `src/adws-i18n.h` 和独立插件中的语言选择及文本。
 4. 增加该语言的回归测试，检查安装、CLI、桌面、设置和原生菜单的实际显示。
 
 ## English
@@ -123,7 +123,7 @@ Copy `language/en.json` as a template, keep the Chinese source keys unchanged,
 and translate their values. Preserve placeholders, commands, paths and URLs.
 Restart the application after editing; open windows do not reload translations.
 
-MNWS 1.25 currently selects Chinese for Chinese locales and English for everything
+ADWS 1.25 currently selects Chinese for Chinese locales and English for everything
 else. **Adding another JSON file does not enable that language automatically.**
 Other languages require loader, GTK language selection and native/shell/plugin
 integration changes. Ordinary Chinese text comes directly from source code;
@@ -132,7 +132,7 @@ integration changes. Ordinary Chinese text comes directly from source code;
 Under `_messages`, use either a string or an array of `{ "weight": 80, "text": "…" }`
 objects. Weights must be finite positive numbers. Each probability is its weight
 divided by the total; languages can define different weights. Call `message(key)`
-from `mnws_i18n` or `desktop_layer.i18n` once per displayed message. Define each
+from `adws_i18n` or `desktop_layer.i18n` once per displayed message. Define each
 named key in both supported languages: missing named keys currently raise an error.
 
 Run the JSON syntax checks and language/update tests above. Validate placeholders,

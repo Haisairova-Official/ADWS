@@ -51,14 +51,14 @@
   ],
   "options": {
     "taskbar_library": null,
-    "desktop_space_library": "/home/akizuki/.local/lib/waybar/libwaybar-space.so",
+    "desktop_space_library": null,
     "keep_live_base": true,
     "start_label": "",
     "start_icon_mode": "custom",
     "start_launcher_command": "rofi -show drun -theme-str 'mainbox { background-image: none; }'",
     "start_launcher_custom": "rofi -show drun -theme-str 'mainbox { background-image: none; }'",
-    "start_image": "/home/akizuki/MNWS/samples/start-buttons/popcat/closed.png",
-    "start_hover_image": "/home/akizuki/MNWS/samples/start-buttons/popcat/open.png",
+    "start_image": "",
+    "start_hover_image": "",
     "position": "bottom",
     "thickness": 36,
     "window_rows": 1,
@@ -66,10 +66,10 @@
     "group_windows": true,
     "window_animations": true,
     "tab_animations": true,
-    "hover_color": "#241f31",
+    "hover_color": "",
     "focus_color": "",
     "focus_text_color": "",
-    "urgent_color": "",
+    "urgent_color": "#f6d32d",
     "window_peek": true
   }
 }

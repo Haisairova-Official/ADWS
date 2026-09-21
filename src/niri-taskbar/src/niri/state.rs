@@ -325,7 +325,7 @@ mod tests {
     fn future_event_does_not_consume_following_window_event() {
         use std::io::{BufRead, BufReader, Write};
         use std::os::unix::net::UnixListener;
-        let path = std::env::temp_dir().join(format!("mnws-ipc-test-{}.sock",std::process::id()));
+        let path = std::env::temp_dir().join(format!("adws-ipc-test-{}.sock",std::process::id()));
         let listener = UnixListener::bind(&path).unwrap();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();

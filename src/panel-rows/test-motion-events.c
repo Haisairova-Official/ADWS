@@ -126,7 +126,7 @@ static void test_width_allocations(void) {
     g_assert_cmpint(gtk_widget_get_allocated_width(p->event_box), ==, initial);
     g_assert_cmpfloat(motion_ease(0.), ==, 0.);
     g_assert_cmpfloat(motion_ease(1.), ==, 1.);
-    g_assert_cmpfloat(motion_ease(16667. / MNWS_MOTION_DURATION_US), <, .03);
+    g_assert_cmpfloat(motion_ease(16667. / ADWS_MOTION_DURATION_US), <, .03);
     wbcffi_deinit(p);
     gtk_widget_destroy(window);
 }

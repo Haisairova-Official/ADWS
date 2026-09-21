@@ -1,5 +1,55 @@
 # Changelog / 更新记录
 
+## 1.30 Pre-Release — 2026-09-21
+
+开发分支 / Development branch: `Pre-1.30`.
+
+### 最新更新
+
+- MNWS 正式更名为 ADWS — Akizuki’s Desktop Workspace Solution。新的名字不再限定于 Niri，但当前版本仍以 Niri 为主要支持环境。命令统一改为 adws，安装时迁移旧配置，不保留 mnws 命令别名。
+- 优化了 Peek，出现更早、切换更流畅，按桌面平铺顺序排列，并增加浮入淡出效果。
+- 将设置入口统一为“桌面设置”和“任务栏设置”，任务栏样式、组件布局和插件配置终于放到一起了。
+- 取消了滚轮对任务栏设置控件的误调整，滚动页面时不再顺手改掉配置。
+- 任务栏项目卡右键新增“打开新窗口”和“以管理员权限运行”。
+- 桌面图标支持原位重命名，非法名称和重名直接提示，不再另外弹出一个平铺窗口。
+- 修复了部分输入法主题下，重命名切换中文导致桌面会话卡死的问题。
+- 新建文件和文件夹也使用原位编辑，默认名称为 text.txt、markdown.md 和 folder；取消不会留下空文件。
+- 新增固定应用：点击启动，本桌面打开后进入活动区，关闭后回到原来的固定位置。
+- 同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。
+- 固定区分隔线实时跟随聚焦背景色，没有活动窗口时也会保留。（C）
+- 检查更新新增 Beta 渠道，支持 adws -u --preview 和 adws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
+- 修复了任务栏在开启窗口预览下偶发的卡顿bug。（1.28）
+- 新增旧安装的一次性迁移与配置备份；旧插件单独保存，提供适配 ADWS 的 NCMLyricsBar。
+- 提供 ADWS 1.30 Pre-Release 源码包与 Arch Linux x86_64 预构建包。
+- 新增首次设置向导：没有本地配置时自动打开，也可从设置重新进入；支持动效、配色预览、默认应用和启动器，确认后统一保存。
+- 新增全局配置导入和导出，使用 Config.ad-yml；导入前校验并确认覆盖范围，保留备份，写入失败时恢复原配置。
+- 初始设置新增壁纸页：默认保留现有设置，选图预览后确认应用；高级选项支持 awww、swww 和 swaybg，缺少工具时可确认安装 awww。
+- 设置中的技术路径收进默认折叠的“诊断信息”，支持一键复制。
+- 补齐设置窗口的 Niri 浮动规则和 Wayland 标识；桌面设置、任务栏设置、时钟与初始向导不再挤进平铺布局，新安装自动生效。
+
+### Latest updates
+
+- MNWS is now ADWS — Akizuki’s Desktop Workspace Solution. The new name is no longer tied to Niri, but Niri remains the primary supported environment in this release. Commands now use adws; the installer migrates existing configuration without retaining mnws command aliases.
+- Improve Peek responsiveness, order windows by workspace and tile position, and add float/fade transitions.
+- Unify settings into Desktop Settings and Taskbar Settings, bringing taskbar appearance, component layout and plugin configuration together.
+- Prevent accidental taskbar setting changes when scrolling; the wheel now scrolls the settings page.
+- Add Open new window and Run as administrator to taskbar card context menus.
+- Support inline desktop renaming, with inline invalid-name and collision errors instead of a separate tiled dialog.
+- Fix desktop-session freezes when switching to Chinese input during renaming with certain input method themes.
+- Use inline editing for new files and folders, defaulting to text.txt, markdown.md and folder; cancelling leaves no files behind.
+- Add pinned apps: click to launch, move into the active area when opened on this workspace, and return to the saved pin position when closed.
+- Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here.
+- Keep the pinned-area separator in sync with the focused background color, including when no windows are active. (C)
+- Add a Beta update channel via adws -u --preview or adws --update --preview and a Settings option; stable releases remain the default. (D)
+- Fix intermittent taskbar stalls with window previews enabled. (1.28)
+- Add one-way migration with configuration backups; retain old plugins separately and include NCMLyricsBar adapted for ADWS.
+- Provide ADWS 1.30 Pre-Release source and Arch Linux x86_64 prebuilt packages.
+- Add first-run setup when no local configuration exists, with a manual entry in Settings. Configure animations, preview colors, choose default apps and a launcher, then save on confirmation.
+- Add global configuration import and export using Config.ad-yml, with validation, overwrite confirmation, backups and rollback on write failure.
+- Added a wallpaper setup page: keep existing settings by default, preview images before applying, choose awww, swww or swaybg in advanced options, and optionally install awww when no tool is detected.
+- Move technical paths in Settings into a collapsed Diagnostics section with a copy button.
+- Install scoped Niri floating rules and consistent Wayland app IDs for desktop settings, taskbar settings, the clock and first-run setup, including fresh installations.
+
 ## 1.28-D — 2026-09-21
 
 开发分支 / Development branch: `Pre-1.30`.
@@ -18,7 +68,7 @@ Major 1.28    Minor：D    构建日期：2026-09-21
 - 新增固定应用：点击启动，本桌面打开后进入活动区，关闭后回到原来的固定位置。
 - 同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。
 - 固定区分隔线实时跟随聚焦背景色，没有活动窗口时也会保留。（C）
-- 检查更新新增 Beta 渠道，支持 mnws -u --preview 和 mnws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
+- 检查更新新增 Beta 渠道，支持 adws -u --preview 和 adws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
 - 修复了任务栏在开启窗口预览下偶发的卡顿bug。（1.28）
 
 ### Latest updates
@@ -35,7 +85,7 @@ Major 1.28    Minor: D    Build date: 2026-09-21
 - Add pinned apps: click to launch, move into the active area when opened on this workspace, and return to the saved pin position when closed.
 - Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here.
 - Keep the pinned-area separator in sync with the focused background color, including when no windows are active. (C)
-- Add a Beta update channel via mnws -u --preview or mnws --update --preview and a Settings option; stable releases remain the default. (D)
+- Add a Beta update channel via adws -u --preview or adws --update --preview and a Settings option; stable releases remain the default. (D)
 - Fix intermittent taskbar stalls with window previews enabled. (1.28)
 
 ## 1.27-D — 2026-09-21
@@ -66,7 +116,7 @@ Major 1.27    Minor：D    构建日期：2026-09-21
 - 新建文件和文件夹也使用原位编辑，默认名称为 text.txt、markdown.md 和 folder；取消不会留下空文件。
 - 新增固定应用：点击启动，本桌面打开后进入活动区，关闭后回到原来的固定位置。
 - 同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。（C）
-- 检查更新新增 Beta 渠道，支持 mnws -u --preview 和 mnws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
+- 检查更新新增 Beta 渠道，支持 adws -u --preview 和 adws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
 
 ### Latest updates
 
@@ -92,7 +142,7 @@ Major 1.27    Minor: D    Build date: 2026-09-21
 - Use inline editing for new files and folders, defaulting to text.txt, markdown.md and folder; cancelling leaves no files behind.
 - Add pinned apps: click to launch, move into the active area when opened on this workspace, and return to the saved pin position when closed.
 - Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here. (C)
-- Add a Beta update channel via mnws -u --preview or mnws --update --preview and a Settings option; stable releases remain the default. (D)
+- Add a Beta update channel via adws -u --preview or adws --update --preview and a Settings option; stable releases remain the default. (D)
 
 ## 1.27-C — 2026-09-21
 
@@ -215,7 +265,7 @@ Major 1.27    Minor: B    Build date: 2026-09-21
 - 修复了上游 Niri 窗口数据兼容问题，补充事件容错和断线重连。
 - 提供 Arch Linux x86_64 的预构建安装包，安装时不再需要现场编译 Rust 和 C。（Pre-release）
 - 修改了开始按钮的默认文字，提供了自定义icon功能。
-- 优化了任务栏稳定性，优化了MNWS系列命令稳定性。
+- 优化了任务栏稳定性，优化了ADWS系列命令稳定性。
 - 修复了特殊情况下任务栏变为英文的bug。（Released）
 
 ### Latest updates
@@ -243,7 +293,7 @@ Major 1.27    Minor: B    Build date: 2026-09-21
 - Fix upstream Niri window-data compatibility, with event tolerance and reconnection.
 - Provide a prebuilt Arch Linux x86_64 archive so installation no longer compiles Rust and C on the spot. (Pre-release)
 - Change the default Start-button text and add custom icon support.
-- Improve taskbar stability and the reliability of the MNWS command suite.
+- Improve taskbar stability and the reliability of the ADWS command suite.
 - Fix the taskbar unexpectedly switching to English under special circumstances. (Released)
 
 ### 验证范围 / Validation scope
@@ -400,7 +450,7 @@ Tested in real Niri sessions on Arch Linux and Ubuntu.
 - 普通菜单新增打开终端；退出项红色悬停，并增加确认弹窗与可复制的恢复命令。
 - 桌面和任务栏统一支持 `--start/-s`、`--stop/-S`、`--kill/-k`、`--restart/-r`。
 - 新增 `--debug/-d` 前台日志及 `-1` 到 `-6` 六级过滤，默认 `-4`；记录菜单、打开请求、弹窗响应及窗口操作。
-- `mnws --status` 同时显示两个组件的状态；组件级 `--status` 可单独查询。
+- `adws --status` 同时显示两个组件的状态；组件级 `--status` 可单独查询。
 - 启动成功保持安静；帮助支持 `-h`、`--help`、`-?`，集中展示用法、命令、选项和示例。
 - 保持 Niri 支持范围；MHWS 分支的 Hyprland 适配仍未开始。
 
@@ -410,7 +460,7 @@ Tested in real Niri sessions on Arch Linux and Ubuntu.
 - Add a terminal action to the regular menu, a red exit hover state, and exit confirmation with a copyable recovery command.
 - Unify desktop/taskbar controls: `--start/-s`, `--stop/-S`, `--kill/-k` and `--restart/-r`.
 - Add foreground debugging with `--debug/-d` and six verbosity levels (`-1` through `-6`, default `-4`), covering menu actions, launch requests, dialog responses and window operations.
-- Add global `mnws --status` alongside per-component status queries.
+- Add global `adws --status` alongside per-component status queries.
 - Make successful starts silent; provide compact help through `-h`, `--help` and `-?`.
 - This release targets Niri. Hyprland adaptation on MHWS has not started.
 

@@ -1,6 +1,6 @@
 # Plugin API v1.0 接入记录
 
-已纳入 MNWS 1.25，实现与公开约定见 [正式规范](mplg-spec.md)。
+已纳入 ADWS 1.25，实现与公开约定见 [正式规范](mplg-spec.md)。
 用户提供的 [原始草案](plugin-api-v1-proposal.md) 保留作设计参考。
 
 - 简化清单、API/最低版本校验、text/rows 适配和旧包兼容。
@@ -10,7 +10,7 @@
 - HelloWorld sample 与 NCMLyricsBar 1.0.1 参考插件。
 - 旧歌词 ID 在加载时映射，保存时使用新 ID，保留布局与设置。
 
-协议补充：只支持 Python 新入口；缺 mnws 按 API 1 / MNWS 1.25；
+协议补充：只支持 Python 新入口；缺 adws 按 API 1 / ADWS 1.25；
 30 秒静默上限、1 MiB 行上限；choice 使用 value/label 对；
 text 支持 Waybar 标记，rows 使用纯文本。
 

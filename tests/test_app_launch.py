@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-import mnws_app_launch as launch
+import adws_app_launch as launch
 
 
 class AppLaunchTests(unittest.TestCase):
@@ -64,7 +64,7 @@ class AppLaunchTests(unittest.TestCase):
         app.get_startup_wm_class.return_value='WindowClass'
         with patch.object(launch.Gio.DesktopAppInfo,'new',side_effect=TypeError('constructor returned NULL')), \
              patch.object(launch.Gio.AppInfo,'get_all',return_value=[app]), \
-             patch('mnws_app_launch.isinstance',side_effect=lambda obj,cls: True):
+             patch('adws_app_launch.isinstance',side_effect=lambda obj,cls: True):
             self.assertIs(launch.resolve_app('WindowClass'),app)
             with self.assertRaises(ValueError):launch.resolve_app('NotInstalled')
 
@@ -84,7 +84,7 @@ class PinTests(unittest.TestCase):
                 launch.pin_application('Test.desktop', True)
                 info.get_id.return_value='Second.desktop'
                 launch.pin_application('Second', True)
-            path=Path(home)/'mnws/taskbar-pins.json'
+            path=Path(home)/'adws/taskbar-pins.json'
             self.assertEqual([p['desktop_id'] for p in json.loads(path.read_text())['apps']],['Test.desktop','Second.desktop'])
             with patch.object(launch,'resolve_app',side_effect=AssertionError('must not resolve removed apps')):
                 launch.pin_application('testwmclass', False)
@@ -93,7 +93,7 @@ class PinTests(unittest.TestCase):
     def test_malformed_pin_file_is_never_overwritten(self):
         import tempfile
         with tempfile.TemporaryDirectory() as home, patch.dict(launch.os.environ, {'XDG_CONFIG_HOME':home}):
-            path=Path(home)/'mnws/taskbar-pins.json'
+            path=Path(home)/'adws/taskbar-pins.json'
             path.parent.mkdir()
             for contents in ('{', '[]', '{"version":1,"apps":[{}]}', '{"version":1,"apps":[{"app_id":null}]}'):
                 path.write_text(contents)

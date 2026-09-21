@@ -33,13 +33,13 @@ pub fn connect_panel_menu(toplevel: &gtk::Widget) {
         let desktop_item = gtk::MenuItem::with_label(crate::i18n::text("桌面设置", "Desktop settings"));
         desktop_item.connect_activate(|_| {
             tracing::info!("{}", crate::i18n::text("打开桌面设置", "Open desktop settings"));
-            open_mnws_config("desktop");
+            open_adws_config("desktop");
         });
         menu.append(&desktop_item);
         let taskbar_item = gtk::MenuItem::with_label(crate::i18n::text("任务栏设置", "Taskbar settings"));
         taskbar_item.connect_activate(|_| {
             tracing::info!("{}", crate::i18n::text("打开任务栏设置", "Open taskbar settings"));
-            open_mnws_config("taskbar");
+            open_adws_config("taskbar");
         });
         menu.append(&taskbar_item);
         crate::menu_style::apply(&menu);
@@ -86,7 +86,7 @@ fn watch_responsiveness() {
         let now = Instant::now();
         let gap = now.duration_since(previous);
         if gap > Duration::from_millis(700) {
-            tracing::warn!(delay_ms=gap.as_millis(), "MNWS taskbar main loop delayed");
+            tracing::warn!(delay_ms=gap.as_millis(), "ADWS taskbar main loop delayed");
         }
         previous = now;
         gtk::glib::ControlFlow::Continue
@@ -129,9 +129,9 @@ mod configure_tests {
 // are compiled in staging and then moved into the persistent installation path.
 fn application_tool_candidates(relative: &str) -> Vec<PathBuf> {
     let mut entries = Vec::new();
-    if let Some(entry) = gtk::glib::find_program_in_path("mnws") { entries.push(entry); }
+    if let Some(entry) = gtk::glib::find_program_in_path("adws") { entries.push(entry); }
     if let Ok(home) = std::env::var("HOME") {
-        entries.push(PathBuf::from(home).join(".local/bin/mnws"));
+        entries.push(PathBuf::from(home).join(".local/bin/adws"));
     }
     let mut candidates: Vec<_> = entries.into_iter().filter_map(|entry| {
         std::fs::canonicalize(entry).ok().and_then(|entry| entry.parent().map(|root| root.join(relative)))
@@ -140,11 +140,11 @@ fn application_tool_candidates(relative: &str) -> Vec<PathBuf> {
     candidates
 }
 
-fn open_mnws_config(tab: &str) {
-    let candidates = application_tool_candidates("tools/mnws-config.py");
+fn open_adws_config(tab: &str) {
+    let candidates = application_tool_candidates("tools/adws-config.py");
 
     let Some(tool) = candidates.into_iter().find(|path| path.exists()) else {
-        tracing::warn!("{}", crate::i18n::text("MNWS-Config 未找到（tools/mnws-config.py 或 ~/.local/bin/mnws-config）", "MNWS-Config not found (tools/mnws-config.py or ~/.local/bin/mnws-config)"));
+        tracing::warn!("{}", crate::i18n::text("ADWS-Config 未找到（tools/adws-config.py 或 ~/.local/bin/adws-config）", "ADWS-Config not found (tools/adws-config.py or ~/.local/bin/adws-config)"));
         return;
     };
 
@@ -155,7 +155,7 @@ fn open_mnws_config(tab: &str) {
         .env_remove("GDK_BACKEND")
         .spawn();
     if let Err(e) = result {
-        tracing::warn!(%e, "cannot launch MNWS-Config");
+        tracing::warn!(%e, "cannot launch ADWS-Config");
     }
 }
 
@@ -168,9 +168,9 @@ pub fn pin_application(app_id: &str, enabled: bool) {
 }
 
 fn application_action(app_id: &str, option: Option<&str>) {
-    let candidates = application_tool_candidates("tools/mnws_app_launch.py");
+    let candidates = application_tool_candidates("tools/adws_app_launch.py");
     let Some(tool) = candidates.into_iter().find(|path| path.is_file()) else {
-        tracing::error!("MNWS application launch helper is missing");
+        tracing::error!("ADWS application launch helper is missing");
         return;
     };
     tracing::info!(%app_id, ?option, "Application action from taskbar");

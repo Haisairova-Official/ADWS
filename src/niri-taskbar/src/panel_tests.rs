@@ -31,7 +31,7 @@ fn panel_geometry_groups_and_colors() {
     gtk::init().unwrap();
     use std::io::{BufRead,BufReader,Write};
     use std::sync::atomic::{AtomicBool,Ordering};
-    let socket=std::env::temp_dir().join(format!("mnws-press-test-{}.sock",std::process::id()));
+    let socket=std::env::temp_dir().join(format!("adws-press-test-{}.sock",std::process::id()));
     let listener=std::os::unix::net::UnixListener::bind(&socket).unwrap();listener.set_nonblocking(true).unwrap();
     let old_socket=std::env::var_os("NIRI_SOCKET");unsafe{std::env::set_var("NIRI_SOCKET",&socket);}
     let done=Arc::new(AtomicBool::new(false));let done_worker=done.clone();
@@ -184,7 +184,7 @@ fn panel_geometry_groups_and_colors() {
 fn pins_follow_workspaces_monitor_mru_and_live_colors() {
     gtk::init().unwrap();
     use std::io::{BufRead,BufReader,Write};
-    let socket=std::env::temp_dir().join(format!("mnws-pin-click-{}.sock",std::process::id()));
+    let socket=std::env::temp_dir().join(format!("adws-pin-click-{}.sock",std::process::id()));
     let listener=std::os::unix::net::UnixListener::bind(&socket).unwrap();
     unsafe {std::env::set_var("NIRI_SOCKET",&socket);}
     let requests=Arc::new(Mutex::new(Vec::new()));let incoming=requests.clone();
@@ -196,9 +196,9 @@ fn pins_follow_workspaces_monitor_mru_and_live_colors() {
             writeln!(stream,"{{\"Ok\":\"Handled\"}}").unwrap();
         }
     });
-    let config_home=std::env::temp_dir().join(format!("mnws-pins-test-{}",std::process::id()));
+    let config_home=std::env::temp_dir().join(format!("adws-pins-test-{}",std::process::id()));
     unsafe {std::env::set_var("XDG_CONFIG_HOME",&config_home);}
-    std::fs::create_dir_all(config_home.join("mnws")).unwrap();
+    std::fs::create_dir_all(config_home.join("adws")).unwrap();
     std::fs::write(pins::path(),serde_json::to_vec(&json!({"version":1,"apps":[
         {"app_id":"foot","desktop_id":"foot.desktop","name":"Terminal"},
         {"app_id":"firefox","desktop_id":"firefox.desktop","name":"Firefox"},

@@ -1,10 +1,10 @@
 {
-  "id": "org.mnws.sample.HelloWorld",
+  "id": "org.adws.sample.HelloWorld",
   "name": "plugin.name",
   "version": "1.0.0",
   "entry": "main.py",
   "renderer": "panel.text-v1",
-  "mnws": {
+  "adws": {
     "api": 1,
     "minVersion": "1.25"
   },
@@ -16,7 +16,7 @@
       "key": "greeting",
       "label": "settings.greeting",
       "type": "string",
-      "default": "Hello MNWS"
+      "default": "Hello ADWS"
     },
     {
       "key": "enabled",

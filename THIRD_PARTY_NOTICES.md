@@ -1,12 +1,12 @@
 # Licensing and third-party notices
 
-MNWS original code is licensed under GNU GPL version 3 or, at your option,
+ADWS original code is licensed under GNU GPL version 3 or, at your option,
 any later version (`GPL-3.0-or-later`). See [LICENSE](LICENSE).
 Separately licensed components retain their existing terms and notices.
 
 - `src/niri-taskbar`: derived from Adam Harvey's
   [niri-taskbar](https://github.com/LawnGnome/niri-taskbar), MIT.
-  See its retained `LICENSE`. MNWS modifications include scrolling, menus,
+  See its retained `LICENSE`. ADWS modifications include scrolling, menus,
   layout sizing and compatibility with the Niri/Shorin IPC used here.
 - `src/niri-desktop-layer`: Akizuki, MIT; see its retained `LICENSE`.
 - `vendor/niri-ipc`: snapshot from the local Niri/Shorin 26.04 source tree,

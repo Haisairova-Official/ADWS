@@ -2,24 +2,25 @@
 >
 > **Notice: This repository contains work created with vibe coding. The project is still in its early stages.**
 
-# MNWS — My Niri Workspace Solution
+# ADWS — Akizuki's Desktop Workspace Solution
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development version: **1.28-D** · 最新已发布 / Latest published: **1.25 Released** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development version: **1.30 Pre-Release** · 最新已发布 / Latest published: **1.25 Released** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
 
 ## 中文
 
-MNWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统，让日常桌面操作更接近一套完整而轻量的桌面体验。
+ADWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统，让日常桌面操作更接近一套完整而轻量的桌面体验。
 
-1.25 已在 Arch Linux 与 Ubuntu 的 Niri 环境完成测试。MNWS 仍依赖 Niri、Waybar 和发行版提供的系统组件，不打算取代窗口管理器或 Linux 用户空间。
+1.25 已在 Arch Linux 与 Ubuntu 的 Niri 环境完成测试。ADWS 仍依赖 Niri、Waybar 和发行版提供的系统组件，不打算取代窗口管理器或 Linux 用户空间。
 
-### 1.28-D 开发版（Pre-1.30）
+### 1.30 Pre-Release 开发版（Pre-1.30）
 
-Major 1.28    Minor：D    构建日期：2026-09-21
+1.30 Pre-Release    构建日期：2026-09-21
 
+- MNWS 正式更名为 ADWS — Akizuki’s Desktop Workspace Solution。新的名字不再限定于 Niri，但当前版本仍以 Niri 为主要支持环境。命令统一改为 adws，安装时迁移旧配置，不保留 mnws 命令别名。
 - 优化了 Peek，出现更早、切换更流畅，按桌面平铺顺序排列，并增加浮入淡出效果。
 - 将设置入口统一为“桌面设置”和“任务栏设置”，任务栏样式、组件布局和插件配置终于放到一起了。
 - 取消了滚轮对任务栏设置控件的误调整，滚动页面时不再顺手改掉配置。
@@ -30,12 +31,19 @@ Major 1.28    Minor：D    构建日期：2026-09-21
 - 新增固定应用：点击启动，本桌面打开后进入活动区，关闭后回到原来的固定位置。
 - 同屏其他桌面运行的固定应用显示三点角标，点击回到最近操作的窗口，Peek 可继续按桌面和平铺顺序切换；其他物理屏幕按未开启处理。
 - 固定区分隔线实时跟随聚焦背景色，没有活动窗口时也会保留。（C）
-- 检查更新新增 Beta 渠道，支持 mnws -u --preview 和 mnws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
+- 检查更新新增 Beta 渠道，支持 adws -u --preview 和 adws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
 - 修复了任务栏在开启窗口预览下偶发的卡顿bug。（1.28）
+- 新增旧安装的一次性迁移与配置备份；旧插件单独保存，提供适配 ADWS 的 NCMLyricsBar。
+- 提供 ADWS 1.30 Pre-Release 源码包与 Arch Linux x86_64 预构建包。
+- 新增首次设置向导：没有本地配置时自动打开，也可从设置重新进入；支持动效、配色预览、默认应用和启动器，确认后统一保存。
+- 新增全局配置导入和导出，使用 Config.ad-yml；导入前校验并确认覆盖范围，保留备份，写入失败时恢复原配置。
+- 初始设置新增壁纸页：默认保留现有设置，选图预览后确认应用；高级选项支持 awww、swww 和 swaybg，缺少工具时可确认安装 awww。
+- 设置中的技术路径收进默认折叠的“诊断信息”，支持一键复制。
+- 补齐设置窗口的 Niri 浮动规则和 Wayland 标识；桌面设置、任务栏设置、时钟与初始向导不再挤进平铺布局，新安装自动生效。
 
 在“任务栏设置”的外观页中设置任务栏位置、厚度、窗口单排／双排、同应用窗口堆叠和独立配色。双排仅作用于应用窗口，其他组件仍为单排；左右竖栏对应双列。分组按钮显示窗口数量，左键切回组内最近使用的窗口，右键管理窗口；可开启悬停窗口画面预览，点击缩略图或标题可切换窗口。
 
-窗口悬停／聚焦过渡和设置选项卡淡入淡出可分别开启，默认关闭。设置选项卡动效在重新打开设置后生效。原有歌词组件动效开关继续独立控制。窗口画面预览需要 Niri 的录屏接口及 GStreamer PipeWire/PNG 插件；不支持时保留可点击的标题列表。当前为开发测试版本，尚未发布 1.30 安装包。
+窗口悬停／聚焦过渡和设置选项卡淡入淡出可分别开启，默认关闭。设置选项卡动效在重新打开设置后生效。原有歌词组件动效开关继续独立控制。窗口画面预览需要 Niri 的录屏接口及 GStreamer PipeWire/PNG 插件；不支持时保留可点击的标题列表。这是预发布测试版本，请先备份配置。
 
 ### 1.25 Released 最新更新
 
@@ -62,7 +70,7 @@ Major 1.28    Minor：D    构建日期：2026-09-21
 - 修复了上游 Niri 窗口数据兼容问题，补充事件容错和断线重连。
 - 提供 Arch Linux x86_64 的预构建安装包，安装时不再需要现场编译 Rust 和 C。（Pre-release）
 - 修改了开始按钮的默认文字，提供了自定义icon功能。
-- 优化了任务栏稳定性，优化了MNWS系列命令稳定性。
+- 优化了任务栏稳定性，优化了ADWS系列命令稳定性。
 - 修复了特殊情况下任务栏变为英文的bug。（Released）
 
 ### 主要功能
@@ -87,83 +95,90 @@ Major 1.28    Minor：D    构建日期：2026-09-21
 
 任务栏使用仓库内的 `vendor/niri-ipc`，兼容上游 Niri 窗口数据与 Shorin 最小化扩展；上游不提供最小化接口时会回退到聚焦窗口。
 
+### 从 MNWS 升级与已知限制
+
+升级前先运行旧版 `mnws -S` 停止桌面和底栏，再运行新版安装程序；请勿先卸载旧版或删除配置。安装会迁移旧配置、更新路径并保留备份。旧插件单独保存，随包提供适配 ADWS 的 NCMLyricsBar；其他插件需要适配。安装后使用 `adws` 命令，不提供 `mnws` 别名。旧安装目录及普通文件形式的旧入口不会自动全部删除。
+
+本次诊断发现旧 MNWS 底栏曾在静置时占满单核，重启后恢复；根因尚未确认，不能把本版本描述为已彻底修复所有卡顿。Arch 包已在构建主机及隔离测试中验证，完整的新设备登录、安装、卸载流程仍需要反馈。
+
 ### 安装
 
 源码安装适用于大多数发行版：
 
 ```sh
-git clone https://github.com/Haisairova-Official/MNWS.git
-cd MNWS
+git clone --branch Pre-1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
+cd ADWS
 ./install.sh
-mnws -s
+adws -s
 ```
 
-安装程序会检查依赖、构建缺失组件、选择启动器、安装 `mnws` 命令，并询问是否让桌面和任务栏随 Niri 自启。补齐依赖或修改现有配置前都会先询问；已有文件会保留或备份。
+安装程序会检查依赖、构建缺失组件、选择启动器、安装 `adws` 命令，并询问是否让桌面和任务栏随 Niri 自启。补齐依赖前会询问；迁移和安装会更新 ADWS 所需配置，并保留备份。
 
-Arch Linux x86_64 用户可以使用 GitHub Release 中的 `MNWS1.25_for_arch.zip`。该包包含预构建原生组件，安装时无需 Rust、Cargo 或 C 编译器。详见 [Arch 安装说明](docs/arch-install.md)。
+Arch Linux x86_64 用户可以使用 GitHub Release 中的 `ADWS1.30_Pre-Release_for_arch.zip`。该包包含预构建原生组件，安装时无需 Rust、Cargo 或 C 编译器。详见 [Arch 安装说明](docs/arch-install.md)。
 
 安装目录需要保留，因为命令入口会链接到其中的程序文件。若 `~/.local/bin` 尚未进入 PATH，安装程序会提供 `/usr/local/bin` 入口。
 
-部分 Ubuntu 环境不接受数组形式的默认 Waybar `include`。MNWS 会把单个默认 `modules.jsonc` 引用转换为配置目录中的绝对路径字符串；转换前保存 `.mnws-include-bak`，自定义引用和多文件 include 不受影响。
+部分 Ubuntu 环境不接受数组形式的默认 Waybar `include`。ADWS 会把单个默认 `modules.jsonc` 引用转换为配置目录中的绝对路径字符串；转换前保存 `.adws-include-bak`，自定义引用和多文件 include 不受影响。
 
 更多细节见 [安装说明](docs/installation.md)。
 
 ### 使用
 
 ```sh
-mnws -s                         # 启动桌面与任务栏
-mnws --status                   # 查看两者状态
-mnws config                     # 打开统一设置
-mnws layout apply --restart     # 应用任务栏布局
-mnws -u                         # 检查稳定版，确认后安装更新
-mnws -u --preview               # 检查 Beta 渠道（含预发布），确认后安装
-mnws --uninstall                # 卸载
+adws -s                         # 启动桌面与任务栏
+adws --status                   # 查看两者状态
+adws config                     # 打开统一设置
+adws layout apply --restart     # 应用任务栏布局
+adws -u                         # 检查稳定版，确认后安装更新
+adws -u --preview               # 检查 Beta 渠道（含预发布），确认后安装
+adws --uninstall                # 卸载
 ```
 
-`desktop` 和 `taskbar` 可以单独管理，例如 `mnws taskbar -s`、`mnws desktop -S`。使用 `--debug/-d` 在当前终端运行并输出日志，`-1` 至 `-6` 控制日志级别，默认为 `-4`。
+`desktop` 和 `taskbar` 可以单独管理，例如 `adws taskbar -s`、`adws desktop -S`。使用 `--debug/-d` 在当前终端运行并输出日志，`-1` 至 `-6` 控制日志级别，默认为 `-4`。
 
-检查到新版本后，命令行询问 `Y/n`（回车同意），设置界面弹出“确定 / 取消”；取消时不会下载安装。默认检查稳定版；使用 `mnws -u --preview` 或 `mnws --update --preview`，或在设置的“关于”页勾选“Beta 渠道（包含预发布版本）”，可同时检查稳定版和预发布版。渠道选择仅作用于本次检查，不改变默认渠道。检查以 GitHub Release 为准，开发分支提交需要先发布为预发布版本才能被检测到。检查版本和下载安装包时，中国大陆出口 IP 均优先尝试 `MNWS_GITHUB_PROXY` 配置的代理（默认 `https://gh-proxy.com/`），失败后回退 GitHub；国外直接访问 GitHub。
+检查到新版本后，命令行询问 `Y/n`（回车同意），设置界面弹出“确定 / 取消”；取消时不会下载安装。默认检查稳定版；使用 `adws -u --preview` 或 `adws --update --preview`，或在设置的“关于”页勾选“Beta 渠道（包含预发布版本）”，可同时检查稳定版和预发布版。渠道选择仅作用于本次检查，不改变默认渠道。检查以 GitHub Release 为准，开发分支提交需要先发布为预发布版本才能被检测到。检查版本和下载安装包时，中国大陆出口 IP 均优先尝试 `ADWS_GITHUB_PROXY` 配置的代理（默认 `https://gh-proxy.com/`），失败后回退 GitHub；国外直接访问 GitHub。
 
-更新优先使用匹配的 Arch x86_64 预构建包，没有匹配包时构建对应版本源码（需要 Rust/Cargo、C 编译器和 GTK 开发依赖）。下载、校验和构建在独立目录完成，随后备份替换，保留用户配置、固定应用、图片及桌面状态，只重启原本正在运行的 MNWS 组件。安装失败会尝试恢复旧版本；日志保存在 `~/.local/state/mnws/update-*.log`，旧安装备份保存在安装目录旁的隐藏备份目录中。请使用已安装的 `mnws` 命令更新，开发 Git 检出不会被覆盖。
+更新优先使用匹配的 Arch x86_64 预构建包，没有匹配包时构建对应版本源码（需要 Rust/Cargo、C 编译器和 GTK 开发依赖）。下载、校验和构建在独立目录完成，随后备份替换，保留用户配置、固定应用、图片及桌面状态，只重启原本正在运行的 ADWS 组件。安装失败会尝试恢复旧版本；日志保存在 `~/.local/state/adws/update-*.log`，旧安装备份保存在安装目录旁的隐藏备份目录中。请使用已安装的 `adws` 命令更新，开发 Git 检出不会被覆盖。
 
 ### 插件与 Sample
 
 ```sh
-mnws mplg build plugins/netease-lyrics
-mnws mplg install plugins/org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
-mnws mplg list
+adws mplg build plugins/netease-lyrics
+adws mplg install plugins/org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
+adws mplg list
 ```
 
-插件安装后可在“组件与插件”中启用、排序并设置。布局保存在 `~/.config/mnws/taskbar-layout.json`，插件保存在 `~/.local/share/mnws/plugins/`。
+插件安装后可在“组件与插件”中启用、排序并设置。布局保存在 `~/.config/adws/taskbar-layout.json`，插件保存在 `~/.local/share/adws/plugins/`。
 
 歌词插件设置提供“启用动画（淡入淡出与宽度过渡）”，默认关闭。开启后左右控制按钮淡入淡出；宽度设为 `0` 时，歌词与按钮占位以 280 毫秒贝塞尔缓入缓出平滑伸缩。固定宽度保持不变，并遵循系统关闭动画的设置。
 
-仓库的 [samples](samples/) 包含可直接试用的示例资源，其中 [Popcat 开始按钮](samples/start-buttons/popcat/README.md) 默认闭嘴，鼠标移入时张嘴。两张图片尺寸一致，MNWS 会按任务栏高度等比显示。
+仓库的 [samples](samples/) 包含可直接试用的示例资源，其中 [Popcat 开始按钮](samples/start-buttons/popcat/README.md) 默认闭嘴，鼠标移入时张嘴。两张图片尺寸一致，ADWS 会按任务栏高度等比显示。
 
 详见 [歌词插件说明](plugins/netease-lyrics/README.md)、[Plugin API v1.0](docs/mplg-spec.md)、[语言文件指南](Language.md) 与 [桌面图标层说明](src/niri-desktop-layer/README.md)。
 
 ### 卸载
 
 ```sh
-mnws --uninstall
+adws --uninstall
 ```
 
-卸载默认为取消，确认后可以选择保留配置（默认保留）。MNWS 只移除属于自己的命令入口、原生组件和自动生成的自启项；共享 Waybar 配置、桌面文件和源码目录不会被直接删除。
+卸载默认为取消，确认后可以选择保留配置（默认保留）。ADWS 只移除属于自己的命令入口、原生组件和自动生成的自启项；共享 Waybar 配置、桌面文件和源码目录不会被直接删除。
 
 ### 许可证
 
-MNWS 原创代码采用 **GNU GPL v3.0 或更新版本（GPL-3.0-or-later）**。第三方组件与 Sample 保留各自的许可证、来源和版权声明，详见 [LICENSE](LICENSE) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+ADWS 原创代码采用 **GNU GPL v3.0 或更新版本（GPL-3.0-or-later）**。第三方组件与 Sample 保留各自的许可证、来源和版权声明，详见 [LICENSE](LICENSE) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## English
 
-MNWS adds desktop icons, a bottom taskbar, unified settings and a plugin system to Niri, providing a lightweight but complete everyday desktop experience.
+ADWS adds desktop icons, a bottom taskbar, unified settings and a plugin system to Niri, providing a lightweight but complete everyday desktop experience.
 
-Version 1.25 has been tested with Niri on Arch Linux and Ubuntu. MNWS still relies on Niri, Waybar and distribution-provided system components; it does not aim to replace the window manager or the Linux user space.
+Version 1.25 has been tested with Niri on Arch Linux and Ubuntu. ADWS still relies on Niri, Waybar and distribution-provided system components; it does not aim to replace the window manager or the Linux user space.
 
-### 1.28-D development build (Pre-1.30)
+### 1.30 Pre-Release development build (Pre-1.30)
 
-Major 1.28    Minor: D    Build date: 2026-09-21
+1.30 Pre-Release    Build date: 2026-09-21
 
+- MNWS is now ADWS — Akizuki’s Desktop Workspace Solution. The new name is no longer tied to Niri, but Niri remains the primary supported environment in this release. Commands now use adws; the installer migrates existing configuration without retaining mnws command aliases.
 - Improve Peek responsiveness, order windows by workspace and tile position, and add float/fade transitions.
 - Unify settings into Desktop Settings and Taskbar Settings, bringing taskbar appearance, component layout and plugin configuration together.
 - Prevent accidental taskbar setting changes when scrolling; the wheel now scrolls the settings page.
@@ -174,12 +189,19 @@ Major 1.28    Minor: D    Build date: 2026-09-21
 - Add pinned apps: click to launch, move into the active area when opened on this workspace, and return to the saved pin position when closed.
 - Show a three-dot badge for pinned apps running on another workspace of the same monitor. Click to focus the most recently used window; Peek lists it first, then the rest in workspace/tile order. Other physical monitors are treated as not running here.
 - Keep the pinned-area separator in sync with the focused background color, including when no windows are active. (C)
-- Add a Beta update channel via mnws -u --preview or mnws --update --preview and a Settings option; stable releases remain the default. (D)
+- Add a Beta update channel via adws -u --preview or adws --update --preview and a Settings option; stable releases remain the default. (D)
 - Fix intermittent taskbar stalls with window previews enabled. (1.28)
+- Add one-way migration with configuration backups; retain old plugins separately and include NCMLyricsBar adapted for ADWS.
+- Provide ADWS 1.30 Pre-Release source and Arch Linux x86_64 prebuilt packages.
+- Add first-run setup when no local configuration exists, with a manual entry in Settings. Configure animations, preview colors, choose default apps and a launcher, then save on confirmation.
+- Add global configuration import and export using Config.ad-yml, with validation, overwrite confirmation, backups and rollback on write failure.
+- Added a wallpaper setup page: keep existing settings by default, preview images before applying, choose awww, swww or swaybg in advanced options, and optionally install awww when no tool is detected.
+- Move technical paths in Settings into a collapsed Diagnostics section with a copy button.
+- Install scoped Niri floating rules and consistent Wayland app IDs for desktop settings, taskbar settings, the clock and first-run setup, including fresh installations.
 
 The Appearance tab in Taskbar Settings provides panel edge and thickness, one or two window rows, application grouping and independent state colors. Only application windows use two rows; other components remain in one row. Vertical panels use two columns. Group buttons show a window count; left-click returns to the most recently used member and right-click manages group members. Optional live window thumbnails allow selection by image or title.
 
-Window hover/focus transitions and settings-tab crossfades are independently optional and off by default. Reopen Settings to apply tab animation changes. The existing lyric animation switch remains independent. Window thumbnails require Niri ScreenCast and GStreamer PipeWire/PNG plugins; a clickable title list remains available otherwise. This is a development build; no 1.30 installation package has been published.
+Window hover/focus transitions and settings-tab crossfades are independently optional and off by default. Reopen Settings to apply tab animation changes. The existing lyric animation switch remains independent. Window thumbnails require Niri ScreenCast and GStreamer PipeWire/PNG plugins; a clickable title list remains available otherwise. This is a prerelease for testing; back up your configuration before upgrading.
 
 ### 1.25 Released — latest updates
 
@@ -206,7 +228,7 @@ Window hover/focus transitions and settings-tab crossfades are independently opt
 - Fix upstream Niri window-data compatibility, with event tolerance and reconnection.
 - Provide a prebuilt Arch Linux x86_64 archive so installation no longer compiles Rust and C on the spot. (Pre-release)
 - Change the default Start-button text and add custom icon support.
-- Improve taskbar stability and the reliability of the MNWS command suite.
+- Improve taskbar stability and the reliability of the ADWS command suite.
 - Fix the taskbar unexpectedly switching to English under special circumstances. (Released)
 
 ### Highlights
@@ -229,55 +251,61 @@ Window hover/focus transitions and settings-tab crossfades are independently opt
 - Source builds require Rust 1.87+ / Cargo, a C compiler, Make, pkg-config and development files for GTK 3, gtk-layer-shell and json-glib.
 - Lyrics require an MPRIS-enabled browser playing music on `music.163.com`; support for other services must be enabled explicitly in plugin settings.
 
-The bundled `vendor/niri-ipc` supports upstream Niri window data and Shorin minimization extensions. When minimization is unavailable, MNWS falls back to focusing the window.
+The bundled `vendor/niri-ipc` supports upstream Niri window data and Shorin minimization extensions. When minimization is unavailable, ADWS falls back to focusing the window.
+
+### Upgrading from MNWS and known limitations
+
+Stop the old desktop and bottom bar with `mnws -S` before running the new installer. Do not uninstall MNWS or delete its configuration first. The installer migrates configuration, rewrites paths and preserves backups. Legacy plugins are kept separately; an ADWS-compatible NCMLyricsBar is included, while other plugins need porting. Use `adws` afterwards; no `mnws` aliases are provided. The old installation directory and regular-file command wrappers are not all removed automatically.
+
+The old MNWS bar was observed consuming one CPU core while idle and recovered after restarting. Its root cause remains unconfirmed; this release does not claim to eliminate all stalls. The Arch package was checked on the build host and in isolated tests; fresh-device login, installation and removal still need broader validation.
 
 ### Install
 
 Source installation works on most distributions:
 
 ```sh
-git clone https://github.com/Haisairova-Official/MNWS.git
-cd MNWS
+git clone --branch Pre-1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
+cd ADWS
 ./install.sh
-mnws -s
+adws -s
 ```
 
-The installer checks dependencies, builds missing components, selects a launcher, installs the `mnws` command and offers to start the desktop and taskbar with Niri. It asks before installing dependencies or changing existing configuration, and preserves or backs up existing files.
+The installer checks dependencies, builds missing components, selects a launcher, installs the `adws` command and offers to start the desktop and taskbar with Niri. It asks before installing dependencies or changing existing configuration, and preserves or backs up existing files.
 
-Arch Linux x86_64 users can download `MNWS1.25_for_arch.zip` from the GitHub Release. It includes prebuilt native components, so Rust, Cargo and a C compiler are not required during installation. See the [Arch installation guide](docs/arch-install.md).
+Arch Linux x86_64 users can download `ADWS1.30_Pre-Release_for_arch.zip` from the GitHub Release. It includes prebuilt native components, so Rust, Cargo and a C compiler are not required during installation. See the [Arch installation guide](docs/arch-install.md).
 
 Keep the installation directory: command entries link to its program files. If `~/.local/bin` is not already on PATH, the installer can place entries in `/usr/local/bin`.
 
-Some Ubuntu environments reject the default Waybar `include` in array form. MNWS converts a single default `modules.jsonc` include to an absolute string path in the configuration directory. It saves `.mnws-include-bak` first and preserves custom or multi-file includes.
+Some Ubuntu environments reject the default Waybar `include` in array form. ADWS converts a single default `modules.jsonc` include to an absolute string path in the configuration directory. It saves `.adws-include-bak` first and preserves custom or multi-file includes.
 
 See [installation details](docs/installation.md) for more information.
 
 ### Usage
 
 ```sh
-mnws -s                         # Start desktop and taskbar
-mnws --status                   # Show both states
-mnws config                     # Open unified settings
-mnws layout apply --restart     # Apply the taskbar layout
-mnws -u                         # Check stable Releases
-mnws --uninstall                # Uninstall
+adws -s                         # Start desktop and taskbar
+adws --status                   # Show both states
+adws config                     # Open unified settings
+adws layout apply --restart     # Apply the taskbar layout
+adws -u                         # Check stable Releases
+adws --uninstall                # Uninstall
 ```
 
-Manage `desktop` and `taskbar` separately with commands such as `mnws taskbar -s` and `mnws desktop -S`. Run either component in the current terminal with `--debug/-d`; `-1` through `-6` select the log level, with `-4` as the default.
+Manage `desktop` and `taskbar` separately with commands such as `adws taskbar -s` and `adws desktop -S`. Run either component in the current terminal with `--debug/-d`; `-1` through `-6` select the log level, with `-4` as the default.
 
-When an update is available, the CLI asks `Y/n` (Enter accepts), and Settings presents OK / Cancel. Cancelling does not download or install the update. Stable releases are checked by default. Use `mnws -u --preview` or `mnws --update --preview`, or select “Beta channel (include prereleases)” on the About page in Settings, to include prereleases. The selection applies to the current check without changing the default channel. Checks use GitHub Releases; development branch commits must first be published as prereleases to be detected. Both version checks and package downloads use `MNWS_GITHUB_PROXY` in mainland China (default `https://gh-proxy.com/`), falling back to GitHub on failure. Elsewhere they access GitHub directly.
+When an update is available, the CLI asks `Y/n` (Enter accepts), and Settings presents OK / Cancel. Cancelling does not download or install the update. Stable releases are checked by default. Use `adws -u --preview` or `adws --update --preview`, or select “Beta channel (include prereleases)” on the About page in Settings, to include prereleases. The selection applies to the current check without changing the default channel. Checks use GitHub Releases; development branch commits must first be published as prereleases to be detected. Both version checks and package downloads use `ADWS_GITHUB_PROXY` in mainland China (default `https://gh-proxy.com/`), falling back to GitHub on failure. Elsewhere they access GitHub directly.
 
-Updates prefer a matching Arch x86_64 prebuilt package; otherwise they build the selected release from source, requiring Rust/Cargo, a C compiler and GTK development dependencies. Downloads, validation and builds finish in staging before a backed-up replacement. User settings, pins, images and desktop state are preserved; only previously running MNWS components are restarted. Failed installations attempt to restore the previous version. Logs are saved to `~/.local/state/mnws/update-*.log`; installation backups are kept in hidden directories beside the installation. Run updates from the installed `mnws` command; Git development checkouts are protected.
+Updates prefer a matching Arch x86_64 prebuilt package; otherwise they build the selected release from source, requiring Rust/Cargo, a C compiler and GTK development dependencies. Downloads, validation and builds finish in staging before a backed-up replacement. User settings, pins, images and desktop state are preserved; only previously running ADWS components are restarted. Failed installations attempt to restore the previous version. Logs are saved to `~/.local/state/adws/update-*.log`; installation backups are kept in hidden directories beside the installation. Run updates from the installed `adws` command; Git development checkouts are protected.
 
 ### Plugins and samples
 
 ```sh
-mnws mplg build plugins/netease-lyrics
-mnws mplg install plugins/org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
-mnws mplg list
+adws mplg build plugins/netease-lyrics
+adws mplg install plugins/org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
+adws mplg list
 ```
 
-Enable, order and configure installed plugins in **Components and plugins**. Layout is stored in `~/.config/mnws/taskbar-layout.json`; plugin packages are stored in `~/.local/share/mnws/plugins/`.
+Enable, order and configure installed plugins in **Components and plugins**. Layout is stored in `~/.config/adws/taskbar-layout.json`; plugin packages are stored in `~/.local/share/adws/plugins/`.
 
 The lyrics settings offer **Enable animations (fade and width transitions)**, off by default. Controls fade in and out; with width set to `0`, lyrics and controls resize using a 280 ms cubic Bezier ease-in-out transition. Fixed width stays unchanged. System settings that disable animations take precedence.
 
@@ -288,14 +316,14 @@ See the [lyrics plugin guide](plugins/netease-lyrics/README.md), [Plugin API v1.
 ### Uninstall
 
 ```sh
-mnws --uninstall
+adws --uninstall
 ```
 
-Uninstall defaults to cancellation. After confirmation, keeping configuration defaults to Yes. MNWS removes only its own command entries, native components and generated autostart entries; shared Waybar configuration, desktop files and the source directory are not deleted directly.
+Uninstall defaults to cancellation. After confirmation, keeping configuration defaults to Yes. ADWS removes only its own command entries, native components and generated autostart entries; shared Waybar configuration, desktop files and the source directory are not deleted directly.
 
 ### License
 
-Original MNWS code is licensed under **GNU GPL version 3 or any later version (GPL-3.0-or-later)**. Third-party components and samples retain their own licenses, sources and copyright notices. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Original ADWS code is licensed under **GNU GPL version 3 or any later version (GPL-3.0-or-later)**. Third-party components and samples retain their own licenses, sources and copyright notices. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Development checks / 开发检查
 
@@ -307,3 +335,11 @@ make -C src/panel-rows check
 ```
 
 GUI checks require Xvfb and complement testing in a real Niri session.
+
+### Wallpaper setup / 壁纸设置
+
+Added a wallpaper setup page: keep existing settings by default, preview images before applying, choose awww, swww or swaybg in advanced options, and optionally install awww when no tool is detected.
+
+Existing wallpaper services are preserved unless you confirm switching. Images remain external files and are not included in Config.ad-yml; keep them at the saved path. Startup restores the chosen wallpaper only when no wallpaper service is already running.
+
+壁纸图片保留在原路径，不打包进 Config.ad-yml。已有服务需要确认才会切换；登录时仅在没有壁纸服务运行的情况下恢复所选壁纸。

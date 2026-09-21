@@ -96,7 +96,7 @@
     "previous",
     "next"
   ],
-  "mnws": {
+  "adws": {
     "api": 1,
     "minVersion": "1.25"
   }

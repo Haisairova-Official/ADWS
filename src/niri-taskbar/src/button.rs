@@ -115,7 +115,7 @@ impl Button {
             }
             gtk::glib::Propagation::Stop
         });
-        badge.style_context().add_class("mnws-window-count");
+        badge.style_context().add_class("adws-window-count");
         badge.set_halign(gtk::Align::End);
         badge.set_valign(gtk::Align::End);
         badge.set_no_show_all(true);

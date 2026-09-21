@@ -8,8 +8,8 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-import mnws_clock as clock
-import mnws_layout as layout
+import adws_clock as clock
+import adws_layout as layout
 
 
 class ClockTests(unittest.TestCase):
@@ -77,7 +77,7 @@ class ClockTests(unittest.TestCase):
             self.assertEqual(result['timezone'], 'UTC')
             for key in ('max-length', 'format-alt', 'actions', 'menu'): self.assertIsNone(result[key])
             command = shlex.split(result['on-click-right'])
-            self.assertEqual(Path(command[1]).name, 'mnws_clock.py')
+            self.assertEqual(Path(command[1]).name, 'adws_clock.py')
             self.assertEqual(command[2], '--launch')
             self.assertNotIn('KDE', result['tooltip-format'])
             # Re-rendering must not duplicate the icon or lose the selected date.

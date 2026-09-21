@@ -1,7 +1,7 @@
 {
-  "api": "mnws-plugin",
+  "api": "adws-plugin",
   "apiVersion": 1,
-  "id": "org.mnws.hello",
+  "id": "org.adws.hello",
   "name": "Hello",
   "version": "0.1.0",
   "kind": "panel",

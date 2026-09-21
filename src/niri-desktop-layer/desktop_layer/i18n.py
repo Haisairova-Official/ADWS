@@ -1,4 +1,4 @@
-"""MNWS UI language: Chinese locales use Chinese, all others use English."""
+"""ADWS UI language: Chinese locales use Chinese, all others use English."""
 from functools import lru_cache
 import json
 import os
@@ -58,6 +58,6 @@ def message(key, *, rng=None):
 
 
 def prepare_gtk_language():
-    # GTK stock buttons must follow the same two-language policy as MNWS labels.
+    # GTK stock buttons must follow the same two-language policy as ADWS labels.
     if not chinese():
         os.environ['LANGUAGE'] = 'en'

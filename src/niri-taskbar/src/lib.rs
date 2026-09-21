@@ -71,7 +71,7 @@ impl Module for TaskbarModule {
         let context = MainContext::default();
         if let Err(e) = context.block_on(init(info, state)) {
             tracing::error!(%e, "Niri taskbar module init failed");
-            if std::env::var("MNWS_LOG_LEVEL").as_deref() == Ok("1") {
+            if std::env::var("ADWS_LOG_LEVEL").as_deref() == Ok("1") {
                 eprintln!("CRITICAL: Niri taskbar module init failed: {e}");
             }
         }
@@ -101,7 +101,7 @@ async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<(), Error> {
 
     root.add(&scroll);
 
-    // 图标/时钟之外的底栏空白处右键 → MNWS-Config 菜单。
+    // 图标/时钟之外的底栏空白处右键 → ADWS-Config 菜单。
     // 菜单挂在 waybar 顶层窗口上，任务栏本身保持简单布局，避免挤压窗口图标。
     let panel_root = container.clone();
     gtk::glib::source::idle_add_local_once(move || {

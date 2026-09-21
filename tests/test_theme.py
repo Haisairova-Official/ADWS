@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from mnws_theme import css_snapshot
+from adws_theme import css_snapshot
 
 
 class ThemeSnapshotTests(unittest.TestCase):

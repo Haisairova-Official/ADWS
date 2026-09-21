@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch, Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-import mnws_launcher as launcher
-import mnws_layout as layout
+import adws_launcher as launcher
+import adws_layout as layout
 
 
 class LauncherTests(unittest.TestCase):
@@ -78,4 +78,4 @@ class LauncherTests(unittest.TestCase):
             data = json.loads(target.read_text())
             self.assertEqual(data['clock']['format'], 'test')
             self.assertEqual(data['custom/applauncher']['on-click'], 'fuzzel')
-            self.assertEqual(target.with_name(target.name + '.mnws-launcher.bak').read_text(), original)
+            self.assertEqual(target.with_name(target.name + '.adws-launcher.bak').read_text(), original)

@@ -51,15 +51,15 @@ APP_ID = "io.github.akizuki.NiriDesktopLayer"
 
 
 @logged_action(_tr('打开统一设置'))
-def open_mnws_config(tab: str) -> bool:
-    """Try to open the unified MNWS-Config app; return False when unavailable."""
+def open_adws_config(tab: str) -> bool:
+    """Try to open the unified ADWS-Config app; return False when unavailable."""
     import subprocess
 
     candidates = []
     root = Path(__file__).resolve().parents[3]
-    if (root / "tools/mnws-config.py").exists():
-        candidates.append(str(root / "tools/mnws-config.py"))
-    candidates.append(str(Path.home() / ".local/bin/mnws-config"))
+    if (root / "tools/adws-config.py").exists():
+        candidates.append(str(root / "tools/adws-config.py"))
+    candidates.append(str(Path.home() / ".local/bin/adws-config"))
     script = next((candidate for candidate in candidates if Path(candidate).exists()), None)
     if script is None:
         return False
@@ -144,12 +144,12 @@ def apply_menu_palette(menu, cfg) -> None:
     try:
         candidate = Gtk.CssProvider()
         candidate.load_from_data(css.encode("utf-8"))
-        provider = getattr(menu, "_mnws_palette_provider", None)
+        provider = getattr(menu, "_adws_palette_provider", None)
         if provider is None:
             provider = candidate
         else:
             provider.load_from_data(css.encode("utf-8"))
-        menu._mnws_palette_provider = provider
+        menu._adws_palette_provider = provider
     except Exception as exc:  # noqa: BLE001 - 样式失败不应影响菜单本身
         LOG.warning(_tr('菜单调色板样式加载失败: %s'), exc)
         return False
@@ -166,9 +166,9 @@ def apply_menu_palette(menu, cfg) -> None:
                     attach(submenu)
 
     attach(menu)
-    if not hasattr(menu, "_mnws_palette_watch"):
-        from mnws_theme import Watch
-        menu._mnws_palette_watch = Watch(palette_file_candidates(),
+    if not hasattr(menu, "_adws_palette_watch"):
+        from adws_theme import Watch
+        menu._adws_palette_watch = Watch(palette_file_candidates(),
                                          lambda: apply_menu_palette(menu, cfg), menu)
 
 
@@ -269,7 +269,7 @@ def run_gui(args, cfg, directory):
     from gi.repository import Gtk, Gdk, Gio, GLib, Pango, PangoCairo, GtkLayerShell
     from PIL import Image, ImageFilter
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
-    from mnws_theme import start as start_theme_watch
+    from adws_theme import start as start_theme_watch
     start_theme_watch()
 
     class DesktopWindow(Gtk.ApplicationWindow):
@@ -966,8 +966,8 @@ def run_gui(args, cfg, directory):
             if self.exit_dialog is not None:
                 self.exit_dialog.present()
                 return
-            launcher = Path(__file__).resolve().parents[3] / "mnws"
-            restart_command = "mnws desktop --start" if shutil.which("mnws") else shlex.quote(str(launcher)) + " desktop --start"
+            launcher = Path(__file__).resolve().parents[3] / "adws"
+            restart_command = "adws desktop --start" if shutil.which("adws") else shlex.quote(str(launcher)) + " desktop --start"
             dialog = Gtk.MessageDialog(transient_for=self, modal=True, destroy_with_parent=True,
                                        message_type=Gtk.MessageType.WARNING,
                                        buttons=Gtk.ButtonsType.NONE, text=_tr('您真的要退出吗？'))
@@ -1201,7 +1201,7 @@ def run_gui(args, cfg, directory):
                 return
             self.cancel_rename()
             self.new_item_kind = kind
-            self.new_item = Entry(directory / ('.mnws-draft-' + uuid.uuid4().hex),
+            self.new_item = Entry(directory / ('.adws-draft-' + uuid.uuid4().hex),
                                   self.unique_target(default).name,
                                   Gio.ThemedIcon.new('folder' if kind == 'folder' else 'text-x-generic'),
                                   'directory' if kind == 'folder' else 'file')
@@ -1321,7 +1321,7 @@ def run_gui(args, cfg, directory):
 
         @logged_action(_tr('打开桌面设置'))
         def show_desktop_settings(self):
-            if open_mnws_config("desktop"):
+            if open_adws_config("desktop"):
                 return
             dialog = Gtk.Dialog(title=_tr('桌面设置'), transient_for=self, modal=True, destroy_with_parent=True)
             dialog.add_button(_tr('取消'), Gtk.ResponseType.CANCEL)

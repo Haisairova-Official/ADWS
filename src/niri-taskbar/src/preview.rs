@@ -141,7 +141,7 @@ mod tests {
     #[ignore = "requires an isolated GTK display"]
     fn switching_unloaded_capture_cancels_read_and_bounds_shutdown() {
         gtk::init().unwrap();
-        let helper=std::env::temp_dir().join(format!("mnws-delayed-preview-{}.py",std::process::id()));
+        let helper=std::env::temp_dir().join(format!("adws-delayed-preview-{}.py",std::process::id()));
         std::fs::write(&helper,"import signal,time,sys\nsignal.signal(signal.SIGTERM,signal.SIG_IGN)\nsys.stdout.write('{');sys.stdout.flush()\ntime.sleep(30)\n").unwrap();
         let window=gtk::Window::new(gtk::WindowType::Toplevel);
         let button=gtk::Button::with_label("preview");window.add(&button);window.show_all();

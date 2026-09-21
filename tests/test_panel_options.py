@@ -2,8 +2,8 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from mnws_panel_options import validate, geometry, styles
-import mnws_layout as layout
+from adws_panel_options import validate, geometry, styles
+import adws_layout as layout
 
 class PanelOptionsTests(unittest.TestCase):
     def test_every_edge_and_two_lanes(self):
@@ -46,7 +46,7 @@ class PanelOptionsTests(unittest.TestCase):
         result=layout.render_waybar_config(state,available=[],base={'clock':{'format':'{:%H:%M}','on-click':'kclock','rotate':90}})
         self.assertEqual(result['clock']['rotate'],0)
         self.assertEqual(result['clock']['on-click'],'')
-        self.assertIn('mnws_clock.py',result['clock']['on-click-right'])
+        self.assertIn('adws_clock.py',result['clock']['on-click-right'])
         self.assertEqual(result['clock']['format'],'{0:%H:%M}')
 
     def test_popup_parent_layer_is_above_tiles(self):

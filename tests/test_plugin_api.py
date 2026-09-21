@@ -12,10 +12,10 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'tools'))
-import mnws_plugin as plugin
-import mnws_plugin_api as api
-import mnws_layout as layout
-from mnws_plugin_runner import execute
+import adws_plugin as plugin
+import adws_plugin_api as api
+import adws_layout as layout
+from adws_plugin_runner import execute
 
 
 class PluginApiTests(unittest.TestCase):
@@ -34,7 +34,7 @@ class PluginApiTests(unittest.TestCase):
 
     def test_minimal_build_install_discover_run_remove(self):
         archive=plugin.build_package(self.source())
-        env={'MNWS_PLUGIN_DIR':str(self.root/'plugins'),'MNWS_CACHE_DIR':str(self.root/'cache')}
+        env={'ADWS_PLUGIN_DIR':str(self.root/'plugins'),'ADWS_CACHE_DIR':str(self.root/'cache')}
         with patch.dict(os.environ,env),contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(plugin.main(['install',str(archive)]),0)
             self.assertEqual(len(layout.scan_available_plugins()),1)
@@ -44,13 +44,13 @@ class PluginApiTests(unittest.TestCase):
             self.assertEqual(plugin.scan_packages(),[])
 
     def test_api_minimum_and_renderer_rejections(self):
-        for changes in [{'renderer':'desktop.widget-v1'},{'mnws':{'api':2}}, {'mnws':{'api':True}},
-                        {'mnws':{'minVersion':'99.0'}},{'entry':'../main.py'},{'entry':'C:/main.py'},
-                        {'mnws':[]},{'defaults':{'width':-1}},{'settingsSchema':[{'key':'x','type':[]}]}]:
+        for changes in [{'renderer':'desktop.widget-v1'},{'adws':{'api':2}}, {'adws':{'api':True}},
+                        {'adws':{'minVersion':'99.0'}},{'entry':'../main.py'},{'entry':'C:/main.py'},
+                        {'adws':[]},{'defaults':{'width':-1}},{'settingsSchema':[{'key':'x','type':[]}]}]:
             self.assertTrue(plugin.validate_manifest({**self.manifest,**changes}),changes)
 
     def test_legacy_manifest_compatibility(self):
-        old={**self.manifest,'api':'mnws-plugin','apiVersion':1,'kind':'panel','language':'python','interfaces':['panel.json-v1']}
+        old={**self.manifest,'api':'adws-plugin','apiVersion':1,'kind':'panel','language':'python','interfaces':['panel.json-v1']}
         del old['renderer']
         archive=plugin.build_package(self.source('import sys; assert "--output-json" in sys.argv; print(\'{"text":"legacy"}\')',old))
         with contextlib.redirect_stdout(io.StringIO()) as out:
@@ -125,17 +125,17 @@ class PluginApiTests(unittest.TestCase):
             manifest=plugin.load_manifest(archive)
             available=[{'ok':True,'file':archive,'manifest':manifest}]
             state={'builtins':[],'plugins':[{'package':manifest['id'],'enabled':True,'width':0}],'options':{}}
-            with patch.dict(os.environ,{'MNWS_CACHE_DIR':str(self.root/'cache')}):
+            with patch.dict(os.environ,{'ADWS_CACHE_DIR':str(self.root/'cache')}):
                 result=layout.render_waybar_config(state,available=available,base={})
-            self.assertIn('mnws_plugin_runner.py',json.dumps(result))
-            module = next(key for key in result if key.startswith(('custom/mnws-', 'cffi/mnws-')))
+            self.assertIn('adws_plugin_runner.py',json.dumps(result))
+            module = next(key for key in result if key.startswith(('custom/adws-', 'cffi/adws-')))
             self.assertIn('--plugin', result[module].get('right_command', result[module].get('on-click-right', '')))
             self.assertIn(manifest['id'], result[module].get('right_command', result[module].get('on-click-right', '')))
             if renderer == 'panel.rows-v1':
                 self.assertEqual(result[module]['width'], 0)
                 self.assertFalse(result[module]['animations'])
                 state['plugins'][0]['animations'] = True
-                with patch.dict(os.environ,{'MNWS_CACHE_DIR':str(self.root/'cache')}):
+                with patch.dict(os.environ,{'ADWS_CACHE_DIR':str(self.root/'cache')}):
                     animated = layout.render_waybar_config(state,available=available,base={})
                 self.assertTrue(animated[module]['animations'])
                 self.assertIn('--control play-pause', result[module]['left_command'])
@@ -146,7 +146,7 @@ class PluginApiTests(unittest.TestCase):
 
     def test_lyrics_id_migration_preserves_settings(self):
         path=self.root/'layout.json'
-        path.write_text(json.dumps({'plugins':[{'package':'org.mnws.neteaselyrics','enabled':True,'slot':'center','settings':{'offset_ms':200}}]}))
+        path.write_text(json.dumps({'plugins':[{'package':'org.adws.neteaselyrics','enabled':True,'slot':'center','settings':{'offset_ms':200}}]}))
         item=layout.load_layout(path)['plugins'][0]
         self.assertEqual(item['package'],'org.AkiACG_Community.NCMLyricsBar')
         self.assertEqual(item['settings'],{'offset_ms':200});self.assertTrue(item['enabled'])

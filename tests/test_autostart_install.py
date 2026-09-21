@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-import mnws_autostart as auto
+import adws_autostart as auto
 
 
 class AutostartTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class AutostartTests(unittest.TestCase):
             auto.enable(path)
             self.assertEqual(first,path.read_text())
             self.assertIn('"-s"',first)
-            self.assertEqual(path.with_suffix('.kdl.mnws-autostart-bak').read_text(),'// personal\n')
+            self.assertEqual(path.with_suffix('.kdl.adws-autostart-bak').read_text(),'// personal\n')
             self.assertEqual(auto.DESKTOP_PATTERN.sub('',auto.PATTERN.sub('',first)).strip(),'// personal')
 
     def test_existing_desktop_only_adds_taskbar(self):
@@ -32,7 +32,7 @@ class AutostartTests(unittest.TestCase):
     def test_existing_taskbar_block_is_repaired_and_desktop_enabled(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'config.kdl'
-            path.write_text(auto.BEGIN+'\nspawn-at-startup "/unmounted/MNWS/mnws" "taskbar" "-s"\n'+auto.END+'\n')
+            path.write_text(auto.BEGIN+'\nspawn-at-startup "/unmounted/ADWS/adws" "taskbar" "-s"\n'+auto.END+'\n')
             auto.enable(path)
             self.assertNotIn('/unmounted/',path.read_text())
             self.assertTrue(auto.desktop_enabled(path.read_text()))
@@ -43,7 +43,7 @@ class AutostartTests(unittest.TestCase):
     def test_disable_desktop_migrates_combined_block(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'config.kdl'
-            path.write_text(auto.BEGIN+'\nspawn-at-startup "/old/mnws" "-s"\n'+auto.END+'\n')
+            path.write_text(auto.BEGIN+'\nspawn-at-startup "/old/adws" "-s"\n'+auto.END+'\n')
             self.assertTrue(auto.desktop_enabled(path.read_text()))
             auto.set_desktop(path,False)
             self.assertFalse(auto.desktop_enabled(path.read_text()))

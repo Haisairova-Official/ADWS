@@ -7,7 +7,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-import mnws_layout_gui as gui
+import adws_layout_gui as gui
 import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
@@ -114,7 +114,7 @@ with tempfile.TemporaryDirectory() as directory:
     app.check_start_images()
     assert not app.image_error.get_text()
     saved = app.collect_layout()
-    rendered = gui.mnws_layout.render_waybar_config(saved, available=[], base={})
+    rendered = gui.adws_layout.render_waybar_config(saved, available=[], base={})
     assert 'cffi/start-button' in rendered['modules-left']
     assert rendered['cffi/start-button']['start_hover_image'] == str(hover)
     path.write_text(json.dumps(saved))

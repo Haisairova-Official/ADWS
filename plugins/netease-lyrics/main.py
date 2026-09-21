@@ -21,7 +21,7 @@ from pathlib import Path
 
 STAMP = re.compile(r"\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]")
 OFFSET = re.compile(r"\[offset:([+-]?\d+)\]", re.I)
-CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "mnws/netease-lyrics-v2"
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "adws/netease-lyrics-v2"
 PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
 MPRIS_PREFIX = "org.mpris.MediaPlayer2."
@@ -101,7 +101,7 @@ def select_song(songs: list[dict], track: dict) -> dict | None:
 def request_json(path: str, params: dict) -> dict:
     url = "https://music.163.com" + path + "?" + urllib.parse.urlencode(params)
     request = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 MNWS-Lyrics/0.1",
+        "User-Agent": "Mozilla/5.0 ADWS-Lyrics/0.1",
         "Referer": "https://music.163.com/",
     })
     with urllib.request.urlopen(request, timeout=10) as response:
@@ -135,7 +135,7 @@ def custom_lyrics(track: dict, song_id) -> tuple[str, str]:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ValueError("Invalid API URL")
-    request = urllib.request.Request(url, headers={"User-Agent": "MNWS-Lyrics/0.3"})
+    request = urllib.request.Request(url, headers={"User-Agent": "ADWS-Lyrics/0.3"})
     with urllib.request.urlopen(request, timeout=10) as response:
         body = response.read(2_000_000).decode("utf-8-sig")
     try:
@@ -192,7 +192,7 @@ def fetch_lyrics(track: dict) -> dict:
                 }
             ttl = 30 * 86400 if result["state"] in ("ready", "instrumental") else 21600
         except Exception as exc:
-            print("MNWS lyrics: " + type(exc).__name__, file=sys.stderr, flush=True)
+            print("ADWS lyrics: " + type(exc).__name__, file=sys.stderr, flush=True)
             result = {"state": "error", "lines": [], "translation": []}
             ttl = 60
         result["expires"] = time.time() + ttl

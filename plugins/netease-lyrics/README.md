@@ -1,6 +1,6 @@
 # NCMLyricsBar 1.1.0
 
-MNWS 任务栏同步歌词插件 · Plugin API v1.0
+ADWS 任务栏同步歌词插件 · Plugin API v1.0
 
 **声明：本插件存在使用 vibe coding 的内容。本项目仍处于早期状态。**
 
@@ -21,12 +21,12 @@ MNWS 任务栏同步歌词插件 · Plugin API v1.0
 
 ## 安装
 
-建议配合 **MNWS 1.27-A / Pre-1.30** 使用，获得本页全部交互、配色、竖排和动效。插件 API 最低声明为 MNWS 1.25，但仅升级插件包不会升级宿主的原生渲染组件。
+建议配合 **ADWS 1.27-A / Pre-1.30** 使用，获得本页全部交互、配色、竖排和动效。插件 API 最低声明为 ADWS 1.25，但仅升级插件包不会升级宿主的原生渲染组件。
 
 下载 `org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg` 后执行：
 
 ```sh
-mnws mplg install ./org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
+adws mplg install ./org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
 ```
 
 在“组件与插件”中启用 NCMLyricsBar。插件 ID 保持为 `org.AkiACG_Community.NCMLyricsBar`，升级时保留已有设置。
@@ -46,14 +46,14 @@ mnws mplg install ./org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
 
 自定义 API 使用 GET 地址模板，支持 `{id}`、`{title}`、`{artist}`、`{album}`、`{duration}`，参数自动 URL 编码。只有模板使用 `{id}` 时才先匹配网易云歌曲编号。接口可返回 UTF-8 LRC 文本或 JSON；JSON 字段路径支持点分路径和数组索引，例如 `lrc.lyric`、`tlyric.lyric`、`syncedLyrics`。无翻译时可留空译文字段。
 
-缓存位于 `$XDG_CACHE_HOME/mnws/netease-lyrics-v2`，未设置 XDG_CACHE_HOME 时使用 `~/.cache`。不同歌词来源分别缓存，双屏共用缓存和请求锁。
+缓存位于 `$XDG_CACHE_HOME/adws/netease-lyrics-v2`，未设置 XDG_CACHE_HOME 时使用 `~/.cache`。不同歌词来源分别缓存，双屏共用缓存和请求锁。
 
 ## 构建与排查
 
-在 MNWS 源码根目录执行：
+在 ADWS 源码根目录执行：
 
 ```sh
-./mnws mplg build plugins/netease-lyrics
+./adws mplg build plugins/netease-lyrics
 python3 -m unittest discover -s tests -p 'test_netease_lyrics.py'
 python3 plugins/netease-lyrics/main.py --diagnose
 ```
@@ -83,10 +83,10 @@ python3 plugins/netease-lyrics/main.py --diagnose
 
 ## Installation and compatibility
 
-Use **MNWS 1.27-A / Pre-1.30** for all documented rendering and interaction features. The manifest declares MNWS 1.25 as its API minimum; installing the plugin alone does not update the host's native renderer.
+Use **ADWS 1.27-A / Pre-1.30** for all documented rendering and interaction features. The manifest declares ADWS 1.25 as its API minimum; installing the plugin alone does not update the host's native renderer.
 
 ```sh
-mnws mplg install ./org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
+adws mplg install ./org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
 ```
 
 Enable NCMLyricsBar in Components & Plugins. Its ID remains `org.AkiACG_Community.NCMLyricsBar`, preserving existing settings when upgrading.
@@ -103,6 +103,6 @@ Experimental platform support recognizes metadata from services including Spotif
 
 Custom GET API templates accept `{id}`, `{title}`, `{artist}`, `{album}` and `{duration}` with URL-encoded values. NetEase ID matching is required only when `{id}` is used. Responses may be UTF-8 LRC or JSON. Configure dotted JSON paths with optional array indices, such as `lrc.lyric`, `tlyric.lyric` or `syncedLyrics`; leave translation empty when unavailable.
 
-Cache: `$XDG_CACHE_HOME/mnws/netease-lyrics-v2` (normally under `~/.cache`). Sources have separate cache keys; multiple displays share cache and request locks.
+Cache: `$XDG_CACHE_HOME/adws/netease-lyrics-v2` (normally under `~/.cache`). Sources have separate cache keys; multiple displays share cache and request locks.
 
-Build, test and diagnose using the commands above from the MNWS source root. Keep `interval: 0` for continuous operation. Public lyrics APIs may require future compatibility updates.
+Build, test and diagnose using the commands above from the ADWS source root. Keep `interval: 0` for continuous operation. Public lyrics APIs may require future compatibility updates.
