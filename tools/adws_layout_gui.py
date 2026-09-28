@@ -196,7 +196,32 @@ class LayoutWindow:
             sub_label.set_tooltip_text(subtitle)
             sub_label.get_style_context().add_class("dim-label")
             label_box.pack_start(sub_label, False, False, 0)
-        label_box.pack_start(name_label, False, False, 0)
+        if entry.get("kind") == "plugin":
+            language = entry.get("manifest", {}).get("language", "python")
+            caption, color = {
+                "python": ("Python", "#326b99"),
+                "shell": ("Shell", "#326b40"),
+                "binary": (_tr('原生'), "#595969"),
+            }.get(language, (_tr('未知'), "#595969"))
+            badge = Gtk.Label(label="+ " + caption)
+            badge.set_valign(Gtk.Align.CENTER)
+            badge.set_tooltip_text(_tr('插件本体使用的语言；与运行器语言无关。'))
+            badge.get_style_context().add_class("plugin-language")
+            provider = Gtk.CssProvider()
+            provider.load_from_data((
+                "label.plugin-language { background: " + color + "; color: #ffffff; "
+                "border-radius: 6px; padding: 2px 7px; font-size: 0.85em; "
+                "font-weight: bold; }"
+            ).encode())
+            badge.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
+            heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            heading.pack_start(name_label, True, True, 0)
+            heading.pack_start(badge, False, False, 0)
+            label_box.pack_start(heading, False, False, 0)
+            entry["language_badge"] = badge
+        else:
+            label_box.pack_start(name_label, False, False, 0)
+        entry["name_label"] = name_label
         label_box.set_hexpand(True)
         box.pack_start(label_box, True, True, 0)
 

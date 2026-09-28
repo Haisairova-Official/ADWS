@@ -41,7 +41,14 @@ with tempfile.TemporaryDirectory() as temp:
             start = widget.translate_coordinates(app.window, 0, 0)[0]
             assert start >= 0 and start + widget.get_allocated_width() <= app.window.get_allocated_width(), widget.get_label()
     labels = row["box"].get_children()[1].get_children()
-    assert all(label.get_layout().is_ellipsized() for label in labels)
+    assert row["name_label"].get_layout().is_ellipsized()
+    assert labels[0].get_layout().is_ellipsized()
+    badge = row["language_badge"]
+    assert badge.get_text() == "+ Python"
+    assert badge.get_allocated_width() > 30
+    assert badge.get_allocated_width() < 140
+    assert not badge.get_layout().is_ellipsized()
+    assert badge.translate_coordinates(app.window, 0, 0)[0] >= 0
     assert app.collect_layout()["plugins"][0]["settings"] == settings
     assert app.collect_layout()["plugins"][0]["animations"] is False
     row["animations"] = True

@@ -54,17 +54,19 @@ def prepare_command(root, manifest, overrides, timeout):
 
 
 def dispatch(root, manifest, overrides, timeout=30):
-    """Opt in to the native supervisor; Python only prepares its launch spec."""
-    backend = os.environ.get('ADWS_PLUGIN_RUNNER', 'python')
+    """Prefer the native supervisor; Python prepares its launch specification."""
+    backend = os.environ.get('ADWS_PLUGIN_RUNNER', 'auto')
     if backend == 'python':
         return execute(root, manifest, overrides, timeout)
-    if backend != 'rust':
-        raise ValueError('ADWS_PLUGIN_RUNNER must be python or rust')
+    if backend not in ('auto', 'rust'):
+        raise ValueError('ADWS_PLUGIN_RUNNER must be auto, python or rust')
     command = prepare_command(root, manifest, overrides, timeout)
     project = Path(__file__).resolve().parents[1]
     candidates = (project / 'libexec/adws-plugin-runner',
                   project / 'src/adws-runtime/target/release/adws-plugin-runner')
     binary = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), None)
+    if binary is None and backend == 'auto':
+        return execute(root, manifest, overrides, timeout)
     if binary is None:
         raise ValueError(tr('Rust 插件运行器尚未构建，请先构建 src/adws-runtime，或改用 Python 后端。'))
     spec = {'command': command, 'cwd': str(root.resolve()), 'id': manifest['id'],
@@ -81,7 +83,9 @@ def dispatch(root, manifest, overrides, timeout=30):
 def execute(root, manifest, overrides, timeout=30):
     command = prepare_command(root, manifest, overrides, timeout)
     process = None
-    def stop(_signum, _frame): raise InterruptedError('Plugin stopped')
+    class Stopped(Exception):
+        pass
+    def stop(_signum, _frame): raise Stopped()
     previous = signal.signal(signal.SIGTERM, stop)
     count = 0
     try:
@@ -128,7 +132,7 @@ def execute(root, manifest, overrides, timeout=30):
             code = process.wait(timeout=min(timeout, max(.1, deadline-time.monotonic())))
             if code or not count: raise ValueError(f'Plugin exited with status {code}; records={count}')
         return 0
-    except BrokenPipeError:
+    except (BrokenPipeError, Stopped):
         return 0
     except (OSError, ValueError, RecursionError, OverflowError, subprocess.TimeoutExpired) as error:
         return report_failure(error, manifest['id'])

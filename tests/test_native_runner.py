@@ -36,6 +36,7 @@ class NativeRunnerTests(unittest.TestCase):
         command += [str(archive), '--timeout', str(timeout)]
         env = {**os.environ, 'ADWS_PLUGIN_RUNNER': backend, 'ADWS_CACHE_DIR': str(self.root / 'cache'),
                'LC_ALL': 'C.UTF-8', 'LANGUAGE': ''}
+        if backend is None: env.pop('ADWS_PLUGIN_RUNNER', None)
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         def cleanup():
             if process.poll() is None:
@@ -112,6 +113,22 @@ class NativeRunnerTests(unittest.TestCase):
                 self.assertEqual(Path(f'/proc/{process.pid}/exe').resolve(), BINARY.resolve())
                 process.terminate(); self.assertEqual(process.wait(timeout=2), 0)
                 self.assert_reaped(pid)
+
+    def test_default_backend_uses_rust(self):
+        code, pid = self.tracked_code('time.sleep(10)')
+        process = self.start(code, backend=None, timeout=10)
+        self.ready(process)
+        self.assertEqual(Path(f'/proc/{process.pid}/exe').resolve(), BINARY.resolve())
+        process.terminate(); self.assertEqual(process.wait(timeout=2), 0)
+        self.assert_reaped(pid)
+
+    def test_python_fallback_sigterm_is_prompt_and_reaps(self):
+        code, pid = self.tracked_code('time.sleep(10)')
+        process = self.start(code, backend='python', timeout=10)
+        self.ready(process)
+        process.terminate(); self.assertEqual(process.wait(timeout=2), 0)
+        self.assert_reaped(pid)
+        self.assertEqual(process.stderr.read(), b'')
 
     def test_disconnected_quiet_consumer_reaps_plugin(self):
         code, pid = self.tracked_code('time.sleep(10)')

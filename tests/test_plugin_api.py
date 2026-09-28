@@ -39,8 +39,9 @@ class PluginApiTests(unittest.TestCase):
         with patch.dict(os.environ,env),contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(plugin.main(['install',str(archive)]),0)
             self.assertEqual(len(layout.scan_available_plugins()),1)
-            self.assertEqual(plugin.main(['run',self.manifest['id']]),0)
-            self.assertIn('Hello',output.getvalue())
+            result=subprocess.run([sys.executable,str(ROOT/'tools/adws_plugin.py'),'run',self.manifest['id']], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn('Hello',result.stdout)
             self.assertEqual(plugin.main(['remove',self.manifest['id']]),0)
             self.assertEqual(plugin.scan_packages(),[])
 

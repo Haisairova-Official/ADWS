@@ -47,10 +47,11 @@ class InstallationTests(unittest.TestCase):
         for name in ('adws', 'build-info.json'):
             shutil.copy2(ROOT/name, self.project/name)
         (self.project/'src/niri-taskbar').mkdir(parents=True)
+        (self.project/'src/adws-runtime').mkdir(parents=True)
         (self.project/'src/panel-rows').mkdir()
         (self.project/'src/panel-rows/libadws_panel.so').write_text('test panel')
         for program, script in {
-            'cargo': 'mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so',
+            'cargo': 'mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so\nprintf test > target/release/adws-plugin-runner',
             'make': 'exit 0',
             'cc': 'while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; printf test > "$1"; exit 0; fi; shift; done',
         }.items():
@@ -81,6 +82,9 @@ runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_n
     def test_clean_install_xdg_idempotence_and_preservation(self):
         first = self.install()
         self.assertEqual(first.returncode, 0, first.stderr)
+        runner = self.project / 'libexec/adws-plugin-runner'
+        self.assertEqual(runner.read_text(), 'test')
+        self.assertTrue(os.access(runner, os.X_OK))
         folder = self.config / 'waybar'
         target = folder / 'config-bottom.jsonc'
         self.assertTrue(target.is_file())

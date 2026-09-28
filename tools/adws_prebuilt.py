@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import platform
 
-NAMES = ('libniri_taskbar.so', 'libadws_panel.so', 'libwaybar-space.so')
+NAMES = ('libniri_taskbar.so', 'libadws_panel.so', 'libwaybar-space.so', 'adws-plugin-runner')
 
 
 def install(root, destination, confirm, atomic_install):
@@ -23,6 +23,9 @@ def install(root, destination, confirm, atomic_install):
     if not confirm(_tr('是否快速安装预构建组件？无需 Rust/Cargo 或 C 编译器。')):
         raise RuntimeError(_tr('已取消预构建组件安装。'))
     for name in NAMES:
-        atomic_install(folder / name, destination / name)
+        if name == 'adws-plugin-runner':
+            atomic_install(folder / name, root / 'libexec' / name, mode=0o755)
+        else:
+            atomic_install(folder / name, destination / name)
     print(_tr('预构建组件安装完成，已跳过源码编译。'))
     return True

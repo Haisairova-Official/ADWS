@@ -17,3 +17,5 @@ core.*
 src/panel-rows/test-vertical
 
 .cache/
+
+/libexec/adws-plugin-runner

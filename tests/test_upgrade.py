@@ -301,3 +301,27 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(set(upgrade.prepare_libraries(self.root,True,log)),set(upgrade.LIBRARIES))
             (folder/upgrade.LIBRARIES[0]).write_text('corrupt')
             with self.assertRaises(ValueError):upgrade.prepare_libraries(self.root,True,log)
+
+
+class NativeSupervisorUpgradeTests(unittest.TestCase):
+    def test_prebuilt_runner_is_verified_and_staged_executable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'src/adws-runtime').mkdir(parents=True)
+            (root/'src/adws-runtime/Cargo.toml').touch()
+            (root/'build-info.json').write_text('{"display_version":"1.35 Development"}')
+            folder = root/'prebuilt'; folder.mkdir()
+            hashes = {}
+            for name in (*upgrade.LIBRARIES, 'adws-plugin-runner'):
+                (folder/name).write_bytes(b'artifact')
+                hashes[name] = hashlib.sha256(b'artifact').hexdigest()
+            (folder/'manifest.json').write_text(json.dumps({'version':'1.35 Development','os':'arch','arch':'x86_64','sha256':hashes}))
+            with patch.object(upgrade, 'run'), patch.object(upgrade.shutil, 'which', return_value=None):
+                paths = upgrade.prepare_libraries(root, True, io.BytesIO())
+                self.assertEqual(set(paths), set(upgrade.LIBRARIES))
+                installed = root/'libexec/adws-plugin-runner'
+                self.assertEqual(installed.read_bytes(), b'artifact')
+                self.assertEqual(installed.stat().st_mode & 0o777, 0o755)
+                (folder/'adws-plugin-runner').write_bytes(b'corrupted')
+                with self.assertRaises(ValueError): upgrade.prepare_libraries(root, True, io.BytesIO())
+                self.assertEqual(installed.read_bytes(), b'artifact')

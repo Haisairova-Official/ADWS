@@ -4,11 +4,16 @@
 
 开发分支 / Development branch: `Pre-1.35`.
 
-- 开始 Rust 化：新增可选的 Rust 插件运行器，接管输出校验、超时和退出清理；插件接口保持兼容，默认仍使用 Python 后端。
-- Begin the Rust migration with an optional native plugin supervisor for output validation, timeouts and process cleanup. Plugin interfaces remain compatible; Python remains the default backend.
+- 开始 Rust 化：插件常驻运行器默认优先使用 Rust，源码安装和 Arch 预构建包都包含运行器；保留 Python 回退。
+- Begin the Rust migration: prefer the Rust plugin supervisor by default and include it in source installation and Arch prebuilt packages; retain the Python fallback.
 
 - 安装新增灵魂拷问：SSH 或非图形会话先确认是否继续，默认取消；普通桌面终端不受影响。
 - Installation now asks for confirmation in SSH or non-graphical sessions, defaulting to cancel; normal desktop terminals are unaffected.
+
+- 插件名称旁新增带代表色的圆角语言标签，长名称仍会省略，操作按钮保持可见。
+- Add colored language badges beside plugin names while keeping long names ellipsized and action buttons visible.
+- 修复了 Python 回退运行器收到退出信号后仍等待超时的问题。
+- Fix the Python fallback supervisor waiting for a timeout after receiving a termination signal.
 
 ## 1.30 Released — 2026-09-28
 

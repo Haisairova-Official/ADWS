@@ -149,6 +149,8 @@ def run(command, cwd, log, env=None):
 
 def prepare_libraries(root, prebuilt, log):
     run([sys.executable, '-m', 'compileall', '-q', str(root / 'tools'), str(root / 'src/niri-desktop-layer/desktop_layer')], root, log)
+    runner = None
+    has_runtime = (root / 'src/adws-runtime/Cargo.toml').is_file()
     if prebuilt:
         manifest = json.loads((root / 'prebuilt/manifest.json').read_text())
         if not isinstance(manifest, dict):
@@ -157,7 +159,11 @@ def prepare_libraries(root, prebuilt, log):
                 or version_key(manifest.get('version', '')) != installed_version(root)):
             raise ValueError(_tr('安装包版本与所选更新不一致。'))
         paths = {name: Path('prebuilt') / name for name in LIBRARIES}
-        for name, path in paths.items():
+        verified = dict(paths)
+        if has_runtime:
+            runner = Path('prebuilt/adws-plugin-runner')
+            verified['adws-plugin-runner'] = runner
+        for name, path in verified.items():
             if hashlib.sha256((root / path).read_bytes()).hexdigest() != manifest.get('sha256', {}).get(name):
                 raise ValueError(_tr('更新包校验失败。'))
     else:
@@ -166,6 +172,10 @@ def prepare_libraries(root, prebuilt, log):
         if missing:
             raise RuntimeError(_tr('缺少构建依赖：%s。请安装后重试，当前版本未修改。') % ', '.join(missing))
         run(['cargo', 'build', '--release', '--locked', '--manifest-path', str(root / 'src/niri-taskbar/Cargo.toml')], root, log, env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
+        if has_runtime:
+            run(['cargo', 'build', '--release', '--locked', '--manifest-path', str(root / 'src/adws-runtime/Cargo.toml')], root, log,
+                env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
+            runner = Path('src/adws-runtime/target/release/adws-plugin-runner')
         run(['make', '-B', '-C', str(root / 'src/panel-rows')], root, log)
         flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk+-3.0', 'gtk-layer-shell-0'], text=True)
         output = root / 'src/niri-desktop-layer/integration/libwaybar-space.so'
@@ -174,13 +184,16 @@ def prepare_libraries(root, prebuilt, log):
         paths = {'libniri_taskbar.so': Path('src/niri-taskbar/target/release/libniri_taskbar.so'),
                  'libadws_panel.so': Path('src/panel-rows/libadws_panel.so'),
                  'libwaybar-space.so': Path('src/niri-desktop-layer/integration/libwaybar-space.so')}
-    for path in paths.values():
+    for path in [*paths.values(), *([runner] if runner else [])]:
         if not (root / path).is_file():
             raise ValueError(_tr('更新包缺少原生组件。'))
         if shutil.which('ldd'):
             result = subprocess.run(['ldd', str(root / path)], capture_output=True, text=True, env={**os.environ, 'LC_ALL': 'C'})
             if result.returncode or 'not found' in result.stdout:
                 raise RuntimeError(_tr('更新组件与当前系统不兼容：%s') % (result.stdout + result.stderr))
+    if runner:
+        from adws_setup import atomic_install
+        atomic_install(root / runner, root / 'libexec/adws-plugin-runner', mode=0o755)
     return paths
 
 
