@@ -107,13 +107,21 @@ window#waybar.mode-invisible > box {
 
 
 
-/* ==== MNWS 插件布局（自动生成）==== */
-#custom-mnws-org-mnws-neteaselyrics {
-    min-width: 260px;
-}
-/* ==== MNWS 插件布局 END ==== */
 
-/* ==== MNWS 任务栏样式（自动生成）==== */
+
+
+
+
+
+
+
+/* ==== ADWS 插件布局（自动生成）==== */
+.niri-taskbar button.urgent { background-image: none; background-color: #f6d32d; }
+.niri-taskbar button { min-width: 0; min-height: 0; transition: background-color 280ms cubic-bezier(0.4, 0, 0.2, 1), color 280ms ease-in-out; }
+#custom-applauncher { transition: background-color 280ms ease-in-out, color 280ms ease-in-out; }
+/* ==== ADWS 插件布局 END ==== */
+
+/* ==== ADWS 任务栏样式（自动生成）==== */
 window#waybar > box {
     background: @surface_container_high;
     border-radius: 12px;
@@ -123,13 +131,7 @@ window#waybar > box {
     border-radius: 12px;
 }
 
-/* MNWS 网易云歌词：固定预留宽度，歌词长短不推动其他组件。 */
-#custom-mnws-org-mnws-neteaselyrics {
-    padding: 0 10px;
-    color: @on_surface;
-    background: transparent;
-}
-#custom-mnws-org-mnws-neteaselyrics.paused,
-#custom-mnws-org-mnws-neteaselyrics.idle {
-    opacity: 0.6;
+window#waybar * {
+    font-family: "JetBrainsMono Nerd Font Propo", "LXGW WenKai Screen", "JetBrains Maple Mono", "Font Awesome 7 Free";
+    font-size: 16.6px;
 }

@@ -27,10 +27,49 @@
       "order": 2
     }
   ],
-  "plugins": [],
+  "plugins": [
+    {
+      "package": "org.AkiACG_Community.NCMLyricsBar",
+      "enabled": true,
+      "slot": "right",
+      "order": 0,
+      "width": 0,
+      "animations": true,
+      "settings": {
+        "font_family": "",
+        "primary_color": "",
+        "secondary_color": "",
+        "separator_color": "",
+        "offset_ms": 0.0,
+        "experimental_other_platforms": false,
+        "api_mode": "netease",
+        "api_url": "",
+        "lyric_path": "lrc.lyric",
+        "translation_path": "tlyric.lyric"
+      }
+    }
+  ],
   "options": {
     "taskbar_library": null,
     "desktop_space_library": null,
-    "keep_live_base": true
+    "keep_live_base": true,
+    "start_label": "",
+    "start_icon_mode": "custom",
+    "start_launcher_command": "rofi -show drun -theme-str 'mainbox { background-image: none; }'",
+    "start_launcher_custom": "rofi -show drun -theme-str 'mainbox { background-image: none; }'",
+    "start_image": "",
+    "start_hover_image": "",
+    "position": "bottom",
+    "thickness": 36,
+    "window_rows": 1,
+    "animation_duration": 280,
+    "group_windows": true,
+    "window_animations": true,
+    "tab_animations": true,
+    "hover_color": "",
+    "focus_color": "",
+    "focus_text_color": "",
+    "urgent_color": "#f6d32d",
+    "window_peek": true
   }
 }

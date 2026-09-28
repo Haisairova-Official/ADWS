@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-import mnws_runtime as runtime
+import adws_runtime as runtime
 
 
 class ArgumentOrderTests(unittest.TestCase):
@@ -34,6 +34,6 @@ class ArgumentOrderTests(unittest.TestCase):
             python.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
             python.chmod(0o755)
             for args in (['-s'], ['-s','desktop'], ['-6','taskbar','-d']):
-                result = subprocess.run(['bash', str(root/'mnws'), *args], env={**os.environ,'PATH':directory+os.pathsep+os.environ['PATH']}, capture_output=True,text=True)
+                result = subprocess.run(['bash', str(root/'adws'), *args], env={**os.environ,'PATH':directory+os.pathsep+os.environ['PATH']}, capture_output=True,text=True)
                 self.assertEqual(result.returncode,0)
                 self.assertEqual(result.stdout.splitlines()[1:],args)

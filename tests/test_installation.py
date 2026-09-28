@@ -9,17 +9,17 @@ import tempfile
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-import mnws_health as health
-from mnws_i18n import tr as _tr
-import mnws_layout as layout
-import mnws_runtime as runtime
+import adws_health as health
+from adws_i18n import tr as _tr
+import adws_layout as layout
+import adws_runtime as runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallationTests(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(prefix='mnws-install-test-')
+        temp = tempfile.TemporaryDirectory(prefix='adws-install-test-')
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         self.home = self.root / 'home'
@@ -30,19 +30,45 @@ class InstallationTests(unittest.TestCase):
         self.bin.mkdir()
         self.env = dict(os.environ, HOME=str(self.home), XDG_CONFIG_HOME=str(self.config),
                         XDG_STATE_HOME=str(self.state), XDG_DATA_HOME=str(self.root / 'data'),
-                        XDG_CACHE_HOME=str(self.root / 'cache'), PATH=str(self.bin) + os.pathsep + str(self.home / '.local/bin') + os.pathsep + os.environ['PATH'])
+                        XDG_CACHE_HOME=str(self.root / 'cache'), NIRI_CONFIG=str(self.config/'niri/config.kdl'),
+                        ZDOTDIR=str(self.home), PATH=str(self.bin) + os.pathsep + str(self.home / '.local/bin') + os.pathsep + os.environ['PATH'])
         for program in ('niri', 'waybar', 'thunar', 'systemctl', 'rofi'):
             file = self.bin / program
             file.write_text('#!/bin/sh\nexit 0\n')
             file.chmod(0o755)
         self.libs = self.home / '.local/lib/waybar'
         self.libs.mkdir(parents=True)
-        for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libmnws_panel.so'):
+        for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so'):
             (self.libs / name).touch()
+        self.project = self.root/'installer'
+        self.project.mkdir()
+        for name in ('tools', 'scripts', 'config', 'language', 'src/niri-desktop-layer'):
+            shutil.copytree(ROOT/name, self.project/name, ignore=shutil.ignore_patterns('__pycache__', 'state', '*.so', 'target'))
+        for name in ('adws', 'build-info.json'):
+            shutil.copy2(ROOT/name, self.project/name)
+        (self.project/'src/niri-taskbar').mkdir(parents=True)
+        (self.project/'src/panel-rows').mkdir()
+        (self.project/'src/panel-rows/libadws_panel.so').write_text('test panel')
+        for program, script in {
+            'cargo': 'mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so',
+            'make': 'exit 0',
+            'cc': 'while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; printf test > "$1"; exit 0; fi; shift; done',
+        }.items():
+            file=self.bin/program;file.write_text('#!/bin/sh\n'+script+'\n');file.chmod(0o755)
 
-    def install(self):
-        return subprocess.run(['bash', str(ROOT / 'scripts/mnws-install.sh')],
-                              env=self.env, input="n\n", capture_output=True, text=True)
+    def install(self, answer="y\nn\n"):
+        # A fake HOME does not isolate /proc. Replace process discovery in the
+        # transaction driver before invoking the real installer in this fixture.
+        driver = """
+import runpy, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1])/'tools'))
+import adws_runtime
+adws_runtime.pids = lambda component: []
+runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_name='__main__')
+"""
+        return subprocess.run([sys.executable, '-c', driver, str(self.project)],
+                              env=self.env, input=answer, capture_output=True, text=True)
 
     def config_files(self):
         folder = self.config / 'waybar'
@@ -78,18 +104,18 @@ class InstallationTests(unittest.TestCase):
 
     def test_missing_library_aborts_before_installing(self):
         (self.libs / 'libniri_taskbar.so').unlink()
-        result = self.install()
+        result = self.install("n\n")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('libniri_taskbar.so', result.stdout)
         self.assertFalse((self.config / 'waybar').exists())
-        self.assertFalse((self.home / '.local/bin/mnws').exists())
+        self.assertFalse((self.home / '.local/bin/adws').exists())
 
     def test_old_template_links_are_detached_without_touching_source(self):
-        from mnws_include import detach_template_link
-        source_root = self.root / 'old-MNWS'
+        from adws_include import detach_template_link
+        source_root = self.root / 'old-ADWS'
         (source_root / 'tools').mkdir(parents=True)
-        (source_root / 'tools/mnws_layout.py').touch()
-        (source_root / 'mnws').touch()
+        (source_root / 'tools/adws_layout.py').touch()
+        (source_root / 'adws').touch()
         source = source_root / 'config/waybar/config-bottom.jsonc'
         source.parent.mkdir(parents=True)
         source.write_text('{"height":36}')
@@ -124,7 +150,7 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn('7', message)
         self.assertIn('taskbar.log', message)
-        self.assertIn('bad config test', (self.state / 'mnws/taskbar.log').read_text())
+        self.assertIn('bad config test', (self.state / 'adws/taskbar.log').read_text())
 
     def test_missing_module_blocks_write_and_restart(self):
         config, style = self.config_files()
@@ -152,9 +178,9 @@ class InstallationTests(unittest.TestCase):
         # Fake Cargo makes the compiler invocation observable without downloading crates.
         source = self.root / 'project'
         (source / 'src/niri-taskbar/target/release').mkdir(parents=True)
-        shutil.copy2(ROOT / 'mnws', source / 'mnws')
+        shutil.copy2(ROOT / 'adws', source / 'adws')
         (source / 'scripts').mkdir()
-        shutil.copy2(ROOT / 'scripts/mnws-i18n.sh', source / 'scripts/mnws-i18n.sh')
+        shutil.copy2(ROOT / 'scripts/adws-i18n.sh', source / 'scripts/adws-i18n.sh')
         artifact = source / 'src/niri-taskbar/target/release/libniri_taskbar.so'
         artifact.write_text('new library')
         old = self.libs / 'libniri_taskbar.so'
@@ -164,7 +190,7 @@ class InstallationTests(unittest.TestCase):
         cargo = self.bin / 'cargo'
         cargo.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/cargo-args"\nexit 0\n')
         cargo.chmod(0o755)
-        result = subprocess.run([str(source / 'mnws'), 'build-taskbar'], env=self.env, capture_output=True, text=True)
+        result = subprocess.run([str(source / 'adws'), 'build-taskbar'], env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         flags = (self.home / 'cargo-args').read_text()
         self.assertNotIn('--offline', flags)

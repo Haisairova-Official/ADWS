@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+source "$ROOT/scripts/adws-i18n.sh"
+
+usage() {
+    python3 "$ROOT/tools/adws_runtime.py" --help
+}
+
+if [[ "$#" -eq 1 && "$1" =~ ^-v+$ ]]; then
+    exec python3 "$ROOT/tools/adws_runtime.py" "$1"
+fi
+
+# Handle moo before help so invalid combinations never run other commands.
+for argument in "$@"; do
+    if [[ "$argument" == "moo" ]]; then
+        exec python3 "$ROOT/tools/adws_runtime.py" "$@"
+    fi
+done
+
+# Component operations accept either argument order; validate all arguments in Python.
+case "${1:-}" in
+    -s|--start|-S|--stop|-k|--kill|-r|--restart|-d|--debug|--status|-1|-2|-3|-4|-5|-6)
+        exec python3 "$ROOT/tools/adws_runtime.py" "$@" ;;
+esac
+
+# Help must not run component-changing commands (for example install -h).
+if [[ "${2:-}" == "-h" || "${2:-}" == "--help" || "${2:-}" == "-?" ]]; then
+    case "${1:-}" in
+        desktop|taskbar) exec python3 "$ROOT/tools/adws_runtime.py" "$1" --help ;;
+        *) usage; exit 0 ;;
+    esac
+fi
+
+case "${1:-help}" in
+    setup)
+        shift
+        exec python3 "$ROOT/tools/adws_oobe.py" "$@"
+        ;;
+    --update|-u)
+        shift
+        exec python3 "$ROOT/tools/adws_update.py" "$@"
+        ;;
+    --uninstall)
+        if [ "$#" -ne 1 ]; then
+            adws_message "用法: adws --uninstall" "Usage: adws --uninstall" >&2
+            exit 2
+        fi
+        exec python3 "$ROOT/tools/adws_uninstall.py"
+        ;;
+    --status)
+        exec python3 "$ROOT/tools/adws_runtime.py" "$@"
+        ;;
+    desktop|taskbar)
+        exec python3 "$ROOT/tools/adws_runtime.py" "$@"
+        ;;
+    config)
+        shift
+        exec python3 "$ROOT/tools/adws-config.py" "$@"
+        ;;
+    check)
+        exec python3 "$ROOT/tools/adws_health.py"
+        ;;
+    build-taskbar)
+        cd "$ROOT/src/niri-taskbar"
+        cargo build --release --locked
+        mkdir -p "$HOME/.local/lib/waybar"
+        taskbar_library_tmp="$(mktemp "$HOME/.local/lib/waybar/.libniri_taskbar.XXXXXX")"
+        trap 'rm -f "$taskbar_library_tmp"' EXIT
+        install -m644 target/release/libniri_taskbar.so "$taskbar_library_tmp"
+        mv -f "$taskbar_library_tmp" "$HOME/.local/lib/waybar/libniri_taskbar.so"
+        adws_message "已复制 libniri_taskbar.so 到 ~/.local/lib/waybar/" "Installed libniri_taskbar.so in ~/.local/lib/waybar/"
+        ;;
+    restart)
+        case "${2:-}" in
+            desktop|taskbar) exec python3 "$ROOT/tools/adws_runtime.py" "$2" --restart ;;
+            *) adws_message "用法: adws restart desktop|taskbar" "Usage: adws restart desktop|taskbar" >&2; exit 2 ;;
+        esac
+        ;;
+    install)
+        exec bash "$ROOT/scripts/adws-install.sh"
+        ;;
+    autostart)
+        action="${2:-status}"
+        exec python3 "$ROOT/tools/adws-config.py" --autostart "$action"
+        ;;
+    layout|plugin|mplg)
+        command="${1:-}"
+        shift
+        case "$command" in
+            layout)
+                exec python3 "$ROOT/tools/adws_layout.py" "$@"
+                ;;
+            plugin|mplg)
+                exec python3 "$ROOT/tools/adws_plugin.py" "$@"
+                ;;
+        esac
+        ;;
+    help|-h|--help|'-?')
+        usage
+        ;;
+    *)
+        adws_message "未知命令: ${1:-}" "Unknown command: ${1:-}" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

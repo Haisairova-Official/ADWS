@@ -10,9 +10,9 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from mnws_i18n import chinese, tr
+from adws_i18n import chinese, tr
 from desktop_layer.i18n import catalogue
-import mnws_runtime
+import adws_runtime
 
 
 class LanguageTests(unittest.TestCase):
@@ -25,13 +25,13 @@ class LanguageTests(unittest.TestCase):
         for env, expected in cases:
             with self.subTest(env=env):
                 self.assertEqual(chinese(env), expected)
-                run = subprocess.run(['bash', '-c', 'source "$1"; mnws_message zh en', '_', str(ROOT/'scripts/mnws-i18n.sh')], env={**env, 'PATH': os.defpath}, capture_output=True, text=True, check=True)
+                run = subprocess.run(['bash', '-c', 'source "$1"; adws_message zh en', '_', str(ROOT/'scripts/adws-i18n.sh')], env={**env, 'PATH': os.defpath}, capture_output=True, text=True, check=True)
                 self.assertEqual(run.stdout.strip(), 'zh' if expected else 'en')
 
     def test_help_in_both_languages(self):
         for locale, word in [('zh_CN.UTF-8', '最新更新'), ('en_US.UTF-8', 'Latest updates'), ('fr_FR.UTF-8', 'Latest updates')]:
             with patch.dict(os.environ, {'LC_ALL': locale, 'LANGUAGE': ''}):
-                output = mnws_runtime.help_text()
+                output = adws_runtime.help_text()
                 self.assertIn(word, output)
                 if not chinese():
                     self.assertFalse(re.search(r'[\u4e00-\u9fff]', output))

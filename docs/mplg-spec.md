@@ -1,8 +1,8 @@
-# MNWS Plugin API v1.0
+# ADWS Plugin API v1.0
 
-MNWS 1.25 的任务栏插件接口。公开格式只支持 Python 任务栏插件；
+ADWS 1.25 的任务栏插件接口。公开格式只支持 Python 任务栏插件；
 桌面 Widget、Service、Plasmoid、签名、沙箱、插件市场及自动更新不属于 v1.0。
-`.mplg` 是 ZIP，第三方使用下列接口即可接入，无需修改 MNWS Core。
+`.mplg` 是 ZIP，第三方使用下列接口即可接入，无需修改 ADWS Core。
 
 ## 包结构与清单
 
@@ -23,16 +23,16 @@ MyPlugin/
   "version": "1.0.0",
   "entry": "main.py",
   "renderer": "panel.text-v1",
-  "mnws": {"api": 1, "minVersion": "1.25"},
+  "adws": {"api": 1, "minVersion": "1.25"},
   "defaults": {"slot": "right", "width": 0, "interval": 5, "align": 0.5},
   "settingsSchema": [
-    {"key": "greeting", "label": "settings.greeting", "type": "string", "default": "Hello MNWS"},
+    {"key": "greeting", "label": "settings.greeting", "type": "string", "default": "Hello ADWS"},
     {"key": "enabled", "label": "settings.enabled", "type": "boolean", "default": true}
   ]
 }
 ```
 
-必需：`id`、`name`、`version`、`entry`、`renderer`。可选：`description`、`mnws`、
+必需：`id`、`name`、`version`、`entry`、`renderer`。可选：`description`、`adws`、
 `defaults`、`settingsSchema` 及作者/许可证等说明。
 
 - ID 至少两个以点分隔的非空段，允许 ASCII 字母、数字、下划线，区分大小写。
@@ -40,7 +40,7 @@ MyPlugin/
 - 插件版本采用 `主.次.修订`，可有预发布/构建后缀；多个已安装版本选择最高版本。
 - `entry` 为包内文件，禁止绝对路径、反斜杠、冒号、`.`、`..` 路径段与符号链接。
 - 不带阶段后缀的 minVersion（如 1.25）表示最低兼容版本系列，包括该系列预发布；显式 Release 则要求正式阶段。
-- 省略 `mnws` 等价于 `{"api":1,"minVersion":"1.25"}`；不支持的 API 或宿主版本过低会拒绝加载。
+- 省略 `adws` 等价于 `{"api":1,"minVersion":"1.25"}`；不支持的 API 或宿主版本过低会拒绝加载。
 - `slot` 为 left/center/right；width 为非负宽度，0 表示自动（rows 默认 420）；
   align 为 0–1；interval 为非负秒数。text 的正间隔由 Waybar 定期执行，最小 0.5 秒。
   interval=0 可用于长驻逐行输出；rows 使用长驻流，结束后宿主重试。
@@ -54,7 +54,7 @@ stdout 只能输出协议数据，stderr 用于日志；0 代表成功，非零�
 `panel.text-v1`：
 
 ```json
-{"text":"Hello MNWS","tooltip":"Example"}
+{"text":"Hello ADWS","tooltip":"Example"}
 ```
 
 `panel.rows-v1`：
@@ -95,25 +95,25 @@ rows 的 font_family、primary_color、secondary_color、separator_color 为宿�
 
 中文环境读取 zh，其他读取 en；缺文件或缺键直接显示原键。
 宿主翻译 name、description、设置 label/hint 和 choice 标签，不翻译设置值。
-插件输出文本由插件自行本地化。包内语言文件与 MNWS 根目录 `language/` 相互独立；
+插件输出文本由插件自行本地化。包内语言文件与 ADWS 根目录 `language/` 相互独立；
 宿主的加权 `_messages` 不是此版本插件词典的格式。
 
 ## 命令与路径
 
 ```sh
-mnws mplg init MyPlugin --id org.example.HelloWorld
-mnws mplg build MyPlugin
-mnws mplg validate org.example.HelloWorld_1.0.0.mplg
-mnws mplg install org.example.HelloWorld_1.0.0.mplg
-mnws mplg list
-mnws mplg inspect org.example.HelloWorld_1.0.0.mplg
-mnws mplg run org.example.HelloWorld --settings-json '{"enabled":true}'
-mnws mplg remove org.example.HelloWorld
+adws mplg init MyPlugin --id org.example.HelloWorld
+adws mplg build MyPlugin
+adws mplg validate org.example.HelloWorld_1.0.0.mplg
+adws mplg install org.example.HelloWorld_1.0.0.mplg
+adws mplg list
+adws mplg inspect org.example.HelloWorld_1.0.0.mplg
+adws mplg run org.example.HelloWorld --settings-json '{"enabled":true}'
+adws mplg remove org.example.HelloWorld
 ```
 
-安装目录：`$XDG_DATA_HOME/mnws/plugins/`（默认 `~/.local/share/mnws/plugins/`）；
-缓存目录：`$XDG_CACHE_HOME/mnws/plugins/<id>/<version>/`。
-可通过 MNWS_PLUGIN_DIR / MNWS_CACHE_DIR 覆盖。包先校验后解包，
+安装目录：`$XDG_DATA_HOME/adws/plugins/`（默认 `~/.local/share/adws/plugins/`）；
+缓存目录：`$XDG_CACHE_HOME/adws/plugins/<id>/<version>/`。
+可通过 ADWS_PLUGIN_DIR / ADWS_CACHE_DIR 覆盖。包先校验后解包，
 重复 ZIP 成员、越界路径、缺入口、非法语言文件、无效 schema 等会被拒绝。
 缓存使用包 SHA-256 和解包锁；删除缓存不影响安装包与设置。
 
@@ -129,7 +129,7 @@ mnws mplg remove org.example.HelloWorld
 新插件应使用本文的简化格式，避免混用两种声明。
 
 参考插件：`org.AkiACG_Community.NCMLyricsBar`，版本 1.0.2。
-旧 ID `org.mnws.neteaselyrics` 在加载布局和扫描包时映射为新 ID，
+旧 ID `org.adws.neteaselyrics` 在加载布局和扫描包时映射为新 ID，
 保留启用状态、分区、顺序和 settings；同时存在时只选一个版本，不重复显示。
 [HelloWorld](../plugins/sample/) 是最小示例，歌词插件是完整参考实现。
 
@@ -137,8 +137,8 @@ mnws mplg remove org.example.HelloWorld
 
 Plugin API 1 supports Python panel plugins packaged as ZIP `.mplg` archives.
 Required manifest fields are id, name, version, entry and renderer. Renderers are
-`panel.text-v1` (text) and `panel.rows-v1` (primary/secondary). Omitted `mnws`
-means API 1 and minimum MNWS 1.25. IDs are case-sensitive dotted ASCII segments
+`panel.text-v1` (text) and `panel.rows-v1` (primary/secondary). Omitted `adws`
+means API 1 and minimum ADWS 1.25. IDs are case-sensitive dotted ASCII segments
 with letters, digits and underscores.
 
 The host passes `--settings-json`, starts the entry in the extracted package root,

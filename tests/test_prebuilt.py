@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-import mnws_prebuilt as prebuilt
-from mnws_setup import atomic_install
+import adws_prebuilt as prebuilt
+from adws_setup import atomic_install
 
 
 class PrebuiltTests(unittest.TestCase):

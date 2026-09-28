@@ -5,8 +5,8 @@ import sys
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-import mnws_runtime as runtime
-from mnws_i18n import tr as _tr
+import adws_runtime as runtime
+from adws_i18n import tr as _tr
 
 
 class MooTests(unittest.TestCase):

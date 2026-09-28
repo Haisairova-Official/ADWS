@@ -1,6 +1,6 @@
 # Language files and randomized UI text
 
-MNWS uses Chinese for a Chinese display locale and English for all other locales.
+ADWS uses Chinese for a Chinese display locale and English for all other locales.
 Display locale is selected from `LC_ALL`, then `LC_MESSAGES`, then `LANG`.
 `LANGUAGE` supplies the preferred message language except in the C/POSIX locale.
 The desktop, settings, CLI, installer and native menus use the same policy.
@@ -23,7 +23,7 @@ Named reusable messages are stored under `_messages` in both `language/zh.json` 
 }
 ```
 
-Use `message("updates.none")` from `mnws_i18n` (tools) or `desktop_layer.i18n`
+Use `message("updates.none")` from `adws_i18n` (tools) or `desktop_layer.i18n`
 (desktop). Each call makes one selection. Weights must be finite positive numbers;
 they are relative and need not add up to 100. Each language may supply its own
 wording and weights. UI code does not contain the 80/20 probabilities.
@@ -34,15 +34,15 @@ wording and weights. UI code does not contain the 80/20 probabilities.
 
 ## Update checks / 检查更新
 
-`mnws --update` and `mnws -u`, or **About → Check for updates**, query the
+`adws --update` and `adws -u`, or **About → Check for updates**, query the
 [GitHub latest stable Release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release).
 The check only reports a version and a GitHub release link; it never installs code.
 
-To choose the route, MNWS queries `https://api.country.is/` for the country of its
+To choose the route, ADWS queries `https://api.country.is/` for the country of its
 outbound IP. It does not store or print the IP. For `CN`, it first tries
 `https://gh-proxy.com/`, whose [service documentation](https://gh-proxy.com/)
 lists GitHub API support, then falls back to GitHub directly on error. If location
-detection fails, it uses GitHub directly. `MNWS_GITHUB_PROXY` can override the HTTPS
+detection fails, it uses GitHub directly. `ADWS_GITHUB_PROXY` can override the HTTPS
 proxy prefix; an empty value disables the proxy. No GitHub credentials are sent.
 
 检查更新只会在用户点击按钮或执行命令时联网。通过出口 IP 国家代码判断中国大陆，

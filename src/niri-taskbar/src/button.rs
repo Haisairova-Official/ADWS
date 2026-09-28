@@ -1,11 +1,11 @@
-use std::{cell::RefCell, fmt::Debug, path::PathBuf};
+use std::{cell::RefCell, fmt::Debug, path::PathBuf, rc::Rc};
 
 use waybar_cffi::gtk::{
     self as gtk, Border, CssProvider, IconLookupFlags, IconSize, IconTheme, ReliefStyle,
     StateFlags,
     gdk_pixbuf::Pixbuf,
-    prelude::{ButtonExt, CssProviderExt, GdkPixbufExt, GtkMenuExt, GtkMenuItemExt,
-              IconThemeExt, MenuShellExt, StyleContextExt, WidgetExt},
+    prelude::*,
+
 };
 
 use crate::state::State;
@@ -14,7 +14,17 @@ use crate::state::State;
 pub struct Button {
     app_id: Option<String>,
     button: gtk::Button,
+    badge: gtk::DrawingArea,
+    count: Rc<std::cell::Cell<usize>>,
+    dots: Rc<std::cell::Cell<bool>>,
+    recent_window: Rc<std::cell::Cell<u64>>,
+    pub(crate) hover_popup: Rc<RefCell<Option<gtk::Popover>>>,
+    #[cfg(test)]
+    pub(crate) badge_test: gtk::DrawingArea,
+    icon: gtk::Overlay,
     state: State,
+    members: Rc<RefCell<Vec<(u64, String)>>>,
+    hover: Rc<RefCell<Option<Rc<crate::hover::HoverPreview>>>>,
 }
 
 impl Debug for Button {
@@ -49,6 +59,17 @@ impl Button {
     /// Instantiates a new button, including creating a new Gtk button internally.
     #[tracing::instrument(level = "TRACE", fields(app_id = &window.app_id))]
     pub fn new(state: &State, window: &niri_ipc::Window) -> Self {
+        Self::create(state, window.app_id.clone(), window.id, window.title.clone().unwrap_or_default())
+    }
+
+    pub fn pinned(state: &State, pin: &crate::pins::Pin) -> Self {
+        let button = Self::create(state, Some(pin.desktop_id.clone()), 0, pin.name.clone());
+        button.button.set_tooltip_text(Some(&pin.name));
+        button.set_group(vec![], 0);
+        button
+    }
+
+    fn create(state: &State, app_id: Option<String>, window_id: u64, title: String) -> Self {
         let state = state.clone();
 
         // Set up the basic image button.
@@ -59,15 +80,57 @@ impl Button {
         let button = gtk::Button::new();
         button.set_always_show_image(true);
         button.set_relief(ReliefStyle::None);
+        let icon = gtk::Overlay::new();
+        icon.add(&gtk::Image::from_icon_name(Some("application-x-executable"),IconSize::Button));
+        let badge = gtk::DrawingArea::new();
+        let count=Rc::new(std::cell::Cell::new(0usize));
+        let diameter=(state.config().thickness()/state.config().rows()/2).clamp(8,20) as i32;
+        badge.set_size_request(diameter,diameter);
+        let number=count.clone();
+        let dots=Rc::new(std::cell::Cell::new(false));
+        let draw_dots=dots.clone();
+        badge.connect_draw(move |widget,cr| {
+            let size=widget.allocated_width().min(widget.allocated_height()) as f64;
+            let style=widget.style_context();
+            let bg=style.lookup_color("primary").or_else(||style.lookup_color("theme_selected_bg_color")).unwrap_or(gtk::gdk::RGBA::new(0.2,0.4,0.8,1.));
+            let fg=style.lookup_color("on_primary").or_else(||style.lookup_color("theme_selected_fg_color")).unwrap_or(gtk::gdk::RGBA::new(1.,1.,1.,1.));
+            cr.set_source_rgba(bg.red(),bg.green(),bg.blue(),1.);cr.arc(size/2.,size/2.,(size/2.-1.).max(1.),0.,std::f64::consts::TAU);let _=cr.fill_preserve();
+            cr.set_source_rgba(fg.red(),fg.green(),fg.blue(),1.);cr.set_line_width(2.);let _=cr.stroke();
+            if draw_dots.get() {
+                // Solid circles give consistent weight and compact spacing
+                // regardless of which fonts the user has installed.
+                let radius = (size - 4.).max(1.) * 0.11;
+                let step = radius * 2.5;
+                for offset in [-step, 0., step] {
+                    cr.new_sub_path();
+                    cr.arc(size / 2. + offset, size / 2., radius, 0., std::f64::consts::TAU);
+                }
+                let _ = cr.fill();
+            } else {
+                let text=if number.get()>99{"99+".to_string()}else{number.get().to_string()};
+                cr.select_font_face("Sans",gtk::cairo::FontSlant::Normal,gtk::cairo::FontWeight::Bold);
+                cr.set_font_size(size*if text.len()>2{0.38}else{0.58});
+                if let Ok(ext)=cr.text_extents(&text){cr.move_to((size-ext.width())/2.-ext.x_bearing(),(size-ext.height())/2.-ext.y_bearing());}
+                cr.set_source_rgba(fg.red(),fg.green(),fg.blue(),1.);let _=cr.show_text(&text);
+            }
+            gtk::glib::Propagation::Stop
+        });
+        badge.style_context().add_class("adws-window-count");
+        badge.set_halign(gtk::Align::End);
+        badge.set_valign(gtk::Align::End);
+        badge.set_no_show_all(true);
+        icon.add_overlay(&badge);
+        icon.set_overlay_pass_through(&badge,true);
+        button.set_image(Some(&icon));
 
         // Provide the base CSS for each button that users can then extend.
         BUTTON_CSS_PROVIDER.with(|provider| {
+
             button
                 .style_context()
-                .add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+                .add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION - 1);
         });
 
-        let app_id = window.app_id.clone();
         let icon_path = app_id
             .as_deref()
             .and_then(|id| state.icon_cache().lookup(id));
@@ -75,15 +138,55 @@ impl Button {
         let button = Self {
             app_id,
             button,
+            #[cfg(test)]
+            badge_test: badge.clone(),
+            hover_popup: Rc::new(RefCell::new(None)),
+            hover: Rc::new(RefCell::new(None)),
+            badge,
+            count,
+            dots,
+            recent_window: Rc::new(std::cell::Cell::new(window_id)),
+            icon,
             state,
+            members: Rc::new(RefCell::new(vec![(window_id, title)])),
         };
 
         // Set up our event handlers. It's easier to do this with self already available.
-        button.connect_click_handler(window.id);
-        button.connect_context_menu(window.id);
+        button.connect_click_handler(window_id);
+        button.connect_context_menu(window_id);
+        button.connect_hover_description();
         button.connect_size_allocate(icon_path);
+        let hover = button.hover.clone();
+        button.button.connect_destroy(move |_| { hover.borrow_mut().take(); });
 
         button
+    }
+
+    pub fn dismiss_hover(&self) {
+        if let Some(hover) = self.hover.borrow().as_ref() { hover.dismiss(); }
+    }
+
+    pub fn set_group(&self, members: Vec<(u64, String)>, recent_window: u64) {
+        self.recent_window.set(recent_window);
+        if *self.members.borrow() == members { return; }
+        let count = members.len();
+        self.count.set(count);
+        self.badge.queue_draw();
+        self.badge.set_visible(count>1);
+        self.button.set_has_tooltip(false);
+        *self.members.borrow_mut() = members;
+        if let Some(hover) = self.hover.borrow().as_ref() { hover.refresh(); }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pin_test_state(&self) -> (Vec<u64>,u64,bool) {
+        (self.members.borrow().iter().map(|m|m.0).collect(),self.recent_window.get(),self.dots.get())
+    }
+
+    pub fn set_dots(&self, dots: bool) {
+        self.dots.set(dots);
+        self.badge.set_visible(dots || self.count.get()>1);
+        self.badge.queue_draw();
     }
 
     /// Sets whether the window represented by this button is currently focused.
@@ -102,7 +205,7 @@ impl Button {
     /// Sets the window title.
     #[tracing::instrument(level = "TRACE")]
     pub fn set_title(&self, title: Option<&str>) {
-        self.button.set_tooltip_text(title);
+        self.button.set_has_tooltip(false);
 
         // Apply any app styling rules.
         if let Some(app_id) = &self.app_id {
@@ -136,27 +239,134 @@ impl Button {
         &self.button
     }
 
-    fn connect_click_handler(&self, window_id: u64) {
+    fn connect_click_handler(&self, _window_id: u64) {
         let state = self.state.clone();
-
-        self.button.connect_clicked(move |_| {
-            if let Err(e) = state.niri().activate_window(window_id) {
-                tracing::warn!(%e, id = window_id, "error trying to activate window");
+        let app_id = self.app_id.clone();
+        let activate: Rc<dyn Fn(u64)> = Rc::new(move |id| {
+            if id == 0 {
+                if let Some(app) = &app_id { crate::panel::launch_application(app, false); }
+            } else if let Err(error) = state.niri().activate_window(id) {
+                tracing::warn!(%error, id, "window activation failed");
             }
+        });
+        let pressed = Rc::new(std::cell::Cell::new(None::<u64>));
+        let target = self.recent_window.clone();
+        let pending = pressed.clone();
+        let hover = self.hover.clone();
+        self.button.add_events(gtk::gdk::EventMask::BUTTON_PRESS_MASK | gtk::gdk::EventMask::BUTTON_RELEASE_MASK);
+        self.button.connect_button_press_event(move |_, event| {
+            if event.button() != 1 { return gtk::glib::Propagation::Proceed; }
+            // Capture MRU now; a workspace update between press/release must
+            // not retarget this click. Cancel even a preview on another card.
+            pending.set(Some(target.get()));
+            crate::hover::HoverPreview::dismiss_active();
+            if let Some(hover) = hover.borrow().as_ref() { hover.dismiss(); }
+            gtk::glib::Propagation::Stop
+        });
+        let pending = pressed.clone();
+        let run = activate.clone();
+        let hover = self.hover.clone();
+        self.button.connect_button_release_event(move |button, event| {
+            if event.button() != 1 { return gtk::glib::Propagation::Proceed; }
+            let Some(id) = pending.take() else { return gtk::glib::Propagation::Stop; };
+            if let Some(hover) = hover.borrow().as_ref() { hover.dismiss(); }
+            let (x, y) = event.position();
+            if x >= 0. && y >= 0. && x < button.allocated_width() as f64 && y < button.allocated_height() as f64 {
+                // Finish the Wayland pointer release before sending FocusWindow;
+                // sending it during an implicit pointer grab can eat the first click.
+                let run = run.clone();
+                gtk::glib::idle_add_local_once(move || run(id));
+            }
+            gtk::glib::Propagation::Stop
+        });
+        self.button.connect_unmap(move |_| { pressed.set(None); });
+        let target = self.recent_window.clone();
+        let hover = self.hover.clone();
+        // Pointer signals are consumed above; keep keyboard activation separate.
+        self.button.connect_clicked(move |_| {
+            crate::hover::HoverPreview::dismiss_active();
+            if let Some(hover) = hover.borrow().as_ref() { hover.dismiss(); }
+            activate(target.get());
         });
     }
 
+    fn connect_hover_description(&self) {
+        // A native popup outside the layer surface avoids clipped bottom-edge tooltips.
+        let popup = gtk::Popover::new(Some(&self.button));
+        self.hover_popup.replace(Some(popup.clone()));
+        popup.set_modal(false);
+        popup.set_position(match self.state.config().position() {
+            "top"=>gtk::PositionType::Bottom,"left"=>gtk::PositionType::Right,
+            "right"=>gtk::PositionType::Left,_=>gtk::PositionType::Top,
+        });
+        popup.set_constrain_to(gtk::PopoverConstraint::None);
+        self.hover.replace(Some(crate::hover::HoverPreview::new(
+            &self.button, &popup, self.state.clone(), self.members.clone())));
+    }
+
     /// Opens a small context menu on right click (focus / minimize / close).
-    fn connect_context_menu(&self, window_id: u64) {
+    fn connect_context_menu(&self, _window_id: u64) {
         let state = self.state.clone();
 
+        let members = self.members.clone();
+        let hover=self.hover.clone();
+        let app_id = self.app_id.clone();
+        let recent = self.recent_window.clone();
         self.button.connect_button_press_event(move |_button, event| {
             if event.button() != 3 {
                 return gtk::glib::Propagation::Proceed;
             }
 
+            if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
+            let window_id = recent.get();
             tracing::info!(id = window_id, "{}", crate::i18n::text("打开窗口右键菜单", "Open window context menu"));
             let menu = gtk::Menu::new();
+            for (label, administrator) in [
+                (crate::i18n::text("打开新窗口", "Open new window"), false),
+                (crate::i18n::text("以管理员权限运行", "Run as administrator"), true),
+            ] {
+                let item = gtk::MenuItem::with_label(label);
+                item.set_sensitive(app_id.as_ref().is_some_and(|id| !id.is_empty()));
+                let app_id = app_id.clone();
+                item.connect_activate(move |_| {
+                    if let Some(id) = &app_id {
+                        crate::panel::launch_application(id, administrator);
+                    }
+                });
+                menu.append(&item);
+            }
+            if let Some(app) = &app_id {
+                let pinned=crate::pins::is_pinned(app);
+                let pin=gtk::MenuItem::with_label(if pinned {crate::i18n::text("取消固定", "Unpin from taskbar")} else {crate::i18n::text("固定到任务栏", "Pin to taskbar")});
+                let app=app.clone();
+                pin.connect_activate(move |_|crate::panel::pin_application(&app,!pinned));
+                menu.append(&pin);
+            }
+            if members.borrow().is_empty() {
+                show_menu(menu, None);
+                return gtk::glib::Propagation::Stop;
+            }
+            menu.append(&gtk::SeparatorMenuItem::new());
+            if members.borrow().len() > 1 {
+                for (id,title) in members.borrow().iter() {
+                    let item = gtk::MenuItem::with_label(title);
+                    let submenu = gtk::Menu::new();
+                    for (caption, action) in [(crate::i18n::text("聚焦窗口", "Focus window"),0),
+                        (crate::i18n::text("最小化 / 还原", "Minimize / restore"),1),
+                        (crate::i18n::text("关闭窗口", "Close window"),2)] {
+                        let action_item = gtk::MenuItem::with_label(caption);
+                        let state = state.clone(); let id = *id;
+                        action_item.connect_activate(move |_| {
+                            let result = match action {0 => state.niri().activate_window(id),1=>state.niri().toggle_window_minimized(id),_=>state.niri().close_window(id)};
+                            if let Err(error) = result {tracing::warn!(%error,id,"group window action failed");}
+                        });
+                        submenu.append(&action_item);
+                    }
+                    item.set_submenu(Some(&submenu)); menu.append(&item);
+                }
+                show_menu(menu, None);
+                return gtk::glib::Propagation::Stop;
+            }
             let focus = gtk::MenuItem::with_label(crate::i18n::text("聚焦窗口", "Focus window"));
             let minimize = gtk::MenuItem::with_label(crate::i18n::text("最小化 / 还原", "Minimize / restore"));
             let close = gtk::MenuItem::with_label(crate::i18n::text("关闭窗口", "Close window"));
@@ -194,11 +404,11 @@ impl Button {
             });
 
             ACTIVE_CONTEXT_MENU.with(|slot| {
-                let mut active = slot.borrow_mut();
-                if let Some(old) = active.take() {
+                let old = slot.borrow_mut().take();
+                if let Some(old) = old {
                     old.popdown();
                 }
-                *active = Some(menu.clone());
+                *slot.borrow_mut() = Some(menu.clone());
             });
             // 传入触发事件，让 GTK 在指针位置弹出菜单；不传时部分 Wayland 环境会定位失败。
             menu.popup_at_pointer(Some(event));
@@ -210,6 +420,9 @@ impl Button {
     #[tracing::instrument(level = "TRACE")]
     fn connect_size_allocate(&self, icon_path: Option<PathBuf>) {
         let last_size = RefCell::new(None);
+        let icon = self.icon.clone();
+        let vertical = self.state.config().vertical();
+        let lane = (self.state.config().thickness() / self.state.config().rows()) as i32;
 
         self.button
             .connect_size_allocate(move |button, allocation| {
@@ -223,14 +436,14 @@ impl Button {
                 // this was called.
                 if !must_redraw {
                     if let Some(last_size) = last_size.take() {
-                        if &last_size != allocation {
+                        if last_size != (allocation.width(), allocation.height()) {
                             must_redraw = true;
                         }
                     } else {
                         must_redraw = true;
                     }
 
-                    last_size.replace(Some(*allocation));
+                    last_size.replace(Some((allocation.width(), allocation.height())));
                 }
 
                 if must_redraw {
@@ -259,10 +472,12 @@ impl Button {
                     let margin = context.margin(StateFlags::NORMAL);
                     let padding = context.padding(StateFlags::NORMAL);
 
-                    let size = allocation.height()
-                        - border.vertical_size()
-                        - margin.vertical_size()
-                        - padding.vertical_size();
+                    let (available, decoration) = if vertical {
+                        (allocation.width(), border.horizontal_size()+margin.horizontal_size()+padding.horizontal_size())
+                    } else {
+                        (allocation.height(), border.vertical_size()+margin.vertical_size()+padding.vertical_size())
+                    };
+                    let size = (available.min(lane) - decoration).max(1);
 
                     // Now we know the size, we can actually load the image.
                     let image =
@@ -298,9 +513,11 @@ impl Button {
                     // Finally, we can set the button image. Doing this from the callback doesn't
                     // seem to work reliably for reasons I don't understand at all, but doing it
                     // from the main loop as soon as possible does. :shrug:
-                    let button = button.clone();
+                    let icon = icon.clone();
                     gtk::glib::source::idle_add_local_once(move || {
-                        button.set_image(Some(&image));
+                        if let Some(old) = icon.child() { icon.remove(&old); }
+                        icon.add(&image);
+                        image.show();
                     });
                 }
             });
@@ -330,10 +547,30 @@ impl Button {
 
 trait BorderExt {
     fn vertical_size(&self) -> i32;
+    fn horizontal_size(&self) -> i32;
 }
 
 impl BorderExt for Border {
+    fn horizontal_size(&self) -> i32 { (self.left + self.right).into() }
     fn vertical_size(&self) -> i32 {
         (self.top + self.bottom).into()
     }
+}
+
+fn show_menu(menu: gtk::Menu, anchor: Option<&gtk::Button>) {
+    crate::menu_style::apply(&menu);
+    menu.show_all();
+    menu.connect_deactivate(|_| { ACTIVE_CONTEXT_MENU.with(|slot| {slot.borrow_mut().take();}); });
+    ACTIVE_CONTEXT_MENU.with(|slot| {
+        let old = slot.borrow_mut().take();
+        if let Some(old) = old {old.popdown();}
+        *slot.borrow_mut() = Some(menu.clone());
+    });
+    if let Some(button) = anchor {
+        menu.popup_at_widget(button, gtk::gdk::Gravity::SouthWest, gtk::gdk::Gravity::NorthWest, None::<&gtk::gdk::Event>);
+    } else {menu.popup_at_pointer(gtk::current_event().as_ref());}
+}
+
+impl Drop for Button {
+    fn drop(&mut self) { self.hover.borrow_mut().take(); }
 }

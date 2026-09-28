@@ -106,8 +106,8 @@ fn main() {
     parent.show_all();
     settle();
     let menu = gtk::Menu::new();
-    menu.append(&gtk::MenuItem::with_label("任务栏样式设置… (MNWS)"));
-    menu.append(&gtk::MenuItem::with_label("组件与插件… (MNWS)"));
+    menu.append(&gtk::MenuItem::with_label("任务栏样式设置… (ADWS)"));
+    menu.append(&gtk::MenuItem::with_label("组件与插件… (ADWS)"));
     menu_style::apply(&menu);
     menu.show_all();
     menu.popup_at_rect(
@@ -132,7 +132,7 @@ fn main() {
         gtk::gdk::pixbuf_get_from_surface(&surface, 0, 0, surface.width(), surface.height())
             .unwrap();
     pixbuf
-        .savev("/tmp/mnws-menu-check.png", "png", &[])
+        .savev("/tmp/adws-menu-check.png", "png", &[])
         .unwrap();
     menu.popdown();
     parent.close();

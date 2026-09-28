@@ -4,14 +4,18 @@ import signal
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-import mnws_runtime as runtime
-from mnws_i18n import tr as _tr
+import adws_runtime as runtime
+from adws_i18n import tr as _tr
 
 
 class RuntimeTests(unittest.TestCase):
+    def setUp(self):
+        mock = patch('adws_oobe.launch')
+        mock.start()
+        self.addCleanup(mock.stop)
     def test_taskbar_inherits_own_niri_session_locale(self):
         import tempfile
-        from mnws_i18n import chinese
+        from adws_i18n import chinese
         with tempfile.TemporaryDirectory() as temp:
             proc = Path(temp)
             entry = proc / '123'
@@ -20,7 +24,7 @@ class RuntimeTests(unittest.TestCase):
             caller = {'NIRI_SOCKET': '/run/user/1000/niri.wayland-1.123.sock',
                       'LANG': 'zh_CN.UTF-8', 'LC_ALL': 'C.UTF-8',
                       'LANGUAGE': 'en', 'WAYLAND_DISPLAY': 'wayland-1',
-                      'GDK_BACKEND': 'x11', 'MNWS_LOG_LEVEL': '6'}
+                      'GDK_BACKEND': 'x11', 'ADWS_LOG_LEVEL': '6'}
             for locale, expected in [('zh_CN.UTF-8', True), ('en_US.UTF-8', False)]:
                 (entry / 'environ').write_bytes(('LANG=' + locale + '\0SECRET=not-copied\0').encode())
                 result = runtime.taskbar_environment(caller, proc)
@@ -31,7 +35,7 @@ class RuntimeTests(unittest.TestCase):
                 self.assertNotIn('SECRET', result)
                 self.assertNotIn('GDK_BACKEND', result)
                 self.assertEqual(result['WAYLAND_DISPLAY'], 'wayland-1')
-                self.assertEqual(result['MNWS_LOG_LEVEL'], '6')
+                self.assertEqual(result['ADWS_LOG_LEVEL'], '6')
             self.assertEqual(caller['LC_ALL'], 'C.UTF-8')
             (entry / 'comm').write_text('other-process')
             self.assertEqual(runtime.taskbar_environment(caller, proc)['LC_ALL'], 'C.UTF-8')
@@ -87,7 +91,7 @@ class RuntimeTests(unittest.TestCase):
                         else:
                             self.assertEqual(command[-2:], ['-l', 'info'])
                             self.assertEqual(env['RUST_LOG'], 'info')
-                            self.assertNotIn('MNWS_PANEL_DEBUG', env)
+                            self.assertNotIn('ADWS_PANEL_DEBUG', env)
                         self.assertNotIn('GDK_BACKEND', env)
 
     def test_status_and_restart(self):
@@ -112,13 +116,13 @@ class RuntimeTests(unittest.TestCase):
                     with self.subTest(component=component, level=level), patch.object(runtime, 'pids', return_value=[]), patch.object(runtime.os, 'execvpe') as execute, patch.object(runtime.Path, 'home', return_value=home):
                         self.assertEqual(runtime.main([component, '-d', f'-{level}']), 0)
                         program, command, env = execute.call_args.args
-                        self.assertEqual(env['MNWS_LOG_LEVEL'], str(level))
+                        self.assertEqual(env['ADWS_LOG_LEVEL'], str(level))
                         if component == 'desktop':
                             self.assertEqual(command[command.index('--log-level') + 1], str(level))
                         else:
                             self.assertEqual(command[-1], ('critical', 'error', 'warning', 'info', 'debug', 'trace')[level - 1])
                             self.assertEqual(env['RUST_LOG'], ('off', 'error', 'warn', 'info', 'debug', 'trace')[level - 1])
-                            self.assertEqual('MNWS_PANEL_DEBUG' in env, level >= 5)
+                            self.assertEqual('ADWS_PANEL_DEBUG' in env, level >= 5)
 
     def test_log_level_requires_debug_and_rejects_conflicts(self):
         for args in (['desktop', '-s', '-6'], ['taskbar', '-d', '-1', '-6']):
@@ -142,7 +146,7 @@ class RuntimeTests(unittest.TestCase):
         with patch.object(runtime, 'pids', return_value=[]), patch.object(runtime.Path, 'is_file', return_value=False), redirect_stderr(error), self.assertRaises(SystemExit) as caught:
             runtime.main(['taskbar', '-s'])
         self.assertEqual(caught.exception.code, 1)
-        self.assertIn(_tr('缺少任务栏配置，请先运行 mnws install。\n'), error.getvalue())
+        self.assertIn(_tr('缺少任务栏配置，请先运行 adws install。\n'), error.getvalue())
 
     def test_help_aliases_do_not_touch_processes(self):
         import io

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MNWS panel.json-v1 示例插件。
+"""ADWS panel.json-v1 示例插件。
 
 --output-json  向 stdout 打印一行 JSON（宿主要求）
 --click <键>    处理点击（可选，可空实现）
@@ -15,12 +15,12 @@ def render() -> dict:
         "text": "\U0001f44b",
         "alt": "hello",
         "class": "normal",
-        "tooltip": "Hello MNWS\n%s" % now.strftime("%Y-%m-%d %H:%M:%S"),
+        "tooltip": "Hello ADWS\n%s" % now.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="MNWS panel plugin")
+    parser = argparse.ArgumentParser(description="ADWS panel plugin")
     parser.add_argument("--output-json", action="store_true")
     parser.add_argument("--click", choices=("left", "right", "middle",
                                             "scroll-up", "scroll-down"))

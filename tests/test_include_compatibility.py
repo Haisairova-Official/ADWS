@@ -5,14 +5,14 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from mnws_include import normalize_default_include, update_installed_config
-import mnws_layout as layout
-from mnws_health import validate_waybar
+from adws_include import normalize_default_include, update_installed_config
+import adws_layout as layout
+from adws_health import validate_waybar
 
 
 class IncludeCompatibilityTests(unittest.TestCase):
     def test_default_forms_use_install_location(self):
-        with tempfile.TemporaryDirectory(prefix='mnws include ') as folder:
+        with tempfile.TemporaryDirectory(prefix='adws include ') as folder:
             config = Path(folder) / 'config-bottom.jsonc'
             for value in ('modules.jsonc', ['modules.jsonc'], ['./modules.jsonc'], [str(config.parent / 'modules.jsonc')]):
                 with self.subTest(value=value):
@@ -37,7 +37,7 @@ class IncludeCompatibilityTests(unittest.TestCase):
             config.symlink_to(target)
             self.assertTrue(update_installed_config(config))
             self.assertTrue(config.is_symlink())
-            self.assertEqual(config.with_name(config.name + '.mnws-include-bak').read_text(), original)
+            self.assertEqual(config.with_name(config.name + '.adws-include-bak').read_text(), original)
             self.assertIn('// keep comment', config.read_text())
             self.assertIn('/* explanation */', config.read_text())
             parsed = layout.parse_jsonc(config.read_text())

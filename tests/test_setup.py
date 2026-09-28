@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-import mnws_setup as setup
-from mnws_i18n import tr as _tr
+import adws_setup as setup
+from adws_i18n import tr as _tr
 
 
 class SetupTests(unittest.TestCase):
