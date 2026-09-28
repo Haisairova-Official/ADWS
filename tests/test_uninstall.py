@@ -24,7 +24,8 @@ class UninstallTests(unittest.TestCase):
         self.root.mkdir()
         self.addCleanup(patch.stopall)
         patch.object(removal, 'ROOT', self.root).start()
-        patch.dict(os.environ, HOME=str(self.home), XDG_CONFIG_HOME=str(self.config), XDG_STATE_HOME=str(self.state)).start()
+        patch.dict(os.environ, HOME=str(self.home), XDG_CONFIG_HOME=str(self.config), XDG_STATE_HOME=str(self.state),
+                   NIRI_CONFIG=str(self.config/'niri/config.kdl')).start()
         self.control = patch('adws_runtime.main', return_value=0).start()
         (self.home / '.local/bin').mkdir(parents=True)
         (self.home / '.local/bin/adws').symlink_to(self.root / 'adws')
@@ -96,3 +97,42 @@ class UninstallTests(unittest.TestCase):
         self.run_answers(['y', 'n'])
         self.assertTrue(self.lib.exists())
         self.assertEqual(command.readlink(), self.base / 'another-adws')
+
+    def test_uninstall_does_not_race_an_install_or_update(self):
+        import adws_upgrade
+        with adws_upgrade.update_lock(),patch('sys.stderr',new_callable=io.StringIO):
+            result,_,_=self.run_answers(['y','n'])
+        self.assertEqual(result,1)
+        self.control.assert_not_called()
+        self.assertTrue(self.lib.exists())
+        self.assertTrue((self.home/'.local/bin/adws').is_symlink())
+        self.assertIn('spawn-at-startup',self.niri.read_text())
+
+    def test_inventory_save_preserves_link_and_private_permissions(self):
+        path=removal.inventory_path();target=self.base/'my-inventory.json'
+        path.rename(target);path.symlink_to(target);target.chmod(0o600)
+        data=removal.read_inventory();data['extra']='retained'
+        removal.save_inventory(data)
+        self.assertTrue(path.is_symlink())
+        self.assertEqual(json.loads(target.read_text())['extra'],'retained')
+        self.assertEqual(target.stat().st_mode & 0o777,0o600)
+
+    def test_failed_inventory_save_keeps_original_bytes(self):
+        import adws_atomic
+        path=removal.inventory_path();before=path.read_bytes()
+        with patch.object(adws_atomic.os,'replace',side_effect=OSError('disk error')):
+            with self.assertRaises(OSError):removal.save_inventory({'partial':True})
+        self.assertEqual(path.read_bytes(),before)
+        self.assertFalse(list(path.parent.glob('.adws-write-*')))
+
+    def test_failed_autostart_removal_preserves_link_and_original_config(self):
+        import adws_atomic
+        target=self.base/'my-niri.kdl';self.niri.rename(target);self.niri.symlink_to(target)
+        target.chmod(0o640);before=target.read_bytes()
+        with patch.object(adws_atomic.os,'replace',side_effect=OSError('disk error')):
+            with self.assertRaises(OSError):removal.remove_autostart()
+        self.assertEqual(target.read_bytes(),before)
+        self.assertTrue(self.niri.is_symlink())
+        removal.remove_autostart()
+        self.assertEqual(target.read_text(),'input {}\n')
+        self.assertEqual(target.stat().st_mode & 0o777,0o640)

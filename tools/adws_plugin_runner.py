@@ -9,10 +9,36 @@ import signal
 import subprocess
 import sys
 import time
-from adws_plugin_api import settings
+from adws_plugin_api import finite, settings
 from adws_i18n import tr
 
 LIMIT = 1024 * 1024
+
+
+def write_line(text, stream):
+    try:
+        print(text, file=stream, flush=True)
+    except BrokenPipeError:
+        # Also prevent Python's final buffered flush from reporting the same
+        # closed consumer again during interpreter shutdown.
+        try:
+            with open(os.devnull, 'wb') as sink:
+                os.dup2(sink.fileno(), stream.fileno())
+        except (OSError, ValueError):
+            pass
+        raise
+
+
+def report_failure(error, plugin_id=None):
+    try:
+        prefix = f'[plugin:{plugin_id}] ' if plugin_id else ''
+        write_line(prefix + str(error), sys.stderr)
+        text = tr('插件运行失败')
+        write_line(json.dumps({'text': text, 'primary': text, 'secondary': '',
+                               'tooltip': text, 'class': 'error'}, ensure_ascii=False), sys.stdout)
+    except BrokenPipeError:
+        return 0  # The consumer has gone; there is nowhere to display an error.
+    return 1
 
 
 def execute(root, manifest, overrides, timeout=30):
@@ -49,7 +75,7 @@ def execute(root, manifest, overrides, timeout=30):
                     while b'\n' in buffers[kind]:
                         line, buffers[kind] = buffers[kind].split(b'\n', 1)
                         if kind == 'stderr':
-                            print(f'[plugin:{manifest["id"]}] {line.decode("utf-8", errors="replace")}', file=sys.stderr, flush=True)
+                            write_line(f'[plugin:{manifest["id"]}] {line.decode("utf-8", errors="replace")}', sys.stderr)
                             continue
                         payload = json.loads(line)
                         if not isinstance(payload, dict): raise ValueError('Plugin output must be a JSON object')
@@ -61,20 +87,21 @@ def execute(root, manifest, overrides, timeout=30):
                         classes = payload.get('class', '')
                         if not isinstance(classes, str) and not (isinstance(classes, list) and all(isinstance(c, str) for c in classes)):
                             raise ValueError('Invalid CSS class')
-                        if 'percentage' in payload and (type(payload['percentage']) not in (int, float) or not math.isfinite(payload['percentage']) or not 0 <= payload['percentage'] <= 100):
+                        if 'percentage' in payload and (not finite(payload['percentage']) or not 0 <= payload['percentage'] <= 100):
                             raise ValueError('Invalid percentage')
-                        print(json.dumps(payload, ensure_ascii=False), flush=True)
+                        write_line(json.dumps(payload, ensure_ascii=False), sys.stdout)
                         count += 1
                         # Legacy streams emit only changed data and have no heartbeat contract.
                         deadline = time.monotonic() + timeout if 'renderer' in manifest else float('inf')
-            code = process.wait(timeout=max(.1, deadline-time.monotonic()))
+            # Once both pipes close there can be no further updates. Legacy
+            # streams may stay quiet with open pipes, but must now exit promptly.
+            code = process.wait(timeout=min(timeout, max(.1, deadline-time.monotonic())))
             if code or not count: raise ValueError(f'Plugin exited with status {code}; records={count}')
         return 0
-    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-        print(f'[plugin:{manifest["id"]}] {error}', file=sys.stderr, flush=True)
-        text = tr('插件运行失败')
-        print(json.dumps({'text': text, 'primary': text, 'secondary': '', 'tooltip': text, 'class': 'error'}, ensure_ascii=False), flush=True)
-        return 1
+    except BrokenPipeError:
+        return 0
+    except (OSError, ValueError, RecursionError, OverflowError, subprocess.TimeoutExpired) as error:
+        return report_failure(error, manifest['id'])
     finally:
         if process is not None:
             try: os.killpg(process.pid, signal.SIGKILL)
@@ -95,11 +122,10 @@ def main():
     path = Path(args.package)
     try:
         return execute(materialize(path), load_manifest(path), json.loads(args.settings_json), args.timeout)
+    except BrokenPipeError:
+        return 0
     except (OSError, ValueError) as error:
-        print(str(error), file=sys.stderr)
-        text = tr('插件运行失败')
-        print(json.dumps({'text': text, 'primary': text, 'secondary': '', 'class': 'error'}, ensure_ascii=False), flush=True)
-        return 1
+        return report_failure(error)
 
 
 if __name__ == '__main__':

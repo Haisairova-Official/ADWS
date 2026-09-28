@@ -34,6 +34,14 @@ with tempfile.TemporaryDirectory() as tmp:
     replacement = folder / 'new.css'; replacement.write_text('@define-color accent #0000ff;'); replacement.replace(palette)
     settle()
     assert context.get_background_color(Gtk.StateFlags.NORMAL).blue > .9
+    # A generator may remove a dependency or the root before writing its replacement.
+    palette.unlink(); settle()
+    assert context.get_background_color(Gtk.StateFlags.NORMAL).blue > .9
+    palette.write_text('@define-color accent #0000ff;')
+    stylesheet = css.read_text(); css.unlink(); settle()
+    assert context.get_background_color(Gtk.StateFlags.NORMAL).blue > .9
+    css.write_text(stylesheet); settle()
+    assert context.get_background_color(Gtk.StateFlags.NORMAL).blue > .9
     palette.write_text('invalid CSS {')
     settle()
     assert context.get_background_color(Gtk.StateFlags.NORMAL).blue > .9
@@ -57,4 +65,4 @@ with tempfile.TemporaryDirectory() as tmp:
     menu.destroy()
     assert menu._adws_palette_watch.source == 0
     for watcher in _watchers: watcher.close()
-print('Live theme update, atomic replacement, invalid-write recovery and singleton checks passed.')
+print('Live theme update, missing-file recovery, atomic replacement, invalid-write recovery and singleton checks passed.')

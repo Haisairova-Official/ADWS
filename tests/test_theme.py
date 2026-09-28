@@ -2,8 +2,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from adws_theme import css_snapshot
+from adws_theme import css_snapshot, Watch
 
 
 class ThemeSnapshotTests(unittest.TestCase):
@@ -34,3 +35,27 @@ class ThemeSnapshotTests(unittest.TestCase):
             self.assertEqual(len(before), 2)
             (css.parent / 'missing.css').write_text('@define-color accent #f00;')
             self.assertNotEqual(before, css_snapshot([css]))
+
+    def test_watcher_retries_after_callback_exception(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'colors.css';path.write_text('old')
+            watcher=Watch.__new__(Watch);watcher.paths=[path];watcher.snapshot=css_snapshot([path]);watcher.source=1
+            with patch.object(watcher,'callback',create=True,side_effect=[ValueError('temporary failure'),True]) as callback:
+                path.write_text('new')
+                before=watcher.snapshot
+                self.assertTrue(watcher.poll())
+                self.assertEqual(watcher.snapshot,before)
+                self.assertTrue(watcher.poll())
+                self.assertEqual(watcher.snapshot,css_snapshot([path]))
+                self.assertEqual(callback.call_count,2)
+
+    def test_missing_stylesheet_keeps_last_palette_until_it_returns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'colors.css';path.write_text('old')
+            watcher=Watch.__new__(Watch);watcher.paths=[path];watcher.snapshot=css_snapshot([path]);watcher.source=1
+            with patch.object(watcher,'callback',create=True,return_value=True) as callback:
+                path.unlink();before=watcher.snapshot
+                self.assertTrue(watcher.poll());callback.assert_not_called()
+                self.assertEqual(watcher.snapshot,before)
+                path.write_text('new');self.assertTrue(watcher.poll())
+                callback.assert_called_once()

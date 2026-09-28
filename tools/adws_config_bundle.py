@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import tomllib
 
@@ -96,26 +97,26 @@ def read_bundle(source):
 
 def import_bundle(data, desktop_state=None):
     """Import an already validated bundle; retain a persistent recovery copy."""
+    from adws_atomic import replace_files
+    from adws_upgrade import update_lock
     targets = locations(desktop_state)
     state = Path(os.environ.get('XDG_STATE_HOME') or Path.home()/'.local/state')/'adws/config-backups'
-    state.mkdir(parents=True, exist_ok=True)
-    backup = Path(tempfile.mkdtemp(prefix='import-', dir=state))
-    previous = {}
-    try:
+    with update_lock():
+        state.mkdir(parents=True, exist_ok=True)
+        backup = Path(tempfile.mkdtemp(prefix='import-', dir=state))
+        resolved = set()
         for name in data['files']:
             target = targets[name].resolve()
-            previous[target] = target.read_bytes() if target.exists() else None
-            if previous[target] is not None:
+            if target in resolved:
+                raise ValueError(_tr('多个配置项指向同一文件，已取消导入。'))
+            resolved.add(target)
+            if target.exists():
                 copy = backup/name
                 copy.parent.mkdir(parents=True, exist_ok=True)
-                copy.write_bytes(previous[target])
-        for name, text in data['files'].items():
-            atomic_write(targets[name].resolve(), text.encode('utf-8'))
-    except Exception:
-        for path, content in previous.items():
-            if content is None: path.unlink(missing_ok=True)
-            else: atomic_write(path, content)
-        raise
+                shutil.copy2(target, copy)
+        # Stage all files before replacing any, including KeyboardInterrupt
+        # recovery. Preserve symlinks and modes in both files and backups.
+        replace_files({targets[name]: text.encode('utf-8') for name, text in data['files'].items()})
     return backup
 
 
@@ -149,6 +150,6 @@ def dialog(parent, importing=False, desktop_state=None):
         result = Gtk.MessageDialog(transient_for=parent, modal=True, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK, text=message)
         result.run(); result.destroy()
         if importing: parent.destroy()
-    except (OSError, ValueError, TypeError, KeyError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
         error = Gtk.MessageDialog(transient_for=parent, modal=True, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=str(exc))
         error.run(); error.destroy()

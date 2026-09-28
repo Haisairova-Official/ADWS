@@ -6,7 +6,7 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development version: **1.30 Pre-Release** · 最新已发布 / Latest published: **1.25 Released** · [更新记录 / Changelog](CHANGELOG.md)
+稳定版本 / Stable release: **1.30 Released** · 构建日期 / Build date: **2026-09-28** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
 
@@ -16,9 +16,9 @@ ADWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 
 1.25 已在 Arch Linux 与 Ubuntu 的 Niri 环境完成测试。ADWS 仍依赖 Niri、Waybar 和发行版提供的系统组件，不打算取代窗口管理器或 Linux 用户空间。
 
-### 1.30 Pre-Release 开发版（Pre-1.30）
+### 1.30 稳定版
 
-1.30 Pre-Release    构建日期：2026-09-21
+1.30 Released    构建日期：2026-09-28
 
 - MNWS 正式更名为 ADWS — Akizuki’s Desktop Workspace Solution。新的名字不再限定于 Niri，但当前版本仍以 Niri 为主要支持环境。命令统一改为 adws，安装时迁移旧配置，不保留 mnws 命令别名。
 - 优化了 Peek，出现更早、切换更流畅，按桌面平铺顺序排列，并增加浮入淡出效果。
@@ -34,18 +34,28 @@ ADWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 - 检查更新新增 Beta 渠道，支持 adws -u --preview 和 adws --update --preview；设置中也可选择，默认仍检查稳定版。（D）
 - 修复了任务栏在开启窗口预览下偶发的卡顿bug。（1.28）
 - 新增旧安装的一次性迁移与配置备份；旧插件单独保存，提供适配 ADWS 的 NCMLyricsBar。
-- 提供 ADWS 1.30 Pre-Release 源码包与 Arch Linux x86_64 预构建包。
+- 提供 ADWS 1.30 稳定版源码包与 Arch Linux x86_64 预构建包。
 - 新增首次设置向导：没有本地配置时自动打开，也可从设置重新进入；支持动效、配色预览、默认应用和启动器，确认后统一保存。
 - 新增全局配置导入和导出，使用 Config.ad-yml；导入前校验并确认覆盖范围，保留备份，写入失败时恢复原配置。
 - 初始设置新增壁纸页：默认保留现有设置，选图预览后确认应用；高级选项支持 awww、swww 和 swaybg，缺少工具时可确认安装 awww。
 - 设置中的技术路径收进默认折叠的“诊断信息”，支持一键复制。
 - 补齐设置窗口的 Niri 浮动规则和 Wayland 标识；桌面设置、任务栏设置、时钟与初始向导不再挤进平铺布局，新安装自动生效。
+- 增加了可选的任务栏和设置选项卡动效，任务栏可以放在上下左右，高度、配色和窗口双排都能自己调整。
+- 时钟支持上行大时间、下行小日期、自定义格式和秒数；NCMLyricsBar 1.1.0 保留动态占位、悬停切歌与竖排显示。
+- 优化了安装和更新的恢复逻辑，取消、写入失败或组件启动失败时会尝试恢复原文件；恢复不完整会保留备份并明确提示。
+- 安装、更新、卸载、配置导入和首次设置保存不会再同时抢着修改配置。
+- 保留用户修改过的模板、配置软链接和文件权限，旧版本已经移除的默认模板不会再被带回来。
+- 修复了首次设置保存失败后界面不能继续操作的问题，任务栏刷新失败时也会说明设置是否已经保存。
+- 优化了旧版迁移：先检查安装记录，重复备份不会互相覆盖，替换随附歌词插件前也会保留旧包。
+- 修复了配色刷新异常后不再跟随的问题，配色文件临时消失或写入异常时保留上一套有效颜色。
+- 修复了插件断管后刷屏报错、关闭输出后一直等待，以及异常数值和损坏缓存记录导致启动失败的问题。
+- 插件覆盖安装改为完整写入后再替换，中途失败不会把原来的插件包写坏。（1.30 稳定版）
 
 在“任务栏设置”的外观页中设置任务栏位置、厚度、窗口单排／双排、同应用窗口堆叠和独立配色。双排仅作用于应用窗口，其他组件仍为单排；左右竖栏对应双列。分组按钮显示窗口数量，左键切回组内最近使用的窗口，右键管理窗口；可开启悬停窗口画面预览，点击缩略图或标题可切换窗口。
 
-窗口悬停／聚焦过渡和设置选项卡淡入淡出可分别开启，默认关闭。设置选项卡动效在重新打开设置后生效。原有歌词组件动效开关继续独立控制。窗口画面预览需要 Niri 的录屏接口及 GStreamer PipeWire/PNG 插件；不支持时保留可点击的标题列表。这是预发布测试版本，请先备份配置。
+窗口悬停／聚焦过渡和设置选项卡淡入淡出可分别开启，默认关闭。设置选项卡动效在重新打开设置后生效。原有歌词组件动效开关继续独立控制。窗口画面预览需要 Niri 的录屏接口及 GStreamer PipeWire/PNG 插件；不支持时保留可点击的标题列表。升级时仍建议保留安装程序生成的备份。
 
-### 1.25 Released 最新更新
+### 1.25 Released 历史更新
 
 - 帮助新增版本、构建日期、更新摘要。（B）
 - 防止隐藏图标后的右键失效；顺便新增终端入口与退出确认。我觉得是个好功能。（C）
@@ -78,7 +88,7 @@ ADWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 - **桌面图标层**：显示、选择和排列桌面文件，提供文件操作、终端入口、简化菜单与安全退出确认。
 - **时钟设置**：右键时钟打开设置，支持日期、星期和秒数；按系统时间地区推荐日期格式，也可手动选择。默认上行大时间、下行小日期；支持 `YYYY-MM-DD`、`HH:mm:SS` 等自定义格式（`MM` 月份，`mm` 分钟）。左键不执行操作。
 - **底部任务栏**：显示 Niri 窗口、工作区、时钟和插件；窗口较多时自动滚动，支持任务栏右键菜单。
-- **统一设置**：调整桌面、任务栏、组件顺序、左中右分区和插件设置；中间分区按整条任务栏真正居中。
+- **统一设置**：调整桌面、任务栏、组件顺序、前中后分区和插件设置；中间分区按整条任务栏真正居中。
 - **开始按钮**：支持文字、发行版图标或自定义图片；默认图和悬停图可分别设置，并保留原有左键、右键和悬停提示逻辑。
 - **启动器**：内置 fuzzel 与 rofi 预设，也可以填写自定义命令。rofi 预设沿用当前配色与毛玻璃效果。
 - **Plugin API v1.0**：通过 `.mplg` 安装插件，支持插件翻译、七类设置、错误隔离和稳定的混合排序。
@@ -106,15 +116,15 @@ ADWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 源码安装适用于大多数发行版：
 
 ```sh
-git clone --branch Pre-1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
+git clone --branch v1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
 cd ADWS
 ./install.sh
 adws -s
 ```
 
-安装程序会检查依赖、构建缺失组件、选择启动器、安装 `adws` 命令，并询问是否让桌面和任务栏随 Niri 自启。补齐依赖前会询问；迁移和安装会更新 ADWS 所需配置，并保留备份。
+安装程序会检查依赖、增量构建原生组件、选择启动器、安装 `adws` 命令，并询问是否让桌面和任务栏随 Niri 自启。补齐依赖前会询问；迁移和安装会更新 ADWS 所需配置，并保留备份。
 
-Arch Linux x86_64 用户可以使用 GitHub Release 中的 `ADWS1.30_Pre-Release_for_arch.zip`。该包包含预构建原生组件，安装时无需 Rust、Cargo 或 C 编译器。详见 [Arch 安装说明](docs/arch-install.md)。
+Arch Linux x86_64 用户可以使用 GitHub Release 中的 `ADWS1.30_for_arch.zip`。该包包含预构建原生组件，安装时无需 Rust、Cargo 或 C 编译器。详见 [Arch 安装说明](docs/arch-install.md)。
 
 安装目录需要保留，因为命令入口会链接到其中的程序文件。若 `~/.local/bin` 尚未进入 PATH，安装程序会提供 `/usr/local/bin` 入口。
 
@@ -174,9 +184,9 @@ ADWS adds desktop icons, a bottom taskbar, unified settings and a plugin system 
 
 Version 1.25 has been tested with Niri on Arch Linux and Ubuntu. ADWS still relies on Niri, Waybar and distribution-provided system components; it does not aim to replace the window manager or the Linux user space.
 
-### 1.30 Pre-Release development build (Pre-1.30)
+### 1.30 stable release
 
-1.30 Pre-Release    Build date: 2026-09-21
+1.30 Released    Build date: 2026-09-28
 
 - MNWS is now ADWS — Akizuki’s Desktop Workspace Solution. The new name is no longer tied to Niri, but Niri remains the primary supported environment in this release. Commands now use adws; the installer migrates existing configuration without retaining mnws command aliases.
 - Improve Peek responsiveness, order windows by workspace and tile position, and add float/fade transitions.
@@ -192,18 +202,28 @@ Version 1.25 has been tested with Niri on Arch Linux and Ubuntu. ADWS still reli
 - Add a Beta update channel via adws -u --preview or adws --update --preview and a Settings option; stable releases remain the default. (D)
 - Fix intermittent taskbar stalls with window previews enabled. (1.28)
 - Add one-way migration with configuration backups; retain old plugins separately and include NCMLyricsBar adapted for ADWS.
-- Provide ADWS 1.30 Pre-Release source and Arch Linux x86_64 prebuilt packages.
+- Provide ADWS 1.30 stable source and Arch Linux x86_64 prebuilt packages.
 - Add first-run setup when no local configuration exists, with a manual entry in Settings. Configure animations, preview colors, choose default apps and a launcher, then save on confirmation.
 - Add global configuration import and export using Config.ad-yml, with validation, overwrite confirmation, backups and rollback on write failure.
 - Added a wallpaper setup page: keep existing settings by default, preview images before applying, choose awww, swww or swaybg in advanced options, and optionally install awww when no tool is detected.
 - Move technical paths in Settings into a collapsed Diagnostics section with a copy button.
 - Install scoped Niri floating rules and consistent Wayland app IDs for desktop settings, taskbar settings, the clock and first-run setup, including fresh installations.
+- Add optional taskbar and settings-tab animations, all four panel edges, configurable thickness and colors, and two rows of application windows.
+- The clock supports a larger time above a smaller date, custom formats and seconds. NCMLyricsBar 1.1.0 retains adaptive width, hover playback controls and vertical layout.
+- Improve installation and update recovery: cancellation, write failures and component startup failures trigger restoration of previous files; incomplete recovery retains backups and reports the problem.
+- Serialize installation, updates, removal, configuration imports and first-run setup saves to prevent conflicting changes.
+- Preserve user-edited templates, configuration symlinks and file permissions; do not restore unchanged default templates removed by the new release.
+- Restore an interactive wizard after save failures and distinguish saved settings from a failed taskbar refresh.
+- Validate installation records before migration, prevent backup-name collisions and back up the bundled lyrics plugin before replacing it.
+- Keep theme refresh active after callback failures and retain the last valid palette while stylesheet files are temporarily missing or invalid.
+- Fix cascading plugin broken-pipe errors, unbounded waits after output closes, oversized numeric values and invalid cache records that prevent startup.
+- Stage complete plugin packages before replacement so failed copies preserve the installed package. (1.30 stable)
 
 The Appearance tab in Taskbar Settings provides panel edge and thickness, one or two window rows, application grouping and independent state colors. Only application windows use two rows; other components remain in one row. Vertical panels use two columns. Group buttons show a window count; left-click returns to the most recently used member and right-click manages group members. Optional live window thumbnails allow selection by image or title.
 
-Window hover/focus transitions and settings-tab crossfades are independently optional and off by default. Reopen Settings to apply tab animation changes. The existing lyric animation switch remains independent. Window thumbnails require Niri ScreenCast and GStreamer PipeWire/PNG plugins; a clickable title list remains available otherwise. This is a prerelease for testing; back up your configuration before upgrading.
+Window hover/focus transitions and settings-tab crossfades are independently optional and off by default. Reopen Settings to apply tab animation changes. The existing lyric animation switch remains independent. Window thumbnails require Niri ScreenCast and GStreamer PipeWire/PNG plugins; a clickable title list remains available otherwise. Keep the backups created during installation when upgrading.
 
-### 1.25 Released — latest updates
+### 1.25 Released — previous updates
 
 - Add version, build date and update summaries to help. (B)
 - Fix the context menu when icons are hidden; add a terminal entry and exit confirmation. I think it is a nice feature. (C)
@@ -236,7 +256,7 @@ Window hover/focus transitions and settings-tab crossfades are independently opt
 - **Desktop icons:** display, select and arrange desktop files, with file operations, a terminal entry, a simplified hidden-icon menu and safe exit confirmation.
 - **Clock settings:** right-click the clock to configure date, weekday and seconds. Date formats follow the system time locale recommendation or your manual choice. The default two-line layout puts larger time above a smaller date. Custom formats support `YYYY-MM-DD`, `HH:mm:SS` and more (`MM` = month, `mm` = minute). Left-click does nothing.
 - **Bottom taskbar:** show Niri windows, workspaces, the clock and plugins. Window items scroll when space runs out, and the taskbar has a context menu.
-- **Unified settings:** configure the desktop, taskbar, component order, left/center/right sections and plugin settings. The center section aligns with the geometric center of the whole bar.
+- **Unified settings:** configure the desktop, taskbar, component order, front/center/back sections and plugin settings. The center section aligns with the geometric center of the whole bar.
 - **Start button:** use text, a distribution logo or custom images. Separate default and hover images preserve the normal left-click, right-click and tooltip behavior.
 - **Launchers:** built-in fuzzel and rofi presets, plus custom commands. The rofi preset keeps the current color scheme and blur styling.
 - **Plugin API v1.0:** install `.mplg` packages with plugin translations, seven setting types, runtime error isolation and stable mixed ordering.
@@ -264,7 +284,7 @@ The old MNWS bar was observed consuming one CPU core while idle and recovered af
 Source installation works on most distributions:
 
 ```sh
-git clone --branch Pre-1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
+git clone --branch v1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
 cd ADWS
 ./install.sh
 adws -s
@@ -272,7 +292,7 @@ adws -s
 
 The installer checks dependencies, builds missing components, selects a launcher, installs the `adws` command and offers to start the desktop and taskbar with Niri. It asks before installing dependencies or changing existing configuration, and preserves or backs up existing files.
 
-Arch Linux x86_64 users can download `ADWS1.30_Pre-Release_for_arch.zip` from the GitHub Release. It includes prebuilt native components, so Rust, Cargo and a C compiler are not required during installation. See the [Arch installation guide](docs/arch-install.md).
+Arch Linux x86_64 users can download `ADWS1.30_for_arch.zip` from the GitHub Release. It includes prebuilt native components, so Rust, Cargo and a C compiler are not required during installation. See the [Arch installation guide](docs/arch-install.md).
 
 Keep the installation directory: command entries link to its program files. If `~/.local/bin` is not already on PATH, the installer can place entries in `/usr/local/bin`.
 

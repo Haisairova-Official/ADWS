@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--offline', action='store_true', help='Use only cached Cargo dependencies')
-    parser.add_argument('--output', type=Path, default=ROOT.parent / 'ADWS1.30_Pre-Release_for_arch.zip')
+    parser.add_argument('--output', type=Path, default=ROOT.parent / 'ADWS1.30_for_arch.zip')
     args = parser.parse_args()
     if platform.machine() != 'x86_64' or platform.freedesktop_os_release().get('ID') != 'arch':
         parser.error('Build this package on Arch Linux x86_64')
@@ -28,7 +28,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='adws-arch-package-') as temporary:
         stage = Path(temporary) / args.output.stem
         stage.mkdir()
-        # Release archives are reproducible: only committed source files are staged.
+        # Stage only Git-tracked source, including reviewed additions in the index.
         # Native binaries are injected explicitly below after their release builds.
         files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
         roots = {'config', 'docs', 'language', 'plugins', 'samples', 'scripts', 'src', 'tools', 'vendor'}

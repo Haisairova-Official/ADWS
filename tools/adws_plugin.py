@@ -277,7 +277,8 @@ def _materialize(path: Path, cache: Path | None = None) -> Path:
     if stamp.is_file():
         try:
             data = json.loads(stamp.read_text(encoding="utf-8"))
-            fresh = data.get("sha256") == digest and (dest / manifest["entry"]).is_file()
+            fresh = (isinstance(data, dict) and data.get("sha256") == digest
+                     and (dest / manifest["entry"]).is_file())
         except (OSError, ValueError):
             fresh = False
     if fresh:
@@ -316,7 +317,22 @@ def copy_into(folder: Path, path: Path, replace: bool = True) -> Path:
     target = folder / path.name
     if target.exists() and not replace:
         raise FileExistsError(_tr('%s 已存在') % target)
-    shutil.copy2(path, target)
+    # Keep existing links, and expose the replacement only after it is complete.
+    destination = target.resolve() if replace else target
+    fd, name = tempfile.mkstemp(prefix='.adws-plugin-', dir=destination.parent)
+    os.close(fd)
+    staged = Path(name)
+    try:
+        shutil.copy2(path, staged)
+        with staged.open('rb') as stream:
+            os.fsync(stream.fileno())
+        if replace:
+            os.replace(staged, destination)
+        else:
+            # Exclusive publication: do not overwrite a concurrently added file.
+            os.link(staged, destination)
+    finally:
+        staged.unlink(missing_ok=True)
     return target
 
 

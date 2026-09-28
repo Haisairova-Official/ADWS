@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -76,6 +77,18 @@ class PluginApiTests(unittest.TestCase):
             with self.assertRaises(ValueError):api.settings({'settingsSchema':schema},{'on':value})
         self.assertTrue(api.schema_errors(schema+schema))
 
+    def test_oversized_numbers_are_validation_errors(self):
+        huge = 10 ** 1000
+        for key in ('width', 'interval', 'align'):
+            with self.subTest(default=key):
+                self.assertTrue(api.public_errors({**self.manifest, 'defaults': {key: huge}}))
+        schema = [{'key': 'size', 'type': 'number', 'min': 0, 'max': 100, 'step': 1, 'default': 10}]
+        for key in ('min', 'max', 'step', 'default'):
+            with self.subTest(schema=key):
+                self.assertTrue(api.schema_errors([{**schema[0], key: huge}]))
+        with self.assertRaisesRegex(ValueError, 'Invalid setting: size'):
+            api.settings({'settingsSchema': schema}, {'size': huge})
+
     def test_declared_panel_controls(self):
         self.assertEqual(api.public_errors({**self.manifest,
                                            'controls':['play-pause', 'previous', 'next']}), [])
@@ -99,6 +112,95 @@ class PluginApiTests(unittest.TestCase):
         os.utime(archive,ns=(original.st_atime_ns,original.st_mtime_ns))
         self.assertIn('Other',(plugin.materialize(archive,self.root/'cache')/'main.py').read_text())
 
+    def test_materialize_recovers_invalid_stamp_types(self):
+        archive = plugin.build_package(self.source())
+        dest = plugin.materialize(archive, self.root / 'cache')
+        for value in ([], None, 'invalid', 7):
+            with self.subTest(value=value):
+                (dest / '.adws-stamp.json').write_text(json.dumps(value))
+                self.assertEqual(plugin.materialize(archive, self.root / 'cache'), dest)
+                self.assertIsInstance(json.loads((dest / '.adws-stamp.json').read_text()), dict)
+
+    def test_failed_plugin_copy_preserves_installed_archive(self):
+        archive = plugin.build_package(self.source())
+        folder = self.root / 'installed'
+        target = plugin.copy_into(folder, archive)
+        original = target.read_bytes()
+        def fail_copy(source, destination):
+            Path(destination).write_bytes(b'partial')
+            raise OSError('disk write failed')
+        with patch.object(plugin.shutil, 'copy2', side_effect=fail_copy):
+            with self.assertRaisesRegex(OSError, 'disk write failed'):
+                plugin.copy_into(folder, archive)
+        self.assertEqual(target.read_bytes(), original)
+        self.assertEqual(list(folder.iterdir()), [target])
+
+    def test_plugin_copy_preserves_links_and_exclusive_install(self):
+        archive = plugin.build_package(self.source())
+        folder = self.root / 'installed'; folder.mkdir()
+        external = self.root / 'external.mplg'; external.write_bytes(b'old')
+        target = folder / archive.name; target.symlink_to(external)
+        self.assertEqual(plugin.copy_into(folder, archive), target)
+        self.assertTrue(target.is_symlink())
+        self.assertEqual(external.read_bytes(), archive.read_bytes())
+        target.unlink()
+        real_copy = plugin.shutil.copy2
+        def concurrent_copy(source, destination):
+            real_copy(source, destination)
+            target.write_bytes(b'concurrent installation')
+        with patch.object(plugin.shutil, 'copy2', side_effect=concurrent_copy):
+            with self.assertRaises(FileExistsError):
+                plugin.copy_into(folder, archive, replace=False)
+        self.assertEqual(target.read_bytes(), b'concurrent installation')
+        self.assertEqual(list(folder.iterdir()), [target])
+
+    def test_closed_consumer_exits_quietly_and_reaps_plugin(self):
+        for next_line in ('{"text":"next"}', 'not JSON'):
+            with self.subTest(next_line=next_line):
+                pidfile = self.root / 'child.pid'
+                code = ('import os,time\nfrom pathlib import Path\n'
+                        f'Path({str(pidfile)!r}).write_text(str(os.getpid()))\n'
+                        'print(\'{"text":"ready"}\',flush=True)\ntime.sleep(.1)\n'
+                        f'print({next_line!r},flush=True)\ntime.sleep(10)\n')
+                archive = plugin.build_package(self.source(code))
+                env = {**os.environ, 'ADWS_CACHE_DIR': str(self.root / 'cache')}
+                process = subprocess.Popen([sys.executable, str(ROOT / 'tools/adws_plugin_runner.py'), str(archive)],
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+                try:
+                    self.assertEqual(json.loads(process.stdout.readline())['text'], 'ready')
+                    process.stdout.close()
+                    process.wait(timeout=3)
+                    error = process.stderr.read().decode(errors='replace')
+                    self.assertEqual(process.returncode, 0, error)
+                    self.assertNotIn('Traceback', error)
+                    self.assertNotIn('Exception ignored', error)
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(int(pidfile.read_text()), 0)
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                        process.wait(timeout=3)
+                    process.stdout.close()
+                    process.stderr.close()
+
+    def test_cli_validation_error_with_closed_consumer(self):
+        archive = plugin.build_package(self.source())
+        process = subprocess.Popen([sys.executable, str(ROOT / 'tools/adws_plugin_runner.py'),
+                                    str(archive), '--settings-json', '{'],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   env={**os.environ, 'ADWS_CACHE_DIR': str(self.root / 'cache')})
+        try:
+            process.stdout.close()
+            process.wait(timeout=3)
+            error = process.stderr.read().decode(errors='replace')
+            self.assertEqual(process.returncode, 0, error)
+            self.assertNotIn('Traceback', error)
+            self.assertNotIn('Exception ignored', error)
+        finally:
+            if process.poll() is None:
+                process.terminate(); process.wait(timeout=3)
+            process.stderr.close()
+
     def test_runtime_failure_isolation_and_logs(self):
         for code in ['print("not JSON")','raise RuntimeError("bad")','import time; time.sleep(1)']:
             with contextlib.redirect_stdout(io.StringIO()) as out,contextlib.redirect_stderr(io.StringIO()) as err:
@@ -115,6 +217,22 @@ class PluginApiTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(execute(self.source(code),manifest,{},timeout=.15),0)
         self.assertIn('resumed',output.getvalue())
+
+    def test_closed_legacy_output_does_not_wait_indefinitely(self):
+        manifest=api.normalize(self.manifest);del manifest['renderer']
+        code='import os,time; print(\'{"text":"done"}\',flush=True); os.close(1); os.close(2); time.sleep(2)'
+        started=time.monotonic()
+        with contextlib.redirect_stdout(io.StringIO()) as output,contextlib.redirect_stderr(io.StringIO()):
+            result=execute(self.source(code),manifest,{},timeout=.15)
+        self.assertEqual(result,1)
+        self.assertLess(time.monotonic()-started,1)
+        self.assertEqual(json.loads(output.getvalue().splitlines()[-1])['class'],'error')
+
+    def test_huge_percentage_fails_without_crashing_host(self):
+        code='print(\'{"text":"ok","percentage":\'+"9"*1000+"}")'
+        with contextlib.redirect_stdout(io.StringIO()) as output,contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(execute(self.source(code),api.normalize(self.manifest),{},timeout=.15),1)
+            self.assertEqual(json.loads(output.getvalue())['class'],'error')
 
     def test_text_and_rows_layout_use_runner(self):
         for renderer in ['panel.text-v1','panel.rows-v1']:

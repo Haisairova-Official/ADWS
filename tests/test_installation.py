@@ -30,7 +30,8 @@ class InstallationTests(unittest.TestCase):
         self.bin.mkdir()
         self.env = dict(os.environ, HOME=str(self.home), XDG_CONFIG_HOME=str(self.config),
                         XDG_STATE_HOME=str(self.state), XDG_DATA_HOME=str(self.root / 'data'),
-                        XDG_CACHE_HOME=str(self.root / 'cache'), PATH=str(self.bin) + os.pathsep + str(self.home / '.local/bin') + os.pathsep + os.environ['PATH'])
+                        XDG_CACHE_HOME=str(self.root / 'cache'), NIRI_CONFIG=str(self.config/'niri/config.kdl'),
+                        ZDOTDIR=str(self.home), PATH=str(self.bin) + os.pathsep + str(self.home / '.local/bin') + os.pathsep + os.environ['PATH'])
         for program in ('niri', 'waybar', 'thunar', 'systemctl', 'rofi'):
             file = self.bin / program
             file.write_text('#!/bin/sh\nexit 0\n')
@@ -39,10 +40,35 @@ class InstallationTests(unittest.TestCase):
         self.libs.mkdir(parents=True)
         for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so'):
             (self.libs / name).touch()
+        self.project = self.root/'installer'
+        self.project.mkdir()
+        for name in ('tools', 'scripts', 'config', 'language', 'src/niri-desktop-layer'):
+            shutil.copytree(ROOT/name, self.project/name, ignore=shutil.ignore_patterns('__pycache__', 'state', '*.so', 'target'))
+        for name in ('adws', 'build-info.json'):
+            shutil.copy2(ROOT/name, self.project/name)
+        (self.project/'src/niri-taskbar').mkdir(parents=True)
+        (self.project/'src/panel-rows').mkdir()
+        (self.project/'src/panel-rows/libadws_panel.so').write_text('test panel')
+        for program, script in {
+            'cargo': 'mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so',
+            'make': 'exit 0',
+            'cc': 'while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; printf test > "$1"; exit 0; fi; shift; done',
+        }.items():
+            file=self.bin/program;file.write_text('#!/bin/sh\n'+script+'\n');file.chmod(0o755)
 
-    def install(self):
-        return subprocess.run(['bash', str(ROOT / 'scripts/adws-install.sh')],
-                              env=self.env, input="n\n", capture_output=True, text=True)
+    def install(self, answer="y\nn\n"):
+        # A fake HOME does not isolate /proc. Replace process discovery in the
+        # transaction driver before invoking the real installer in this fixture.
+        driver = """
+import runpy, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1])/'tools'))
+import adws_runtime
+adws_runtime.pids = lambda component: []
+runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_name='__main__')
+"""
+        return subprocess.run([sys.executable, '-c', driver, str(self.project)],
+                              env=self.env, input=answer, capture_output=True, text=True)
 
     def config_files(self):
         folder = self.config / 'waybar'
@@ -78,7 +104,7 @@ class InstallationTests(unittest.TestCase):
 
     def test_missing_library_aborts_before_installing(self):
         (self.libs / 'libniri_taskbar.so').unlink()
-        result = self.install()
+        result = self.install("n\n")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('libniri_taskbar.so', result.stdout)
         self.assertFalse((self.config / 'waybar').exists())

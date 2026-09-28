@@ -78,10 +78,12 @@ def prepare():
             raise RuntimeError(_tr('补齐后仍有问题：\n') + '\n'.join(errors) + _tr('\n请检查系统软件源和当前 Python 环境后重试。'))
     library_dir = Path.home() / '.local/lib/waybar'
     from adws_prebuilt import install as install_prebuilt
-    install_prebuilt(ROOT, library_dir, confirm, atomic_install)
-    missing = [name for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so') if not (library_dir / name).is_file()]
-    if missing:
-        print(_tr('缺少组件：') + ', '.join(missing))
+    prebuilt = install_prebuilt(ROOT, library_dir, confirm, atomic_install)
+    if not prebuilt:
+        # File existence does not identify the ABI/source version. Cargo and
+        # make reuse their build caches, but every source install checks all libs.
+        missing = ['libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so']
+        print(_tr('将构建并更新原生组件：') + ', '.join(missing))
         if not confirm(_tr('是否现在构建并安装这些组件？首次构建可能需要下载依赖。')):
             raise RuntimeError(_tr('已取消安装；也可以按 README 手动构建后重新运行 install.sh。'))
         build_missing = any(not shutil.which(name) for name in ('cargo', 'rustc', 'cc', 'make', 'pkg-config'))

@@ -25,8 +25,8 @@ from adws_update import ROOT, REPOSITORY, github_urls, release_version, version_
 LIBRARIES = ('libniri_taskbar.so', 'libadws_panel.so', 'libwaybar-space.so')
 MAX_DOWNLOAD = 512 * 1024 * 1024
 MAX_EXPANDED = 2 * 1024 * 1024 * 1024
-# User-editable templates, custom images and the legacy in-tree desktop state.
-PRESERVE = ('config', 'samples', 'assets', 'src/niri-desktop-layer/state')
+# Custom images and the legacy in-tree desktop state (templates handled separately).
+PRESERVE = ('samples', 'assets', 'src/niri-desktop-layer/state')
 
 
 def state_dir():
@@ -38,7 +38,13 @@ def atomic_copy(source, target):
     fd, name = tempfile.mkstemp(prefix='.adws-update-', dir=target.parent)
     os.close(fd)
     try:
-        shutil.copy2(source, name)
+        if source.is_symlink():
+            os.unlink(name)
+            os.symlink(os.readlink(source), name)
+        else:
+            shutil.copy2(source, name)
+            with open(name, 'rb') as stream:
+                os.fsync(stream.fileno())
         os.replace(name, target)
     finally:
         Path(name).unlink(missing_ok=True)
@@ -180,13 +186,14 @@ def prepare_libraries(root, prebuilt, log):
 
 @contextmanager
 def update_lock():
-    directory = state_dir()
+    # The lock lives outside the state tree that installation snapshots restore.
+    directory = state_dir().parent / 'adws-install-backups'
     directory.mkdir(parents=True, exist_ok=True)
-    with (directory / 'update.lock').open('a') as lock:
+    with (directory / 'install.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise RuntimeError(_tr('另一个更新正在进行，请稍后重试。')) from error
+            raise RuntimeError(_tr('另一个安装、更新、卸载或配置导入操作正在进行，请稍后重试。')) from error
         yield
 
 
@@ -197,25 +204,40 @@ def control(root, component, operation, log):
 def replace_installation(root, prepared, libraries, log):
     # Imported before the directory swap: the running updater keeps using its own code.
     from adws_runtime import pids
-    record = state_dir() / 'install-record.json'
+    # Updating a linked inventory must not replace the user's link itself.
+    record = (state_dir() / 'install-record.json').resolve()
     libdir = Path.home() / '.local/lib/waybar'
     backup = root.parent / ('.' + root.name + '-backup-' + time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
     backup.mkdir()
     (backup / 'libraries').mkdir()
     existed = {}
     for name in LIBRARIES:
-        existed[name] = (libdir / name).exists()
+        existed[name] = (libdir / name).exists() or (libdir / name).is_symlink()
         if existed[name]:
-            shutil.copy2(libdir / name, backup / 'libraries' / name)
+            shutil.copy2(libdir / name, backup / 'libraries' / name, follow_symlinks=False)
     old_record = record.read_bytes() if record.exists() else None
+    data = json.loads(old_record) if old_record else {}
+    if not isinstance(data, dict) or not isinstance(data.get('template_hashes', {}), dict):
+        raise ValueError(_tr('安装记录无效，请重新安装 ADWS 后重试。'))
+    from adws_templates import hashes, preserve
+    new_templates = hashes(prepared)
     if old_record is not None:
-        (backup / 'install-record.json').write_bytes(old_record)
+        shutil.copy2(record, backup / 'install-record.json')
     running = [component for component in ('desktop', 'taskbar') if pids(component)]
+    stopped = []
+    changed_libraries = []
+    record_changed = False
     moved = False
     installed = False
     try:
         for component in running:
-            control(root, component, '--stop', log)
+            try:
+                control(root, component, '--stop', log)
+            finally:
+                if not pids(component): stopped.append(component)
+            if component not in stopped:
+                raise RuntimeError(_tr('组件未能停止，更新已中止：%s') % component)
+        preserve(root, prepared, data.get('template_hashes', {}))
         # Copy after stopping, so the desktop's final layout write is included.
         for name in PRESERVE:
             source, target = root / name, prepared / name
@@ -226,33 +248,45 @@ def replace_installation(root, prepared, libraries, log):
                 target.symlink_to(os.readlink(source))
             elif source.is_dir():
                 shutil.copytree(source, target, dirs_exist_ok=True, symlinks=True)
-        root.rename(backup / 'source')
-        moved = True
-        prepared.rename(root)
-        installed = True
+        try:
+            root.rename(backup / 'source')
+        finally:
+            # A signal can arrive after rename succeeds, before the next line.
+            moved = (backup / 'source').is_dir()
+        try:
+            prepared.rename(root)
+        finally:
+            installed = not prepared.exists() and root.is_dir()
         for name, relative in libraries.items():
+            changed_libraries.append(name)
             atomic_copy(root / relative, libdir / name)
-        data = json.loads(old_record) if old_record else {}
         data['root'] = str(root)
+        data['template_hashes'] = new_templates
         data['libraries'] = {name: hashlib.sha256((libdir / name).read_bytes()).hexdigest() for name in LIBRARIES}
         data['last_update_backup'] = str(backup)
         temporary = backup / 'new-install-record.json'
         temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+        temporary.chmod(record.stat().st_mode & 0o777 if old_record is not None else 0o600)
+        record_changed = True
         atomic_copy(temporary, record)
-        for component in running:
+        for component in stopped:
             control(root, component, '--start', log)
             if not pids(component):
                 raise RuntimeError(_tr('更新后组件未能启动：%s') % component)
         return backup
-    except BaseException:
+    except BaseException as original:
         # Roll back even on Ctrl+C during the short replacement phase.
         failures = []
         if installed:
-            for component in running:
+            for component in stopped:
                 try:
-                    control(root, component, '--stop', log)
+                    if pids(component): control(root, component, '--stop', log)
                 except Exception as error:
-                    failures.append(str(error))
+                    if pids(component): failures.append(str(error))
+                if pids(component):
+                    failures.append(_tr('组件仍在运行，暂不恢复文件：%s') % component)
+        if failures:
+            raise RuntimeError(_tr('更新失败，恢复过程中也遇到问题。备份：%s') % backup + '\n' + '\n'.join(failures)) from original
         try:
             if installed:
                 root.rename(backup / 'failed-version')
@@ -260,7 +294,7 @@ def replace_installation(root, prepared, libraries, log):
                 (backup / 'source').rename(root)
         except OSError as error:
             raise RuntimeError(_tr('更新失败，恢复过程中也遇到问题。备份：%s') % backup + '\n' + str(error)) from error
-        for name in LIBRARIES:
+        for name in changed_libraries:
             try:
                 if existed[name]:
                     atomic_copy(backup / 'libraries' / name, libdir / name)
@@ -269,19 +303,25 @@ def replace_installation(root, prepared, libraries, log):
             except Exception as error:
                 failures.append(str(error))
         try:
-            if old_record is not None:
-                atomic_copy(backup / 'install-record.json', record)
-            else:
-                record.unlink(missing_ok=True)
+            if record_changed:
+                if old_record is not None:
+                    atomic_copy(backup / 'install-record.json', record)
+                else:
+                    record.unlink(missing_ok=True)
         except Exception as error:
             failures.append(str(error))
-        for component in running:
+        # Never launch a component against an incompletely restored set of files.
+        if failures:
+            raise RuntimeError(_tr('更新失败，恢复过程中也遇到问题。备份：%s') % backup + '\n' + '\n'.join(failures)) from original
+        for component in stopped:
             try:
-                control(root, component, '--start', log)
+                if not pids(component): control(root, component, '--start', log)
+                if not pids(component):
+                    raise RuntimeError(_tr('恢复后组件未能启动：%s') % component)
             except Exception as error:
                 failures.append(str(error))
         if failures:
-            raise RuntimeError(_tr('更新失败，恢复过程中也遇到问题。备份：%s') % backup + '\n' + '\n'.join(failures))
+            raise RuntimeError(_tr('更新失败，恢复过程中也遇到问题。备份：%s') % backup + '\n' + '\n'.join(failures)) from original
         raise
 
 
@@ -301,16 +341,18 @@ def install_update(result, progress=print):
         raise ValueError(_tr('缺少已确认的更新版本，请重新检查更新。'))
     root = ROOT.resolve()
     record = state_dir() / 'install-record.json'
-    info = json.loads(record.read_text()) if record.exists() else {}
-    if not isinstance(info, dict):
-        raise ValueError(_tr('安装记录无效，请重新安装 ADWS 后重试。'))
-    if (root / '.git').exists() or (root / '.git').is_symlink() or Path(info.get('root') or root).resolve() != root:
-        raise RuntimeError(_tr('请从已安装的 ADWS 更新；开发检出目录不会被覆盖。'))
     expected = release_version(release)
     with update_lock():
+        info = json.loads(record.read_text()) if record.exists() else {}
+        if (not isinstance(info, dict) or not isinstance(info.get('root', ''), str)
+                or not isinstance(info.get('template_hashes', {}), dict)):
+            raise ValueError(_tr('安装记录无效，请重新安装 ADWS 后重试。'))
+        if (root / '.git').exists() or (root / '.git').is_symlink() or Path(info.get('root') or root).resolve() != root:
+            raise RuntimeError(_tr('请从已安装的 ADWS 更新；开发检出目录不会被覆盖。'))
         current = installed_version(root)
         if expected <= current:
             raise RuntimeError(_tr('目标版本不比当前版本新，请重新检查更新。'))
+        state_dir().mkdir(parents=True, exist_ok=True)
         logfile = state_dir() / ('update-' + time.strftime('%Y%m%d-%H%M%S') + '.log')
         try:
             with logfile.open('ab') as log, tempfile.TemporaryDirectory(prefix='.' + root.name + '-update-', dir=root.parent) as temporary:

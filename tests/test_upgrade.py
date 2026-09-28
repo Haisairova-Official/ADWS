@@ -76,16 +76,21 @@ class InstallTests(unittest.TestCase):
         for name in upgrade.LIBRARIES:(self.libdir/name).write_text('old '+name)
         self.source=self.home/'source.zip';archive(self.source)
         self.result={'available':True,'release':{'tag_name':'v1.28-A','prerelease':True},'use_proxy':True}
+        self.active={'desktop'}
         self.patches=[patch.dict(os.environ,{'HOME':str(self.home),'XDG_STATE_HOME':str(self.home/'state')}),
                       patch.object(upgrade,'ROOT',self.root),
                       patch.object(upgrade,'package',return_value=('https://github.com/fixture.zip',None,False)),
                       patch.object(upgrade,'download',side_effect=lambda url,target,*args:shutil.copy2(self.source,target)),
                       patch.object(upgrade,'prepare_libraries',return_value={n:Path('binaries')/n for n in upgrade.LIBRARIES}),
-                      patch.object(adws_runtime,'pids',side_effect=lambda component:[123] if component=='desktop' else []),
-                      patch.object(upgrade,'control')]
+                      patch.object(adws_runtime,'pids',side_effect=lambda component:[123] if component in self.active else []),
+                      patch.object(upgrade,'control',side_effect=self.change_process_state)]
         self.mocks=[p.start() for p in self.patches]
         for p in self.patches:self.addCleanup(p.stop)
         self.control=self.mocks[-1]
+
+    def change_process_state(self, root, component, operation, log):
+        if operation=='--stop':self.active.discard(component)
+        elif operation=='--start':self.active.add(component)
 
     def verify_old(self):
         self.assertEqual((self.root/'adws').read_text(),'old command')
@@ -132,10 +137,94 @@ class InstallTests(unittest.TestCase):
         def control(root,component,operation,log):
             if operation=='--start' and json.loads((root/'build-info.json').read_text())['display_version']=='1.28-A':
                 raise RuntimeError('new component failed')
+            self.change_process_state(root,component,operation,log)
         self.control.side_effect=control
         with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
         self.verify_old()
         self.assertEqual(self.control.call_args.args[2],'--start')
+
+    def test_stop_failure_does_not_rewrite_files_or_start_duplicate(self):
+        before={path:path.stat().st_ino for path in [self.record,*self.libdir.iterdir()]}
+        self.control.side_effect=RuntimeError('stop failed')
+        with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
+        self.verify_old()
+        self.assertEqual([(c.args[1],c.args[2]) for c in self.control.call_args_list],[('desktop','--stop')])
+        self.assertEqual({path:path.stat().st_ino for path in before},before)
+
+    def test_stop_success_with_live_process_aborts_replacement(self):
+        self.control.side_effect=lambda *args:None
+        with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
+        self.verify_old()
+        self.assertFalse(any(c.args[2]=='--start' for c in self.control.call_args_list))
+
+    def test_partial_stop_restarts_only_component_that_stopped(self):
+        self.active.add('taskbar')
+        def control(root,component,operation,log):
+            if component=='taskbar' and operation=='--stop':raise RuntimeError('taskbar did not stop')
+            self.change_process_state(root,component,operation,log)
+        self.control.side_effect=control
+        with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
+        self.verify_old()
+        self.assertEqual([(c.args[1],c.args[2]) for c in self.control.call_args_list],
+                         [('desktop','--stop'),('taskbar','--stop'),('desktop','--start')])
+
+    def test_rollback_waits_for_new_process_to_stop(self):
+        def control(root,component,operation,log):
+            version=json.loads((root/'build-info.json').read_text())['display_version']
+            if version=='1.28-A':
+                if operation=='--start':self.active.add(component)
+                raise RuntimeError('new component unresponsive')
+            self.change_process_state(root,component,operation,log)
+        self.control.side_effect=control
+        with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
+        self.assertEqual(json.loads((self.root/'build-info.json').read_text())['display_version'],'1.28-A')
+        for name in upgrade.LIBRARIES:self.assertEqual((self.libdir/name).read_text(),'new '+name)
+        backup=next(self.home.glob('.installed-backup-*'))
+        self.assertEqual((backup/'source/adws').read_text(),'old command')
+        self.assertEqual(self.control.call_args.args[2],'--stop')
+
+    def test_failed_library_restore_never_starts_mixed_version(self):
+        original=upgrade.atomic_copy
+        def copy(source,target):
+            if target.name=='libadws_panel.so':raise OSError('persistent disk error')
+            original(source,target)
+        with patch.object(upgrade,'atomic_copy',side_effect=copy),self.assertRaises(RuntimeError):
+            upgrade.install_update(self.result,lambda _:None)
+        self.assertFalse(any(c.args[2]=='--start' for c in self.control.call_args_list))
+        backup=next(self.home.glob('.installed-backup-*'))
+        self.assertEqual((backup/'libraries/libadws_panel.so').read_text(),'old libadws_panel.so')
+
+    def test_update_and_rollback_keep_inventory_link_and_permissions(self):
+        target=self.home/'personal-inventory.json';self.record.rename(target);self.record.symlink_to(target)
+        target.chmod(0o600)
+        def fail_start(root,component,operation,log):
+            if operation=='--start' and json.loads((root/'build-info.json').read_text())['display_version']=='1.28-A':
+                raise RuntimeError('start failed')
+            self.change_process_state(root,component,operation,log)
+        self.control.side_effect=fail_start
+        with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
+        self.assertTrue(self.record.is_symlink())
+        self.assertEqual(self.record.resolve(),target)
+        self.assertEqual(target.stat().st_mode & 0o777,0o600)
+        self.verify_old()
+        self.control.side_effect=self.change_process_state
+        upgrade.install_update(self.result,lambda _:None)
+        self.assertTrue(self.record.is_symlink())
+        self.assertEqual(target.stat().st_mode & 0o777,0o600)
+        self.assertEqual(json.loads(target.read_text())['root'],str(self.root))
+
+    def test_rollback_restores_library_symlink(self):
+        name=upgrade.LIBRARIES[0];library=self.libdir/name;original=self.home/'personal-library.so'
+        library.rename(original);library.symlink_to(original)
+        def fail_start(root,component,operation,log):
+            if operation=='--start' and json.loads((root/'build-info.json').read_text())['display_version']=='1.28-A':
+                raise RuntimeError('start failed')
+            self.change_process_state(root,component,operation,log)
+        self.control.side_effect=fail_start
+        with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
+        self.assertTrue(library.is_symlink())
+        self.assertEqual(library.readlink(),original)
+        self.verify_old()
 
     def test_git_checkout_and_other_install_root_are_protected(self):
         (self.root/'.git').mkdir()
@@ -150,6 +239,19 @@ class InstallTests(unittest.TestCase):
             upgrade.install_update(self.result,lambda _:None)
         self.control.assert_not_called();self.verify_old()
 
+    def test_invalid_inventory_is_rejected_before_download_or_stop(self):
+        for data in ([], {'root':42}, {'root':str(self.root),'template_hashes':[]}):
+            with self.subTest(data=data):
+                self.record.write_text(json.dumps(data))
+                with self.assertRaises(ValueError):upgrade.install_update(self.result,lambda _:None)
+                self.control.assert_not_called();self.mocks[3].assert_not_called()
+
+    def test_update_initializes_missing_state_directory(self):
+        shutil.rmtree(self.state)
+        upgrade.install_update(self.result,lambda _:None)
+        self.assertTrue(self.record.is_file())
+        self.assertEqual(json.loads((self.root/'build-info.json').read_text())['display_version'],'1.28-A')
+
     def test_keyboard_interrupt_during_copy_restores_original(self):
         original=upgrade.atomic_copy;failed=False
         def copy(source,target):
@@ -160,6 +262,30 @@ class InstallTests(unittest.TestCase):
         with patch.object(upgrade,'atomic_copy',side_effect=copy), self.assertRaises(KeyboardInterrupt):
             upgrade.install_update(self.result,lambda _:None)
         self.verify_old()
+
+    def test_interrupt_after_old_directory_move_restores_installation(self):
+        rename=Path.rename;interrupted=False
+        def interrupt_after_move(path,target):
+            nonlocal interrupted
+            result=rename(path,target)
+            if path==self.root and not interrupted:
+                interrupted=True;raise KeyboardInterrupt()
+            return result
+        with patch.object(Path,'rename',interrupt_after_move),self.assertRaises(KeyboardInterrupt):
+            upgrade.install_update(self.result,lambda _:None)
+        self.verify_old();self.assertEqual(self.active,{'desktop'})
+
+    def test_interrupt_after_new_directory_move_restores_installation(self):
+        rename=Path.rename;interrupted=False
+        def interrupt_after_move(path,target):
+            nonlocal interrupted
+            result=rename(path,target)
+            if target==self.root and not interrupted:
+                interrupted=True;raise KeyboardInterrupt()
+            return result
+        with patch.object(Path,'rename',interrupt_after_move),self.assertRaises(KeyboardInterrupt):
+            upgrade.install_update(self.result,lambda _:None)
+        self.verify_old();self.assertEqual(self.active,{'desktop'})
 
     def test_prebuilt_libraries_are_verified_before_install(self):
         folder=self.root/'prebuilt';folder.mkdir()

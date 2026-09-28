@@ -2,32 +2,22 @@
 
 ### 构建与安装
 
-这是源码集成项目，安装脚本可在确认后补齐依赖并构建缺失组件；自动补齐支持 apt、pacman、dnf。先备份现有 Waybar 配置，再安装上述依赖。
-以下命令均在仓库根目录执行。更新已有安装时，先停止底部 Waybar，再替换它加载的动态库。
+1.30 稳定版发布后，可从 `v1.30` 标签安装源码版。安装程序会询问是否补齐缺失依赖，增量构建三个原生组件，备份文件并停止旧组件后完成安装；后续失败时尝试恢复原文件和原先运行的组件。系统包管理器已经安装的软件包不在恢复范围内。
 
 ```sh
-git clone https://github.com/Haisairova-Official/ADWS.git
+git clone --branch v1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
 cd ADWS
-
-cargo build --release --manifest-path src/niri-taskbar/Cargo.toml
-make -C src/panel-rows
-cc -shared -fPIC -O2 src/niri-desktop-layer/integration/waybar-space.c \
-  -o src/niri-desktop-layer/integration/libwaybar-space.so \
-  $(pkg-config --cflags --libs gtk+-3.0 gtk-layer-shell-0)
-
-mkdir -p "$HOME/.local/lib/waybar"
-install -m644 src/niri-taskbar/target/release/libniri_taskbar.so "$HOME/.local/lib/waybar/"
-install -m644 src/panel-rows/libadws_panel.so "$HOME/.local/lib/waybar/"
-install -m644 src/niri-desktop-layer/integration/libwaybar-space.so "$HOME/.local/lib/waybar/"
-
 ./install.sh
-./adws layout apply --restart
-./adws config
+adws -s
 ```
+
+Arch Linux x86_64 用户可使用 `ADWS1.30_for_arch.zip`，解压到固定目录后同样运行 `./install.sh`。预构建包会校验并安装原生组件，无需现场编译 Rust/C；运行依赖仍需要安装。
+
+For the stable source release, use the `v1.30` tag and run `./install.sh`. The installer offers missing dependencies, incrementally builds native components, backs up integration files and stops old components before replacing files. Later failures attempt to restore files and previously running components; packages already installed through the system package manager are not rolled back. Arch Linux x86_64 users can use the prebuilt ZIP with the same installer.
 
 仓库根目录的 `./install.sh` 与 `./adws install` 使用相同安装流程。
 
-`adws install` 会先检查运行依赖与动态库；缺失时询问是否补齐，拒绝或失败时停止。
+`adws install` 会先检查运行依赖；缺失时询问是否补齐，拒绝或失败时停止。源码版始终检查并增量构建原生组件，不会仅凭旧动态库存在就跳过构建。
 预检通过后，将启动器链接到 `~/.local/bin`，向 `$XDG_CONFIG_HOME/waybar`（默认 `~/.config/waybar`）复制缺失的默认配置。
 已有配置文件和有效符号链接均保留，不导入或覆盖源码中的默认配置；遇到失效链接会停止并提示修复。
 安装会创建缺失的桌面目录，优先使用桌面配置或 XDG 桌面目录，否则使用 `~/Desktop`。

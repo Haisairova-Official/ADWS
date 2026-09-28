@@ -1,5 +1,6 @@
 """Live GTK3 user-theme reload, including imported and atomically replaced files."""
 from pathlib import Path
+import logging
 import os
 import re
 
@@ -38,11 +39,24 @@ class Watch:
             owner.connect('destroy', lambda *_: self.close())
 
     def poll(self):
-        current = css_snapshot(self.paths)
-        if current != self.snapshot:
-            if self.callback() is not False:
+        if not self.source: return False
+        try:
+            current = css_snapshot(self.paths)
+            # Palette generators sometimes unlink before replacing. Retain the
+            # valid palette until all previously readable dependencies return.
+            if any(data is None and self.snapshot.get(path) is not None for path, data in current.items()):
+                return True
+            if current != self.snapshot and self.callback() is not False:
                 self.snapshot = current
-        return True
+                self._last_error = None
+        except Exception as error:
+            # An exception escaping a GLib callback removes its timeout source.
+            # Log once per error and retry rather than losing live updates.
+            detail = str(error)
+            if detail != getattr(self, '_last_error', None):
+                logging.getLogger(__name__).warning('Theme refresh failed: %s', detail)
+                self._last_error = detail
+        return bool(self.source)
 
     def close(self):
         from gi.repository import GLib

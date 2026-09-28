@@ -28,11 +28,8 @@ def read_inventory():
 
 
 def save_inventory(data):
-    path = inventory_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
-    os.replace(temporary, path)
+    from adws_atomic import replace_files
+    replace_files({inventory_path(): (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode()})
 
 
 def digest(path):
@@ -62,6 +59,8 @@ def record(config=None):
         if source.is_file() and installed.is_file() and digest(source) == digest(installed):
             libraries[name] = digest(installed)
     data['root'] = str(ROOT)
+    from adws_templates import hashes
+    data.setdefault('template_hashes', hashes(ROOT))
     save_inventory(data)
 
 
@@ -78,7 +77,8 @@ def ask(prompt, default):
 
 
 def remove_autostart():
-    path = config_home() / 'niri/config.kdl'
+    from adws_windows import config_path
+    path = config_path()
     if not path.is_file():
         return
     text = path.read_text()
@@ -95,7 +95,8 @@ def remove_autostart():
     cleaned = ''.join(line for line in cleaned.splitlines(keepends=True) if line.strip() not in lines)
     if cleaned != text:
         # Edit only the ADWS block; keep all other compositor configuration.
-        path.write_text(cleaned)
+        from adws_atomic import replace_files
+        replace_files({path: cleaned.encode()})
 
 
 def remove_owned_files(keep_config):
@@ -158,15 +159,17 @@ def uninstall():
     except (EOFError, KeyboardInterrupt):
         print(_tr('\n已取消。'))
         return 0
-    print(_tr('卸载中，感谢您的使用。'), flush=True)
     try:
         from adws_runtime import main as control
-        for component in ('desktop', 'taskbar'):
-            if control([component, '--stop'], quiet=True) != 0:
-                return 1
-        remove_autostart()
-        remove_owned_files(keep_config)
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        from adws_upgrade import update_lock
+        with update_lock():
+            print(_tr('卸载中，感谢您的使用。'), flush=True)
+            for component in ('desktop', 'taskbar'):
+                if control([component, '--stop'], quiet=True) != 0:
+                    return 1
+            remove_autostart()
+            remove_owned_files(keep_config)
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(''.join([_tr('卸载未完成：'), f'{error}']), file=sys.stderr)
         return 1
     return 0

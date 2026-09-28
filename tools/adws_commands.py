@@ -72,6 +72,7 @@ def install():
         directory = SYSTEM_BIN
     data = read_inventory()
     roots = {ROOT, Path(data.get('root') or ROOT)}
+    roots.update(Path(value) for value in data.get('migration_roots', []) if isinstance(value, str))
     # Check every name before modifying anything; never overwrite another program.
     for name, relative in ENTRIES.items():
         path = directory / name

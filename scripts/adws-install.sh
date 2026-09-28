@@ -23,6 +23,9 @@ if ! command -v python3 >/dev/null 2>&1; then
         *) adws_message "已取消。" "Cancelled."; exit 1 ;;
     esac
 fi
+if [ "${ADWS_INSTALL_TRANSACTION:-}" != "$ROOT" ]; then
+    exec python3 "$ROOT/tools/adws_install_transaction.py"
+fi
 python3 "$ROOT/tools/adws_setup.py"
 python3 "$ROOT/tools/adws_migrate.py"
 python3 "$ROOT/tools/adws_windows.py"

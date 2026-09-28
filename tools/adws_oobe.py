@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import threading
 
 from adws_i18n import tr as _tr
@@ -34,10 +35,8 @@ def launch(automatic=False):
 
 
 def write_json(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix('.tmp')
-    temp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
-    temp.replace(path)
+    from adws_atomic import replace_files
+    replace_files({path: (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode()})
 
 
 def background_style(text, color):
@@ -49,13 +48,58 @@ def background_style(text, color):
     return text + '\n' + ('' if found else marker+'\n') + 'window#waybar > box { background: '+color+'; }\n'
 
 
+def save_settings(layout, background, selected, wallpaper_choice, set_default):
+    """Save the wizard's choices with a recoverable file snapshot."""
+    from adws_atomic import replace_files
+    from adws_install_transaction import Snapshot
+    from adws_layout import apply_layout, live_config_path, live_style_path, restart_taskbar
+    from adws_runtime import pids
+    from adws_upgrade import update_lock
+    with update_lock():
+        config = folder().parent
+        paths = [folder()/'taskbar-layout.json', folder()/'setup.json', folder()/'wallpaper.json',
+                 live_config_path(), live_style_path(), config/'mimeapps.list']
+        state = Path(os.environ.get('XDG_STATE_HOME') or Path.home()/'.local/state')/'adws/setup-backups'
+        state.mkdir(parents=True, exist_ok=True)
+        backup = Path(tempfile.mkdtemp(prefix='setup-', dir=state))
+        snapshot = Snapshot(backup, paths)
+        try:
+            for mime, desktop_id in selected.items():
+                for target in ([mime, 'x-scheme-handler/http', 'text/html'] if mime.endswith('/https') else [mime]):
+                    set_default(target, desktop_id)
+            if live_config_path().exists():
+                ok, message = apply_layout(layout, restart=False)
+                if not ok: raise RuntimeError(message)
+                style = live_style_path()
+                replace_files({style: background_style(style.read_text(), background).encode()})
+            write_json(folder()/'taskbar-layout.json', layout)
+            write_json(folder()/'setup.json', {'version': 1, 'completed': True})
+            if wallpaper_choice:
+                from adws_wallpaper import apply as apply_wallpaper
+                write_json(folder()/'wallpaper.json', {k: wallpaper_choice[k] for k in ('engine', 'image')})
+                apply_wallpaper(**wallpaper_choice)
+        except BaseException as original:
+            try:
+                snapshot.restore()
+            except Exception as recovery:
+                raise RuntimeError(_tr('设置未完成，自动恢复也遇到问题。备份：%s') % backup
+                                   + '\n' + str(original) + '\n' + str(recovery)) from original
+            raise
+        try:
+            if pids('taskbar'):
+                ok, detail = restart_taskbar()
+                if not ok: raise RuntimeError(detail)
+        except Exception as error:
+            raise RuntimeError(_tr('设置已保存，但任务栏刷新失败：%s') % error) from error
+
+
 def run():
     import gi
     gi.require_version('Gtk', '3.0')
     from gi.repository import Gtk, Gdk, Gio, GLib
     GLib.set_prgname('adws-setup')
     Gdk.set_program_class('adws-setup')
-    from adws_layout import load_layout, apply_layout, live_config_path, live_style_path
+    from adws_layout import load_layout
     from adws_theme import start
     Gtk.init([])
     start()
@@ -198,38 +242,15 @@ def run():
             else: window.destroy()
             return False
         def worker():
-            from adws_runtime import pids
-            config = folder().parent
-            paths = [folder()/'taskbar-layout.json', folder()/'setup.json', folder()/'wallpaper.json', live_config_path(), live_style_path(), config/'mimeapps.list']
-            backups = {}
-            try:
-                backups = {p: p.read_bytes() if p.is_file() else None for p in paths}
-                for mime, desktop_id in selected.items():
-                    app = Gio.DesktopAppInfo.new(desktop_id)
-                    if app is None: raise ValueError(_tr('选择的应用已被移除，请重新选择。'))
-                    for target in ([mime, 'x-scheme-handler/http', 'text/html'] if mime.endswith('/https') else [mime]):
-                        if not app.set_as_default_for_type(target): raise RuntimeError(_tr('无法保存默认应用。'))
-                if live_config_path().exists():
-                    ok, message = apply_layout(layout, restart=False)
-                    if not ok: raise RuntimeError(message)
-                    style = live_style_path()
-                    style.write_text(background_style(style.read_text(), background))
-                write_json(folder()/'taskbar-layout.json', layout)
-                write_json(folder()/'setup.json', {'version': 1, 'completed': True})
-                if wallpaper_choice:
-                    from adws_wallpaper import apply as apply_wallpaper
-                    write_json(folder()/'wallpaper.json', {k: wallpaper_choice[k] for k in ('engine', 'image')})
-                    apply_wallpaper(**wallpaper_choice)
-            except Exception as exc:
-                for p, content in backups.items():
-                    if content is None: p.unlink(missing_ok=True)
-                    else: p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(content)
-                GLib.idle_add(done, str(exc)); return
+            def set_default(mime, desktop_id):
+                app = Gio.DesktopAppInfo.new(desktop_id)
+                if app is None: raise ValueError(_tr('选择的应用已被移除，请重新选择。'))
+                if not app.set_as_default_for_type(mime): raise RuntimeError(_tr('无法保存默认应用。'))
             message = ''
-            if pids('taskbar'):
-                from adws_layout import restart_taskbar
-                ok, detail = restart_taskbar()
-                if not ok: message = detail
+            try:
+                save_settings(layout, background, selected, wallpaper_choice, set_default)
+            except Exception as exc:
+                message = str(exc)
             GLib.idle_add(done, message)
         threading.Thread(target=worker, daemon=False).start()
 
@@ -253,6 +274,7 @@ def main():
     with (runtime/'adws-setup.lock').open('a') as lock:
         try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError: return
+        if args.auto and not needed(): return
         run()
 
 

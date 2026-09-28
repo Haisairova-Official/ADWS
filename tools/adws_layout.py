@@ -703,11 +703,12 @@ def apply_layout(layout: dict | None = None, restart: bool = False,
     config_path.parent.mkdir(parents=True, exist_ok=True)
     style_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        backup_file(config_path)
-        config_path.write_text(config_text, encoding="utf-8")
-        backup_file(style_path)
+        from adws_atomic import replace_files
         old_style = style_path.read_text(encoding="utf-8") if style_path.exists() else ""
-        style_path.write_text(patch_style(old_style, css_block), encoding="utf-8")
+        backup_file(config_path)
+        backup_file(style_path)
+        replace_files({config_path: config_text.encode('utf-8'),
+                       style_path: patch_style(old_style, css_block).encode('utf-8')})
     except OSError as exc:
         return False, _tr('写入失败：%s') % exc
 

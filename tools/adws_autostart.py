@@ -97,7 +97,8 @@ def main():
             if answer in ('', 'y', 'yes'):
                 break
             print(_tr('请输入 y 或 n。'))
-        path = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'niri/config.kdl'
+        from adws_windows import config_path
+        path = config_path()
         print(enable(path))
     except (EOFError, KeyboardInterrupt):
         print(_tr('\n已跳过自启设置，安装已完成。'))

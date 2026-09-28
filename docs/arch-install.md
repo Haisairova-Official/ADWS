@@ -1,6 +1,6 @@
-# ADWS 1.30 Pre-Release — Arch Linux x86_64
+# ADWS 1.30 Released — Arch Linux x86_64
 
-解压 `ADWS1.30_Pre-Release_for_arch.zip`，进入解压目录并运行 `./install.sh`。
+解压 `ADWS1.30_for_arch.zip`，进入解压目录并运行 `./install.sh`。
 安装包包含三个预构建原生组件，校验 SHA-256 后直接安装，不需要 Rust/Cargo 或 C 编译。
 运行依赖仍需安装，缺少时会询问是否补齐；之后选择启动器、命令入口和 Niri 自启。
 中文系统显示中文，其余语言显示英文。
