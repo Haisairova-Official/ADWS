@@ -1,5 +1,5 @@
 {
-  "major_version": "1.35",
+  "major_version": "1.31",
   "build_date": "2026-09-28",
   "changes": [
     "开始 Rust 化：插件常驻运行器默认优先使用 Rust，源码安装和 Arch 预构建包都包含运行器；保留 Python 回退。",
@@ -7,7 +7,7 @@
     "插件名称旁新增带代表色的圆角语言标签，长名称仍会省略，操作按钮保持可见。",
     "修复了 Python 回退运行器收到退出信号后仍等待超时的问题。"
   ],
-  "release_label": "Development",
-  "display_version": "1.35 Development",
-  "help_version": "1.35 Development"
+  "display_version": "1.31 A",
+  "help_version": "Major 1.31    Minor：A",
+  "minor_version": "A"
 }

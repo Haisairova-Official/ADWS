@@ -1,6 +1,6 @@
 # Changelog / 更新记录
 
-## 1.35 Development — 2026-09-28
+## 1.31 A — 2026-09-28
 
 开发分支 / Development branch: `Pre-1.35`.
 

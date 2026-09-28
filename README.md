@@ -6,15 +6,15 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development: **1.35 Development** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.31 A** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
 
-## 1.35 开发 / Development
+## 1.31 A
 
-插件常驻运行器现已默认优先使用 Rust，负责进程与管道管理、JSON 校验、超时、断管和进程组清理。源码安装自动构建，Arch 预构建流程包含运行器。未构建时可回退 Python，也可显式选择后端。Python 仍用于启动准备和现有插件本体，语言标签据实显示插件语言；迁移范围与验证方法见 [1.35 开发记录](docs/1.35-development.md)。
+插件常驻运行器现已默认优先使用 Rust，负责进程与管道管理、JSON 校验、超时、断管和进程组清理。源码安装自动构建，Arch 预构建流程包含运行器。未构建时可回退 Python，也可显式选择后端。Python 仍用于启动准备和现有插件本体，语言标签据实显示插件语言；迁移范围与验证方法见 [1.31 开发记录](docs/1.31-development.md)。
 
-The resident plugin supervisor now prefers Rust by default. Source installation builds it, and the Arch packaging pipeline includes it. Python remains available as a fallback and still prepares packages, settings and translations. Plugin language badges describe the implementation, not the supervisor. See the [1.35 development notes](docs/1.35-development.md) for scope, backend selection and verification.
+The resident plugin supervisor now prefers Rust by default. Source installation builds it, and the Arch packaging pipeline includes it. Python remains available as a fallback and still prepares packages, settings and translations. Plugin language badges describe the implementation, not the supervisor. See the [1.31 development notes](docs/1.31-development.md) for scope, backend selection and verification.
 
 安装新增灵魂拷问：SSH 或非图形会话先确认是否继续，默认取消；普通桌面终端不受影响。
 
