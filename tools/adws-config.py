@@ -545,7 +545,7 @@ def write_taskbar_font(font_family: str, font_size: float) -> Path:
 
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description=_tr('ADWS 统一设置'))
-    parser.add_argument("--tab", choices=("desktop", "taskbar", "components", "about"), default=None)
+    parser.add_argument("--tab", choices=("desktop", "taskbar", "components", "about", "start"), default=None)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--restart-desktop", action="store_true", help=_tr('重启桌面图标层（不打开界面）'))
     parser.add_argument("--autostart", choices=("status", "on", "off"), default=None,
@@ -800,6 +800,9 @@ class ConfigWindow(Gtk.Window):
         style_task.connect("clicked", self.action_open_taskbar_style)
         taskbar_buttons.pack_start(restart_task, False, False, 0)
         taskbar_buttons.pack_start(style_task, False, False, 0)
+        start_task = Gtk.Button(label=_tr('开始菜单设置…'))
+        start_task.connect('clicked', lambda *_: subprocess.Popen([sys.executable, str(PROJECT_ROOT / 'tools/adws-config.py'), '--tab', 'start'], start_new_session=True))
+        taskbar_buttons.pack_start(start_task, False, False, 0)
         box.pack_start(taskbar_buttons, False, False, 0)
         hint = Gtk.Label(
             label=_tr('两个开关互相独立：桌面图标层使用 desktop-hidden 标记，任务栏使用 taskbar-hidden。'),
@@ -1182,6 +1185,17 @@ class TaskbarSettingsWindow(Gtk.Window):
         layout_page = self.layout_editor.content
         layout_page.set_border_width(18)
         self.notebook.append_page(layout_page, Gtk.Label(label=_tr('组件与插件')))
+        start_scroll = Gtk.ScrolledWindow()
+        start_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        start_scroll.add(self.layout_editor.start_settings)
+        self.notebook.append_page(start_scroll, Gtk.Label(label=_tr('开始菜单')))
+        self.layout_editor.on_start_settings = lambda: self.notebook.set_current_page(2)
+        from gi.repository import GObject
+        for key, caption in [('window_animations', '菜单浮入淡出（与窗口动效同步）'), ('tab_animations', '菜单页面切换（与选项卡动效同步）')]:
+            toggle = Gtk.CheckButton(label=_tr(caption))
+            self.panel_toggles[key].bind_property('active', toggle, 'active', GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE)
+            self.layout_editor.start_settings.pack_start(toggle, False, False, 0)
+        keep_scroll_for_page(self.layout_editor.start_settings, start_scroll)
         # Protect both existing and subsequently added layout rows from wheel edits.
         def protect_layout(widget):
             scroller = self.layout_editor.list_box.get_parent()
@@ -1191,7 +1205,9 @@ class TaskbarSettingsWindow(Gtk.Window):
                 keep_scroll_for_page(widget, scroller)
         self.layout_editor.protect_scroll = protect_layout
         protect_layout(layout_page)
-        if tab == "layout" or open_plugin:
+        if tab == "start":
+            self.notebook.set_current_page(2)
+        elif tab == "layout" or open_plugin:
             self.notebook.set_current_page(1)
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         buttons.set_hexpand(True)
@@ -1318,8 +1334,8 @@ def main(argv=None):
     Gtk.init([])
     from adws_theme import start as start_theme_watch
     start_theme_watch()
-    if args.tab == "taskbar":
-        TaskbarStyleWindow()
+    if args.tab in ("taskbar", "start"):
+        TaskbarStyleWindow(tab=args.tab)
     else:
         ConfigWindow(tab=args.tab)
     Gtk.main()

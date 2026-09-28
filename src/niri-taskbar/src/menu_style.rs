@@ -317,9 +317,10 @@ mod tests {
 
 /// Local provider keeps dangerous actions distinct without changing normal close.
 pub fn destructive(item: &gtk::MenuItem, animations: bool, duration: u32) {
+    item.style_context().add_class("adws-destructive");
     let provider = CssProvider::new();
     let transition = if animations { format!("background-color {}ms ease-in-out, color {}ms ease-in-out",duration,duration) } else { "none".into() };
-    let css = format!("menuitem {{ transition:{transition}; }} menuitem:hover, menuitem:selected {{ background-image:none; background-color:#c62828; color:#ffffff; }}");
+    let css = format!("menuitem {{ transition:{transition}; }} menuitem.adws-destructive:hover, menuitem.adws-destructive:selected {{ background-image:none; background-color:#c62828; color:#ffffff; }}");
     if provider.load_from_data(css.as_bytes()).is_ok() {
         item.style_context().add_provider(&provider,gtk::STYLE_PROVIDER_PRIORITY_USER+1);
     }

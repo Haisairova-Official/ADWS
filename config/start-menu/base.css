@@ -1,18 +1,16 @@
-/* GTK 3 CSS. Palette aliases are supplied by ADWS before these rules. */
+/* Shared mechanics only; layout and surface treatment belong to each preset. */
 window.adws-start-overlay { background: transparent; }
-.adws-start-menu { color: @adws_fg; background: @adws_bg; border: 1px solid @adws_border; border-radius: 12px; }
-.adws-start-menu .menu-header { border-radius: 11px 11px 0 0; padding: 18px; border-bottom: 1px solid @adws_border; }
-.adws-start-menu .menu-title { font-size: 1.3em; font-weight: bold; }
-.adws-start-menu .menu-subtitle { opacity: 0.7; }
-.adws-start-menu .menu-body { padding: 8px; }
-.adws-start-menu .menu-sidebar { padding: 6px; background: alpha(@adws_accent, 0.08); }
-.adws-start-menu .menu-search { margin: 12px; padding: 8px; color: @adws_fg; background: @adws_bg; border: 1px solid @adws_border; border-radius: 8px; }
-.adws-start-menu list { background: transparent; color: @adws_fg; }
-.adws-start-menu row { padding: 8px; border-radius: 6px; }
+.adws-start-menu { color: @adws_fg; background: @adws_bg; border: 1px solid @adws_border; }
+.adws-start-menu .menu-title { font-weight: bold; }
+.adws-start-menu .menu-subtitle { opacity: 0.65; }
+.adws-start-menu list, .adws-start-menu flowbox { background: transparent; color: @adws_fg; }
+.adws-start-menu flowboxchild { padding: 0; }
+.adws-start-menu row { padding: 7px 9px; }
 .adws-start-menu row:hover, .adws-start-menu row:selected { background: @adws_accent; color: @adws_on_accent; }
-.adws-start-menu button { background: transparent; background-image: none; color: @adws_fg; border: none; border-radius: 6px; box-shadow: none; padding: 8px; }
-.adws-start-menu button:hover, .adws-start-menu button:checked { background: @adws_accent; color: @adws_on_accent; }
-.adws-start-menu .menu-footer { padding: 8px 12px; border-top: 1px solid @adws_border; }
+.adws-start-menu button { background: transparent; background-image: none; color: @adws_fg; border: 1px solid transparent; box-shadow: none; padding: 7px 9px; min-height: 0; min-width: 0; }
+.adws-start-menu button:hover, .adws-start-menu button:checked { background: alpha(@adws_accent, 0.18); border-color: alpha(@adws_accent, 0.4); }
+.adws-start-menu .menu-search { min-width: 0; color: @adws_fg; background: @adws_bg; border: 1px solid @adws_border; box-shadow: none; }
 .adws-start-menu .menu-status { padding: 6px; color: @adws_fg; }
-
-.adws-start-menu button.active-category { background: alpha(@adws_accent, 0.18); border-left: 3px solid @adws_accent; }
+.adws-start-menu .section-title { font-size: 0.9em; opacity: 0.7; padding: 10px; }
+.adws-start-menu button.active-category { background: alpha(@adws_accent, 0.2); border-color: @adws_accent; }
+.adws-start-menu .menu-footer { padding: 6px 10px; }

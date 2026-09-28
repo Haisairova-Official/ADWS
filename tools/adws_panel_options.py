@@ -101,11 +101,9 @@ def styles(options):
     for slot in options.get('_occupied_slots', ('left','center','right')):
         if slot not in ('left','center','right'): continue
         lines.append(f'{segment}.modules-{slot} {{ {material} border-radius:{radius}; }}')
-    # The inward corners stay rounded when docked; the screen edge is flush.
-    corner=radius.split()[0]
-    corners={'bottom':f'{corner} {corner} 0 0','top':f'0 0 {corner} {corner}','left':f'0 {corner} {corner} 0','right':f'{corner} 0 0 {corner}'}
-    lines.append(f'window#waybar.adws-panel.adws-docked > box {{ border-radius:{corners[values["position"]]}; }}')
-    lines.append(f'window#waybar.adws-panel.adws-split.adws-docked > box > box {{border-radius:{corners[values["position"]]};}}')
+    # Docked surfaces are square on all four corners, including split segments.
+    lines.append('window#waybar.adws-panel.adws-docked > box { border-radius:0; }')
+    lines.append('window#waybar.adws-panel.adws-split.adws-docked > box > box {border-radius:0;}')
     return '\n'.join(lines)
 
 

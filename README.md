@@ -16,6 +16,10 @@
 
 The native Rust start menu offers three themed presets, custom CSS and positioning beside the Start button. Settings and installation offer ADWS Start, fuzzel and rofi. Taskbar options add split surfaces, docking modes, four materials and configurable process termination; Peek gains close controls and consistent corners.
 
+开始菜单设置独立成页，关闭任务栏开始按钮后仍可配置与预览。三套主题现在各有独立布局，并显示系统账户头像与昵称。应用后台加载，开始菜单和吸附切换支持动效；吸附时取消圆角，Shift 终止会跟随菜单收到的键盘状态更新。
+
+The presets now have distinct layouts and show the system avatar and real name. App discovery runs off the UI thread; menu and docking transitions follow animation preferences. Docked corners are square, and termination menus track Shift after the popup grab.
+
 使用与限制 / Usage and limits: [开始菜单与任务栏外观](docs/start-menu.md). 透明材质的背景模糊由窗口管理器提供 / Background blur depends on compositor support.
 
 ## 1.31 A

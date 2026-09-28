@@ -39,6 +39,7 @@ class LayoutWindow:
         self.rows = []
         self.embedded = parent is not None
         self.on_apply = on_apply
+        self.on_start_settings = None
 
         self.window = parent if self.embedded else Gtk.Window(title=_tr('任务栏组件与插件 — ADWS'))
         if not self.embedded:
@@ -62,6 +63,19 @@ class LayoutWindow:
         sub.set_line_wrap(True)
         outer.pack_start(sub, False, False, 0)
 
+        self.start_settings = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.start_settings.set_border_width(18)
+        heading = Gtk.Label(label=_tr('开始菜单与按钮'), xalign=0)
+        heading.get_style_context().add_class('title')
+        self.start_settings.pack_start(heading, False, False, 0)
+        hint = Gtk.Label(label=_tr('关闭任务栏开始按钮后，仍可在这里设置、预览菜单，或使用 adws start-menu 打开。'), xalign=0)
+        hint.set_line_wrap(True)
+        self.start_settings.pack_start(hint, False, False, 0)
+        self.start_enabled = Gtk.CheckButton(label=_tr('在任务栏显示开始按钮'))
+        self.start_settings.pack_start(self.start_enabled, False, False, 0)
+        if not self.embedded:
+            outer.pack_start(self.start_settings, False, False, 0)
+
         icon_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         icon_row.pack_start(Gtk.Label(label=_tr('开始按钮图标 / 文字：')), False, False, 0)
         self.start_mode = Gtk.ComboBoxText()
@@ -72,9 +86,9 @@ class LayoutWindow:
         self.start_label = Gtk.Entry()
         self.start_label.set_placeholder_text(_tr('例如：开始、Apps、☰、🚀；留空恢复默认'))
         icon_row.pack_start(self.start_label, True, True, 0)
-        outer.pack_start(icon_row, False, False, 0)
+        self.start_settings.pack_start(icon_row, False, False, 0)
         self.start_preview = Gtk.Label(xalign=0)
-        outer.pack_start(self.start_preview, False, False, 0)
+        self.start_settings.pack_start(self.start_preview, False, False, 0)
         self.start_mode.connect("changed", lambda *_: self.update_start_preview())
         self.start_label.connect("changed", lambda *_: self.update_start_preview())
         self.image_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -95,7 +109,7 @@ class LayoutWindow:
         self.image_error = Gtk.Label(xalign=0)
         self.image_error.set_line_wrap(True)
         self.image_box.pack_start(self.image_error, False, False, 0)
-        outer.pack_start(self.image_box, False, False, 0)
+        self.start_settings.pack_start(self.image_box, False, False, 0)
 
         launcher_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         launcher_row.pack_start(Gtk.Label(label=_tr('开始按钮启动器：')), False, False, 0)
@@ -114,7 +128,7 @@ class LayoutWindow:
         self.rofi_theme_button.connect("clicked", self.on_rofi_theme)
         launcher_row.pack_start(self.rofi_theme_button, False, False, 0)
         self.launcher_mode.connect("changed", self.update_launcher_controls)
-        outer.pack_start(launcher_row, False, False, 0)
+        self.start_settings.pack_start(launcher_row, False, False, 0)
 
         self.menu_options = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.menu_options.pack_start(Gtk.Label(label=_tr('开始菜单主题：')), False, False, 0)
@@ -128,7 +142,7 @@ class LayoutWindow:
         preview = Gtk.Button(label=_tr('预览菜单'))
         preview.connect('clicked', self.preview_start_menu)
         self.menu_options.pack_start(preview, False, False, 0)
-        outer.pack_start(self.menu_options, False, False, 0)
+        self.start_settings.pack_start(self.menu_options, False, False, 0)
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         add_btn = Gtk.Button(label=_tr('添加 .mplg…'))
@@ -262,6 +276,13 @@ class LayoutWindow:
         down.connect("clicked", lambda _b, e=entry: self.move_row(e, 1))
         box.pack_start(up, False, False, 0)
         box.pack_start(down, False, False, 0)
+
+        if entry.get("kind") == "builtin" and entry.get("key") == "start":
+            from gi.repository import GObject
+            switch.bind_property('active', self.start_enabled, 'active', GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE)
+            settings_btn = Gtk.Button(label=_tr('设置…'))
+            settings_btn.connect('clicked', lambda *_: self.on_start_settings() if self.on_start_settings else self.start_mode.grab_focus())
+            box.pack_start(settings_btn, False, False, 0)
 
         if entry.get("kind") == "builtin" and entry.get("key") == "clock":
             settings_btn = Gtk.Button(label=_tr('设置…'))
@@ -534,7 +555,7 @@ class LayoutWindow:
         mode = self.launcher_mode.get_active_id()
         self.launcher_command.set_sensitive(mode == "custom")
         self.rofi_theme_button.set_visible(mode == "rofi")
-        if hasattr(self, "menu_options"): self.menu_options.set_sensitive(mode == "adws")
+        # Native menu preferences remain accessible with another launcher or a hidden Start button.
 
     def preview_start_menu(self, *_):
         import subprocess
@@ -658,7 +679,8 @@ class LayoutWindow:
         layout.setdefault("options", {})["start_label"] = self.start_label.get_text().strip()
         layout["options"]["start_icon_mode"] = self.start_mode.get_active_id() or "custom"
         images = self.image_options()
-        adws_layout.validate_start_images(images)
+        if self.start_enabled.get_active():
+            adws_layout.validate_start_images(images)
         layout["options"].update(images)
         custom = self.launcher_command.get_text().strip()
         command = {"adws": native_menu_command(), "fuzzel": "fuzzel", "rofi": rofi_theme_command() if self.rofi_themed else "rofi -show drun"}.get(

@@ -318,11 +318,15 @@ impl Button {
             }
 
             if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
-            let terminate = state.config().termination_mode() == "shift" && event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK);
-            let close_label = if terminate { crate::i18n::text("终止", "Terminate") } else { crate::i18n::text("关闭窗口", "Close window") };
+            let terminate = Rc::new(std::cell::Cell::new(state.config().termination_mode() == "shift" && event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK)));
+            let close_items = Rc::new(RefCell::new(Vec::<gtk::MenuItem>::new()));
+            let close_label = if terminate.get() { crate::i18n::text("终止", "Terminate") } else { crate::i18n::text("关闭窗口", "Close window") };
             let window_id = recent.get();
             tracing::info!(id = window_id, "{}", crate::i18n::text("打开窗口右键菜单", "Open window context menu"));
             let menu = gtk::Menu::new();
+            if state.config().termination_mode() == "shift" {
+                track_shift(&menu, terminate.clone(), close_items.clone());
+            }
             for (label, administrator) in [
                 (crate::i18n::text("打开新窗口", "Open new window"), false),
                 (crate::i18n::text("以管理员权限运行", "Run as administrator"), true),
@@ -345,7 +349,7 @@ impl Button {
                 menu.append(&pin);
             }
             if members.borrow().is_empty() {
-                show_menu(menu, None);
+                show_menu(menu, event);
                 return gtk::glib::Propagation::Stop;
             }
             menu.append(&gtk::SeparatorMenuItem::new());
@@ -357,10 +361,14 @@ impl Button {
                         (crate::i18n::text("最小化 / 还原", "Minimize / restore"),1),
                         (close_label,2)] {
                         let action_item = gtk::MenuItem::with_label(caption);
-                        if action == 2 && terminate { crate::menu_style::destructive(&action_item, state.config().window_animations(),state.config().animation_duration()); }
+                        if action == 2 && state.config().termination_mode() == "shift" {
+                            prepare_close(&action_item, &state, terminate.get());
+                            close_items.borrow_mut().push(action_item.clone());
+                        }
+                        let terminate = terminate.clone();
                         let state = state.clone(); let id = *id;
                         action_item.connect_activate(move |_| {
-                            if action == 2 && terminate { state.niri().terminate_window(id); return; }
+                            if action == 2 && terminate.get() { state.niri().terminate_window(id); return; }
                             let result = match action {0 => state.niri().activate_window(id),1=>state.niri().toggle_window_minimized(id),_=>state.niri().close_window(id)};
                             if let Err(error) = result {tracing::warn!(%error,id,"group window action failed");}
                         });
@@ -369,13 +377,16 @@ impl Button {
                     if state.config().termination_mode() == "below" { append_terminate(&submenu, &state, *id); }
                     item.set_submenu(Some(&submenu)); menu.append(&item);
                 }
-                show_menu(menu, None);
+                show_menu(menu, event);
                 return gtk::glib::Propagation::Stop;
             }
             let focus = gtk::MenuItem::with_label(crate::i18n::text("聚焦窗口", "Focus window"));
             let minimize = gtk::MenuItem::with_label(crate::i18n::text("最小化 / 还原", "Minimize / restore"));
             let close = gtk::MenuItem::with_label(close_label);
-            if terminate { crate::menu_style::destructive(&close, state.config().window_animations(),state.config().animation_duration()); }
+            if state.config().termination_mode() == "shift" {
+                prepare_close(&close, &state, terminate.get());
+                close_items.borrow_mut().push(close.clone());
+            }
 
             let clicked_state = state.clone();
             focus.connect_activate(move |_| {
@@ -393,7 +404,7 @@ impl Button {
 
             let clicked_state = state.clone();
             close.connect_activate(move |_| {
-                if terminate { clicked_state.niri().terminate_window(window_id); return; }
+                if terminate.get() { clicked_state.niri().terminate_window(window_id); return; }
                 if let Err(e) = clicked_state.niri().close_window(window_id) {
                     tracing::warn!(%e, id = window_id, "error trying to close window");
                 }
@@ -565,6 +576,44 @@ impl BorderExt for Border {
     }
 }
 
+fn prepare_close(item: &gtk::MenuItem, state: &State, terminate: bool) {
+    crate::menu_style::destructive(item, state.config().window_animations(), state.config().animation_duration());
+    if !terminate { item.style_context().remove_class("adws-destructive"); }
+}
+
+// Wayland may deliver keyboard modifiers only after the popup grab. Keep the
+// label and the action on the same live state, including grouped submenus.
+fn track_shift(menu: &gtk::Menu, terminate: Rc<std::cell::Cell<bool>>, items: Rc<RefCell<Vec<gtk::MenuItem>>>) {
+    let update: Rc<dyn Fn(bool)> = Rc::new(move |active| {
+        terminate.set(active);
+        for item in items.borrow().iter() {
+            item.set_label(if active {crate::i18n::text("终止", "Terminate")} else {crate::i18n::text("关闭窗口", "Close window")});
+            if active {item.style_context().add_class("adws-destructive");}
+            else {item.style_context().remove_class("adws-destructive");}
+        }
+    });
+    if let Some(keymap) = gtk::gdk::Keymap::for_display(&menu.display()) {
+        let apply = update.clone();
+        let handler = keymap.connect_state_changed(move |keys| {
+            apply(keys.modifier_state() & gtk::gdk::ModifierType::SHIFT_MASK.bits() != 0);
+        });
+        let connection = Rc::new(RefCell::new(Some(handler)));
+        let keys = keymap.clone();
+        let id = connection.clone();
+        menu.connect_deactivate(move |_| {if let Some(id)=id.borrow_mut().take(){keys.disconnect(id);}});
+        menu.connect_destroy(move |_| {if let Some(id)=connection.borrow_mut().take(){keymap.disconnect(id);}});
+    }
+    let apply = update.clone();
+    menu.connect_key_press_event(move |_, event| {
+        if matches!(event.keyval(), gtk::gdk::keys::constants::Shift_L | gtk::gdk::keys::constants::Shift_R) {apply(true);}
+        gtk::glib::Propagation::Proceed
+    });
+    menu.connect_key_release_event(move |_, event| {
+        if matches!(event.keyval(), gtk::gdk::keys::constants::Shift_L | gtk::gdk::keys::constants::Shift_R) {update(false);}
+        gtk::glib::Propagation::Proceed
+    });
+}
+
 fn append_terminate(menu: &gtk::Menu, state: &crate::state::State, id: u64) {
     let item=gtk::MenuItem::with_label(crate::i18n::text("终止", "Terminate"));
     crate::menu_style::destructive(&item,state.config().window_animations(),state.config().animation_duration());
@@ -574,7 +623,7 @@ fn append_terminate(menu: &gtk::Menu, state: &crate::state::State, id: u64) {
     menu.append(&item);
 }
 
-fn show_menu(menu: gtk::Menu, anchor: Option<&gtk::Button>) {
+fn show_menu(menu: gtk::Menu, event: &gtk::gdk::EventButton) {
     crate::menu_style::apply(&menu);
     menu.show_all();
     menu.connect_deactivate(|_| { ACTIVE_CONTEXT_MENU.with(|slot| {slot.borrow_mut().take();}); });
@@ -583,9 +632,7 @@ fn show_menu(menu: gtk::Menu, anchor: Option<&gtk::Button>) {
         if let Some(old) = old {old.popdown();}
         *slot.borrow_mut() = Some(menu.clone());
     });
-    if let Some(button) = anchor {
-        menu.popup_at_widget(button, gtk::gdk::Gravity::SouthWest, gtk::gdk::Gravity::NorthWest, None::<&gtk::gdk::Event>);
-    } else {menu.popup_at_pointer(gtk::current_event().as_ref());}
+    menu.popup_at_pointer(Some(event));
 }
 
 impl Drop for Button {
@@ -595,6 +642,7 @@ impl Drop for Button {
 #[cfg(test)]
 mod action_tests {
     use super::*;
+    use gtk::glib::translate::{IntoGlib, ToGlibPtr};
     fn settle() {
         for _ in 0..20 { while gtk::events_pending(){gtk::main_iteration();} std::thread::sleep(std::time::Duration::from_millis(5)); }
     }
@@ -612,6 +660,7 @@ mod action_tests {
                     let window=gtk::Window::new(gtk::WindowType::Toplevel);
                     window.add(button.widget());window.show_all();settle();
                     let mut event=gtk::gdk::Event::new(gtk::gdk::EventType::ButtonPress).downcast::<gtk::gdk::EventButton>().unwrap();
+                    event.as_mut().window=button.widget().window().unwrap().to_glib_full();
                     event.as_mut().button=3;
                     event.as_mut().state=if shift {gtk::gdk::ModifierType::SHIFT_MASK.bits()}else{0};
                     event.set_device(gtk::gdk::Display::default().unwrap().default_seat().unwrap().pointer().as_ref());
@@ -625,6 +674,16 @@ mod action_tests {
                     assert_eq!(labels.iter().any(|s|s==kill),mode=="below"||replacing,"mode={mode} shift={shift}");
                     assert_eq!(labels.iter().any(|s|s==close),!replacing);
                     if mode=="below" {assert_eq!(labels.last().unwrap(),kill);}
+                    // Modifiers can arrive after a Wayland popup takes its grab.
+                    if mode=="shift" {
+                        for held in [true,false,true] {
+                            let mut key=gtk::gdk::Event::new(if held {gtk::gdk::EventType::KeyPress}else{gtk::gdk::EventType::KeyRelease}).downcast::<gtk::gdk::EventKey>().unwrap();
+                            key.as_mut().keyval=gtk::gdk::keys::constants::Shift_L.into_glib();
+                            menu.emit_by_name::<bool>(if held {"key-press-event"}else{"key-release-event"}, &[&*key]);
+                            let close_item=target.children().into_iter().filter_map(|w|w.downcast::<gtk::MenuItem>().ok()).find(|item|item.label().as_deref()==Some(if held{kill}else{close})).unwrap();
+                            assert_eq!(close_item.style_context().has_class("adws-destructive"),held);
+                        }
+                    }
                     menu.popdown();settle();
                     unsafe{window.destroy();}
                 }

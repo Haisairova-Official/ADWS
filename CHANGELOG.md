@@ -22,6 +22,21 @@
 - 新增纯色、云母、亚克力和糖果材质，保留手动背景色；透明材质的背景模糊由窗口管理器提供。
 - Add Solid, Mica, Acrylic and Candy appearances, retaining manual base colors. Background blur depends on compositor support.
 
+- 重做开始菜单的三套布局：KDE 分类网格、Vista 程序区与账户栏、XP 用户横幅与级联菜单。
+- Rebuild the three start menu layouts: KDE navigation and grid, Vista program well and account rail, and XP user banner and cascading menus.
+
+- 开始菜单后台加载应用并分批创建界面，浮入淡出与页面切换跟随动效选项。
+- Load applications off the UI thread in bounded batches; menu fade/float and page transitions follow animation preferences.
+
+- 开始菜单显示系统账户头像和昵称，未设置时回退到默认头像和用户名。
+- Show the system account avatar and real name, falling back to a default avatar and login name.
+
+- 修复吸附模式切换不刷新的问题，吸附时取消圆角并增加可反向衔接的浮动过渡；修复 Wayland 菜单延迟收到 Shift 状态时未切换终止动作的问题。
+- Fix docking updates, use square docked corners and reversible float transitions; follow delayed Wayland Shift modifiers in termination menus.
+
+- 开始菜单设置独立成页，关闭开始按钮后仍可配置和预览，保留按钮外观与菜单偏好。
+- Give Start its own settings page; keep configuration and preview available with the taskbar button hidden, preserving appearance and menu preferences.
+
 - 修复安装器连续读取管道输入时吞掉后续答案的问题。（B）
 - Fix installation helpers reading ahead and consuming answers intended for later steps. (B)
 

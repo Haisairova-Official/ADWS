@@ -54,7 +54,20 @@ with patch('adws_layout.load_layout',return_value={'options':{'tab_animations':T
     window.panel_choices['termination_mode'].set_active_id('below')
     window.thickness.set_value(64)
     window.position.set_active_id('right')
-    assert window.notebook.count == 2
+    assert window.notebook.count == 3
+    window.layout_editor.on_start_settings()
+    assert window.notebook.get_current_page() == 2
+    window.layout_editor.start_enabled.set_active(False)
+    assert not next(row for row in window.layout_editor.rows if row['key']=='start')['widgets']['switch'].get_active()
+    window.layout_editor.menu_theme.set_active_id('xp')
+    disabled_layout=window.layout_editor.collect_layout()
+    assert not next(row for row in disabled_layout['builtins'] if row['id']=='start')['enabled']
+    assert disabled_layout['options']['start_menu_theme']=='xp'
+    window.layout_editor.start_enabled.set_active(True)
+    settle()
+    import cairo
+    preview=cairo.ImageSurface(cairo.FORMAT_ARGB32,window.get_allocated_width(),window.get_allocated_height())
+    window.draw(cairo.Context(preview));preview.write_to_png('/tmp/adws-start-settings-v2.png')
     assert window.layout_editor.window is window
     window.notebook.set_current_page(1)
     window.layout_editor.start_mode.set_active_id('custom')

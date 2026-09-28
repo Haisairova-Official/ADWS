@@ -81,6 +81,9 @@ class PanelOptionsTests(unittest.TestCase):
         result=layout.render_waybar_config({'options':{'split_panel':True,'panel_mode':'auto'},'plugins':[], 'builtins':[{'id':'start','enabled':True,'slot':'left','order':0},{'id':'clock','enabled':True,'slot':'right','order':0}]},available=[],base={})
         self.assertEqual(result['_adws_options']['_occupied_slots'],['left','right'])
         self.assertEqual(result['cffi/desktop-space']['panel_mode'],'auto')
+        self.assertIn('window_animations',result['cffi/desktop-space'])
+        self.assertIn('animation_duration',result['cffi/desktop-space'])
+        self.assertIn('adws-docked > box { border-radius:0;',styles({}))
         from adws_panel_options import surface_from_css
         appearance=surface_from_css('window#waybar > box {background:#123456; border-radius:19px;}')
         for material in ('solid','mica','acrylic','candy'):
@@ -98,3 +101,11 @@ class PanelOptionsTests(unittest.TestCase):
             self.assertEqual(result['cffi/niri-taskbar']['termination_mode'],mode)
         for opts in ({'panel_material':'bad'},{'panel_mode':'bad'},{'termination_mode':'bad'},{'split_panel':1}):
             with self.assertRaises(ValueError):validate(opts)
+
+    def test_hidden_start_preserves_menu_and_skips_unused_image(self):
+        state={'options':{'start_icon_mode':'image','start_image':'/missing/old.png','start_menu_theme':'xp','start_launcher_mode':'adws'},'plugins':[], 'builtins':[{'id':'start','enabled':False}]}
+        result=layout.render_waybar_config(state,available=[],base={})
+        for slot in ('left','center','right'):
+            self.assertNotIn('cffi/start-button',result['modules-'+slot])
+            self.assertNotIn('custom/applauncher',result['modules-'+slot])
+        self.assertEqual(state['options']['start_menu_theme'],'xp')

@@ -1,6 +1,18 @@
-/* XP-inspired title band and two-column panel, recolored with the WM palette. */
-.adws-start-menu.xp { border: 2px solid @adws_accent; border-radius: 9px 9px 3px 3px; }
-.adws-start-menu.xp .menu-header { color: @adws_on_accent; background-image: linear-gradient(to bottom, lighter(@adws_accent), @adws_accent); border-radius: 7px 7px 0 0; border-bottom: 2px solid @adws_border; }
-.adws-start-menu.xp .menu-sidebar { background: alpha(@adws_accent, 0.18); border-left: 1px solid @adws_border; }
-.adws-start-menu.xp row, .adws-start-menu.xp button, .adws-start-menu.xp .menu-search { border-radius: 2px; }
-.adws-start-menu.xp .menu-footer { background: alpha(@adws_accent, 0.2); }
+/* XP: user banner, two-tone columns, cascading All Programs, beveled footer. */
+.adws-start-menu.xp { border: 2px solid shade(@adws_accent, 0.8); border-radius: 7px 7px 0 0; }
+.adws-start-menu.xp .menu-header { padding: 9px 12px; color: @adws_on_accent; background-image: linear-gradient(to bottom, lighter(@adws_accent), @adws_accent 12%, shade(@adws_accent, 0.8)); border-radius: 5px 5px 0 0; border-bottom: 2px solid alpha(@adws_fg, 0.5); box-shadow: inset 0 1px alpha(@adws_fg, 0.6); }
+.adws-start-menu.xp .menu-title { font-size: 1.25em; text-shadow: 1px 1px alpha(black, 0.35); }
+.adws-start-menu.xp .menu-avatar { border: 2px solid @adws_on_accent; border-radius: 3px; padding: 3px; background: alpha(@adws_on_accent, 0.2); }
+.adws-start-menu.xp .menu-programs { background: @adws_bg; padding: 4px 0; }
+.adws-start-menu.xp .menu-sidebar { background: mix(@adws_bg, @adws_accent, 0.24); padding: 9px 5px; border-left: 1px solid @adws_accent; }
+.adws-start-menu.xp .menu-sidebar button { padding: 10px 6px; font-weight: bold; }
+.adws-start-menu.xp .shortcut { padding: 5px 9px; }
+.adws-start-menu.xp button, .adws-start-menu.xp row { border-radius: 0; }
+.adws-start-menu.xp button:hover { background: @adws_accent; color: @adws_on_accent; }
+.adws-start-menu.xp .all-programs { border-top: 1px solid @adws_border; margin: 0 8px; padding: 8px; font-weight: bold; }
+.adws-start-menu.xp .menu-search { border-radius: 0; margin: 5px; }
+.adws-start-menu.xp .menu-footer { color: @adws_on_accent; background-image: linear-gradient(to bottom, @adws_accent, shade(@adws_accent, 0.8)); border-top: 1px solid alpha(@adws_fg, 0.6); }
+.adws-start-menu.xp .menu-footer button { color: @adws_on_accent; }
+menu.xp-programs { background: @adws_bg; color: @adws_fg; border: 1px solid @adws_accent; border-left-width: 5px; border-radius: 0; padding: 2px; }
+menu.xp-programs menuitem { padding: 6px 10px; }
+menu.xp-programs menuitem:hover { background: @adws_accent; color: @adws_on_accent; }

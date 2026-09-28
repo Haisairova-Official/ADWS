@@ -1,5 +1,10 @@
-/* Kickoff-inspired spacing and side navigation; no fixed branding colors. */
-.adws-start-menu.kde { border-radius: 12px; }
-.adws-start-menu.kde .menu-header { background: alpha(@adws_accent, 0.08); }
-.adws-start-menu.kde .menu-sidebar { border-right: 1px solid @adws_border; }
-.adws-start-menu.kde row { margin: 1px 4px; }
+/* Plasma Kickoff: wide search header, category rail and large shortcut grid. */
+.adws-start-menu.kde { border-radius: 10px; }
+.adws-start-menu.kde .menu-header { padding: 12px 16px; border-bottom: 1px solid @adws_border; }
+.adws-start-menu.kde .menu-title { font-size: 1em; }
+.adws-start-menu.kde .menu-search { padding: 6px 10px; margin-left: 8px; border-radius: 5px; }
+.adws-start-menu.kde .menu-sidebar { padding: 8px; background: alpha(@adws_fg, 0.025); border-right: 1px solid @adws_border; }
+.adws-start-menu.kde .menu-home { padding: 6px 12px; }
+.adws-start-menu.kde .shortcut { padding: 14px 6px; border-radius: 5px; }
+.adws-start-menu.kde button, .adws-start-menu.kde row { border-radius: 4px; }
+.adws-start-menu.kde .menu-footer { border-top: 1px solid @adws_border; background: alpha(@adws_fg, 0.025); }

@@ -20,6 +20,12 @@ typedef struct {
     gulong handler;
     guint sync, release;
     int hidden, docked;
+    guint animation;
+    gint64 animation_start;
+    double gap, from_gap, target_gap;
+    gboolean animations;
+    int duration;
+    gulong occupancy_handler;
     gboolean split;
     char *mode, *position;
     GtkStyleContext *window_style;
@@ -47,6 +53,29 @@ static gboolean release_space(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+static void apply_gap(Space *self, double gap) {
+    self->gap=gap;
+#ifndef SPACE_TEST
+    if(self->window && gtk_layer_is_layer_window(self->window)) {
+        GtkLayerShellEdge inward=g_strcmp0(self->position,"top")==0?GTK_LAYER_SHELL_EDGE_BOTTOM:g_strcmp0(self->position,"left")==0?GTK_LAYER_SHELL_EDGE_RIGHT:g_strcmp0(self->position,"right")==0?GTK_LAYER_SHELL_EDGE_LEFT:GTK_LAYER_SHELL_EDGE_TOP;
+        for(int edge=0;edge<4;edge++) gtk_layer_set_margin(self->window,edge,edge==(int)inward?0:(int)(gap+0.5));
+    }
+#endif
+}
+static gboolean animate_gap(GtkWidget *widget, GdkFrameClock *clock, gpointer data) {
+    (void)widget;
+    Space *self=data;
+    double t=CLAMP((gdk_frame_clock_get_frame_time(clock)-self->animation_start)/(self->duration*1000.0),0.,1.);
+    double eased=t*t*(3.-2.*t);
+    apply_gap(self,self->from_gap+(self->target_gap-self->from_gap)*eased);
+    if(t>=1.) {self->animation=0;return G_SOURCE_REMOVE;}
+    return G_SOURCE_CONTINUE;
+}
+static void stop_animation(Space *self) {
+    if(self->animation && self->window)gtk_widget_remove_tick_callback(GTK_WIDGET(self->window),self->animation);
+    self->animation=0;
+}
+
 static gboolean sync_state(gpointer data) {
     Space *self = data;
     self->sync = 0;
@@ -54,14 +83,16 @@ static gboolean sync_state(gpointer data) {
     GtkStyleContext *style=gtk_widget_get_style_context(GTK_WIDGET(self->window));
     gboolean docked=g_strcmp0(self->mode,"docked")==0 || (g_strcmp0(self->mode,"auto")==0 && gtk_style_context_has_class(style,"adws-has-windows"));
     if (self->docked != docked) {
+        gboolean initial=self->docked<0;
         self->docked=docked;
         if(docked) gtk_style_context_add_class(style,"adws-docked"); else gtk_style_context_remove_class(style,"adws-docked");
-#ifndef SPACE_TEST
-        if(gtk_layer_is_layer_window(self->window)) {
-            GtkLayerShellEdge inward=g_strcmp0(self->position,"top")==0?GTK_LAYER_SHELL_EDGE_BOTTOM:g_strcmp0(self->position,"left")==0?GTK_LAYER_SHELL_EDGE_RIGHT:g_strcmp0(self->position,"right")==0?GTK_LAYER_SHELL_EDGE_LEFT:GTK_LAYER_SHELL_EDGE_TOP;
-            for(int edge=0;edge<4;edge++) gtk_layer_set_margin(self->window,edge,docked||edge==(int)inward?0:8);
-        }
-#endif
+        stop_animation(self);
+        self->target_gap=docked?0.:8.;
+        if(!initial && self->animations && gtk_widget_get_mapped(GTK_WIDGET(self->window))) {
+            self->from_gap=self->gap;
+            self->animation_start=g_get_monotonic_time();
+            self->animation=gtk_widget_add_tick_callback(GTK_WIDGET(self->window),animate_gap,self,NULL);
+        } else apply_gap(self,self->target_gap);
     }
     int hidden = gtk_style_context_has_class(gtk_widget_get_style_context(GTK_WIDGET(self->window)), "mode-invisible");
     if (hidden == self->hidden) return G_SOURCE_REMOVE;
@@ -82,6 +113,10 @@ static void changed(GtkStyleContext *style, gpointer data) {
     if (!self->sync) self->sync = g_idle_add(sync_state, self);
 }
 
+static void occupancy_changed(GtkWidget *window, gpointer data) {
+    (void)window;
+    changed(NULL,data);
+}
 static gboolean attach(gpointer data) {
     Space *self = data;
     self->sync = 0;
@@ -91,6 +126,11 @@ static gboolean attach(gpointer data) {
     self->window_style=g_object_ref(gtk_widget_get_style_context(top));
     gtk_style_context_add_class(self->window_style,"adws-panel");
     if(self->split)gtk_style_context_add_class(self->window_style,"adws-split");
+    /* A CSS class with no direct selector need not emit style::changed.
+     * Consume an explicit occupancy signal instead of relying on theme invalidation. */
+    if(!g_signal_lookup("adws-windows-changed",GTK_TYPE_WINDOW))
+        g_signal_new("adws-windows-changed",GTK_TYPE_WINDOW,G_SIGNAL_RUN_LAST,0,NULL,NULL,NULL,G_TYPE_NONE,0);
+    self->occupancy_handler=g_signal_connect(top,"adws-windows-changed",G_CALLBACK(occupancy_changed),self);
     self->window_handler=g_signal_connect(self->window_style,"changed",G_CALLBACK(changed),self);
     g_object_add_weak_pointer(G_OBJECT(top), (gpointer *)&self->window);
     /* The content box opacity actually changes; the window style may not. */
@@ -105,13 +145,15 @@ void *wbcffi_init(const wbcffi_init_info *info,
                   const wbcffi_config_entry *entries, size_t count) {
 
     Space *self = g_new0(Space, 1);
-    self->hidden = -1; self->docked=-1;
+    self->hidden = -1; self->docked=-1; self->duration=280;
     for(size_t i=0;i<count;i++) {
         const char *value=entries[i].value;
         char *clean=g_strstrip(g_strdup(value));
         if(clean[0]=='"' && strlen(clean)>1) { memmove(clean,clean+1,strlen(clean)); clean[strlen(clean)-1]='\0'; }
         if(!strcmp(entries[i].key,"panel_mode"))self->mode=g_strdup(clean);
         else if(!strcmp(entries[i].key,"position"))self->position=g_strdup(clean);
+        else if(!strcmp(entries[i].key,"window_animations"))self->animations=!strcmp(clean,"true");
+        else if(!strcmp(entries[i].key,"animation_duration"))self->duration=CLAMP(atoi(clean),80,1000);
         else if(!strcmp(entries[i].key,"split_panel"))self->split=!strcmp(clean,"true");
         g_free(clean);
     }
@@ -125,6 +167,8 @@ void *wbcffi_init(const wbcffi_init_info *info,
 
 void wbcffi_deinit(void *instance) {
     Space *self = instance;
+    stop_animation(self);
+    if(self->window && self->occupancy_handler)g_signal_handler_disconnect(self->window,self->occupancy_handler);
     cancel(&self->sync);
     cancel(&self->release);
     if (self->style) {

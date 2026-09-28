@@ -438,7 +438,8 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
     items = enabled_builtins(layout) + enabled_plugins(layout, available)
     from adws_launcher import native_menu_command
     image_start = options.get("start_icon_mode") == "image"
-    if image_start or launcher_definition(cfg, config_path).get("on-click") == native_menu_command():
+    start_enabled = any(item.get("id") == "start" and item.get("enabled") for item in items)
+    if start_enabled and (image_start or launcher_definition(cfg, config_path).get("on-click") == native_menu_command()):
         if image_start:
             validate_start_images(options)
         definition = launcher_definition(cfg, config_path)
@@ -504,6 +505,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             current = base_def.get("module_path") if isinstance(base_def, dict) else None
             return {
                 "panel_mode": panel["panel_mode"], "split_panel": panel["split_panel"], "position": panel["position"],
+                "window_animations": panel["window_animations"], "animation_duration": panel["animation_duration"],
                 "module_path": str(desktop_space_library_path(layout, cfg)
                                    if not current else Path(current).expanduser()),
             }

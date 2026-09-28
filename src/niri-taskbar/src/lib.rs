@@ -1,4 +1,4 @@
-use waybar_cffi::gtk::prelude::ContainerExtManual;
+use waybar_cffi::gtk::prelude::{ContainerExtManual, ObjectExt};
 mod i18n;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, btree_map::Entry},
@@ -564,8 +564,13 @@ impl Instance {
         self.container.show_all();
         if let Some(top)=self.container.toplevel() {
             let style=top.style_context();
-            if self.displayed.is_empty() { style.remove_class("adws-has-windows"); }
-            else { style.add_class("adws-has-windows"); }
+            let occupied = !self.displayed.is_empty();
+            let changed = style.has_class("adws-has-windows") != occupied;
+            if occupied { style.add_class("adws-has-windows"); }
+            else { style.remove_class("adws-has-windows"); }
+            if changed && gtk::glib::subclass::SignalId::lookup("adws-windows-changed", top.type_()).is_some() {
+                top.emit_by_name::<()>("adws-windows-changed", &[]);
+            }
         }
 
         // Update the last snapshot.
