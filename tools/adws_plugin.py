@@ -502,9 +502,9 @@ def cmd_run(args) -> int:
     if manifest["language"] != "python":
         print(_tr('当前 run 仅支持 python 插件'), file=sys.stderr)
         return 1
-    from adws_plugin_runner import execute
+    from adws_plugin_runner import dispatch
     try:
-        return execute(root, manifest, json.loads(args.settings_json), timeout=float(args.timeout))
+        return dispatch(root, manifest, json.loads(args.settings_json), timeout=float(args.timeout))
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1

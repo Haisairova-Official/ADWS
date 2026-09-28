@@ -41,7 +41,7 @@ def report_failure(error, plugin_id=None):
     return 1
 
 
-def execute(root, manifest, overrides, timeout=30):
+def prepare_command(root, manifest, overrides, timeout):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError('Timeout must be finite and positive')
     values = settings(manifest, overrides)
@@ -50,6 +50,36 @@ def execute(root, manifest, overrides, timeout=30):
         command.append('--output-json')
     if 'renderer' in manifest or manifest.get('settingsSchema'):
         command += ['--settings-json', json.dumps(values, ensure_ascii=False)]
+    return command
+
+
+def dispatch(root, manifest, overrides, timeout=30):
+    """Opt in to the native supervisor; Python only prepares its launch spec."""
+    backend = os.environ.get('ADWS_PLUGIN_RUNNER', 'python')
+    if backend == 'python':
+        return execute(root, manifest, overrides, timeout)
+    if backend != 'rust':
+        raise ValueError('ADWS_PLUGIN_RUNNER must be python or rust')
+    command = prepare_command(root, manifest, overrides, timeout)
+    project = Path(__file__).resolve().parents[1]
+    candidates = (project / 'libexec/adws-plugin-runner',
+                  project / 'src/adws-runtime/target/release/adws-plugin-runner')
+    binary = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), None)
+    if binary is None:
+        raise ValueError(tr('Rust 插件运行器尚未构建，请先构建 src/adws-runtime，或改用 Python 后端。'))
+    spec = {'command': command, 'cwd': str(root.resolve()), 'id': manifest['id'],
+            'rows': ('panel.rows-v1' in manifest.get('interfaces', [])
+                     or manifest.get('renderer') == 'panel.rows-v1'),
+            'heartbeat': 'renderer' in manifest, 'timeout': timeout,
+            'error_text': tr('插件运行失败')}
+    # Keep the same PID so Waybar's stop signal reaches the actual supervisor.
+    # No Python forwarding process remains resident after successful exec.
+    os.execv(str(binary), [str(binary), '--spec-json', json.dumps(spec, ensure_ascii=False)])
+    return 0
+
+
+def execute(root, manifest, overrides, timeout=30):
+    command = prepare_command(root, manifest, overrides, timeout)
     process = None
     def stop(_signum, _frame): raise InterruptedError('Plugin stopped')
     previous = signal.signal(signal.SIGTERM, stop)
@@ -121,7 +151,7 @@ def main():
     from adws_plugin import load_manifest, materialize
     path = Path(args.package)
     try:
-        return execute(materialize(path), load_manifest(path), json.loads(args.settings_json), args.timeout)
+        return dispatch(materialize(path), load_manifest(path), json.loads(args.settings_json), args.timeout)
     except BrokenPipeError:
         return 0
     except (OSError, ValueError) as error:

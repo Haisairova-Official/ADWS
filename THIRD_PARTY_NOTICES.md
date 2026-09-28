@@ -14,8 +14,9 @@ Separately licensed components retain their existing terms and notices.
   The upstream metadata points to https://github.com/niri-wm/niri;
   an exact fork revision was not recorded. Only the manifest was adapted
   to remove workspace inheritance; Rust source is unchanged.
+- `src/adws-runtime`: ADWS native plugin supervisor, GPL-3.0-or-later.
 - Other Rust dependencies retain their respective licenses. Versions are
-  recorded in `src/niri-taskbar/Cargo.lock`.
+  recorded in `src/niri-taskbar/Cargo.lock` and `src/adws-runtime/Cargo.lock`.
 
 This source release does not include compiled binaries, fonts, music,
 lyrics, or browser credentials. External lyrics services supply their own content.

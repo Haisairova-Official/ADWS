@@ -4,6 +4,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/adws-i18n.sh"
+# Ask before dependency installation, backups, or stopping existing components.
+# The transaction re-enters this script after the outer invocation confirmed.
+if [ "${ADWS_INSTALL_TRANSACTION:-}" != "$ROOT" ]; then
+    source "$ROOT/scripts/adws-install-session.sh"
+    adws_confirm_install_session || exit "$?"
+fi
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/waybar"
 LOCAL_BIN="$HOME/.local/bin"
 

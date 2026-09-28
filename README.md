@@ -6,9 +6,19 @@
 
 **A simpler desktop experience for Niri.**
 
-稳定版本 / Stable release: **1.30 Released** · 构建日期 / Build date: **2026-09-28** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.35 Development** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
+
+## 1.35 开发 / Development
+
+首阶段新增可选 Rust 插件运行器，负责进程与管道管理、JSON 校验、超时、断管和进程组清理。Python 仍用于启动前的插件包、设置和语言准备；Rust 后端通过 exec 替换启动器，插件本体继续兼容 Python。当前默认后端仍是 Python，未切换现有安装。构建、试用和验证方法见 [1.35 开发记录](docs/1.35-development.md)。
+
+The first stage adds an optional Rust plugin supervisor for process and pipe handling, JSON validation, timeouts, disconnects and process-group cleanup. Python prepares packages, settings and localized messages, then execs the native supervisor. Python plugins remain supported. The default backend is still Python. See the [1.35 development notes](docs/1.35-development.md) for building, testing and opting in.
+
+安装新增灵魂拷问：SSH 或非图形会话先确认是否继续，默认取消；普通桌面终端不受影响。
+
+Installation now asks for confirmation in SSH or non-graphical sessions, defaulting to cancel; normal desktop terminals are unaffected.
 
 ## 中文
 

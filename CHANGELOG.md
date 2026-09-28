@@ -1,5 +1,15 @@
 # Changelog / 更新记录
 
+## 1.35 Development — 2026-09-28
+
+开发分支 / Development branch: `Pre-1.35`.
+
+- 开始 Rust 化：新增可选的 Rust 插件运行器，接管输出校验、超时和退出清理；插件接口保持兼容，默认仍使用 Python 后端。
+- Begin the Rust migration with an optional native plugin supervisor for output validation, timeouts and process cleanup. Plugin interfaces remain compatible; Python remains the default backend.
+
+- 安装新增灵魂拷问：SSH 或非图形会话先确认是否继续，默认取消；普通桌面终端不受影响。
+- Installation now asks for confirmation in SSH or non-graphical sessions, defaulting to cancel; normal desktop terminals are unaffected.
+
 ## 1.30 Released — 2026-09-28
 
 发布标签 / Release tag: `v1.30`.
