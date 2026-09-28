@@ -21,3 +21,13 @@ Separately licensed components retain their existing terms and notices.
 
 This source release does not include compiled binaries, fonts, music,
 lyrics, or browser credentials. External lyrics services supply their own content.
+
+## Optional Niri compatibility patch
+
+`patches/niri/0001-modifier-taps-v26.04.patch` targets upstream Niri v26.04,
+commit `8ed0da44d974c32c6877d2f4630c314da0717ecb` (Ivan Molodetskikh and Niri contributors,
+GPL-3.0-or-later). The modifier-name parser adaptation is derived from
+[SHORiN-KiWATA/niri](https://github.com/SHORiN-KiWATA/niri), revision `21be84f6`,
+also GPL-3.0-or-later. ADWS supplies the standalone tap state machine, integration,
+tests and optional build tooling under GPL-3.0-or-later. The build retains upstream
+LICENSE and source; this is an optional downstream patch, not an upstream release.

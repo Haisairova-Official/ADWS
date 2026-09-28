@@ -266,6 +266,9 @@ pub struct Window {
 }
 
 impl Window {
+    pub fn blocks_auto_dock(&self) -> bool {
+        self.workspace_active && !self.is_floating && !self.is_minimized
+    }
     pub fn workspace_active(&self) -> bool {self.workspace_active}
     pub fn workspace_index(&self) -> u8 {self.workspace_index}
     pub fn output(&self) -> Option<&str> {
@@ -293,6 +296,21 @@ mod tests {
             "layout": {"pos_in_scrolling_layout": [1,1], "tile_size": [800.0,600.0],
                 "window_size": [800,600], "tile_pos_in_workspace_view": [0.0,0.0],
                 "window_offset_in_tile": [0.0,0.0]}})
+    }
+
+    #[test]
+    fn only_active_tiled_windows_block_auto_docking() {
+        let mut value = upstream_window();
+        for (floating, minimized, active, expected) in [
+            (false,false,true,true), (true,false,true,false),
+            (false,true,true,false), (false,false,false,false),
+        ] {
+            value["is_floating"] = json!(floating);
+            value["is_minimized"] = json!(minimized);
+            let window = Window {window: serde_json::from_value(value.clone()).unwrap(),
+                output: Some("DP-1".into()), workspace_active: active, workspace_index: 1};
+            assert_eq!(window.blocks_auto_dock(), expected);
+        }
     }
 
     #[test]

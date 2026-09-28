@@ -66,8 +66,10 @@ def write_config(path, text):
     try:
         with os.fdopen(fd, 'w') as stream:
             stream.write(text)
-        if shutil.which('niri'):
-            checked = subprocess.run(['niri', 'validate', '-c', str(temporary)], capture_output=True, text=True)
+        from adws_niri_compat import niri_binary
+        binary = niri_binary()
+        if binary:
+            checked = subprocess.run([binary, 'validate', '-c', str(temporary)], capture_output=True, text=True)
             if checked.returncode:
                 raise ValueError(_tr('Niri 自启配置校验失败：%s') % checked.stderr.strip())
         shutil.copy2(path, path.with_suffix(path.suffix + '.adws-autostart-bak'))
