@@ -1,0 +1,6 @@
+/* Aero-inspired translucent frame and highlights. Blur is compositor-owned. */
+.adws-start-menu.aero { background: alpha(@adws_bg, 0.94); border-radius: 16px; border: 2px solid alpha(@adws_accent, 0.65); box-shadow: inset 0 1px alpha(@adws_fg, 0.35); }
+.adws-start-menu.aero .menu-header { background-image: linear-gradient(to bottom, alpha(@adws_accent, 0.6), alpha(@adws_accent, 0.12)); border-radius: 14px 14px 0 0; }
+.adws-start-menu.aero .menu-sidebar { background-image: linear-gradient(to bottom, alpha(@adws_accent, 0.18), alpha(@adws_accent, 0.04)); border-left: 1px solid @adws_border; }
+.adws-start-menu.aero row:hover { background-image: linear-gradient(to bottom, lighter(@adws_accent), @adws_accent); }
+.adws-start-menu.aero .menu-search { border-radius: 4px; }

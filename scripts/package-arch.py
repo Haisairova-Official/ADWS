@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--offline', action='store_true', help='Use only cached Cargo dependencies')
-    parser.add_argument('--output', type=Path, default=ROOT.parent / 'ADWS1.31-A_for_arch.zip')
+    parser.add_argument('--output', type=Path, default=ROOT.parent / 'ADWS1.31-B_for_arch.zip')
     args = parser.parse_args()
     if platform.machine() != 'x86_64' or platform.freedesktop_os_release().get('ID') != 'arch':
         parser.error('Build this package on Arch Linux x86_64')
@@ -29,6 +29,9 @@ def main():
     runtime_cargo = ['cargo', 'build', '--release', '--locked', '--manifest-path', str(ROOT/'src/adws-runtime/Cargo.toml')]
     if args.offline: runtime_cargo.append('--offline')
     subprocess.run(runtime_cargo, check=True, env=build_env)
+    menu_cargo = ["cargo", "build", "--release", "--locked", "--manifest-path", str(ROOT/"src/adws-start-menu/Cargo.toml")]
+    if args.offline: menu_cargo.append("--offline")
+    subprocess.run(menu_cargo, check=True, env=build_env)
     subprocess.run(['make', '-C', str(ROOT/'src/panel-rows')], check=True)
     with tempfile.TemporaryDirectory(prefix='adws-arch-package-') as temporary:
         stage = Path(temporary) / args.output.stem
@@ -58,6 +61,7 @@ def main():
         flags = shlex.split(subprocess.check_output(['pkg-config','--cflags','--libs','gtk+-3.0','gtk-layer-shell-0'],text=True))
         subprocess.run(['cc','-shared','-fPIC','-O2',str(ROOT/'src/niri-desktop-layer/integration/waybar-space.c'),'-o',str(folder/'libwaybar-space.so'),*flags],check=True)
         shutil.copy2(ROOT/'src/adws-runtime/target/release/adws-plugin-runner', folder/'adws-plugin-runner')
+        shutil.copy2(ROOT/'src/adws-start-menu/target/release/adws-start-menu', folder/'adws-start-menu')
         libraries={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.iterdir() if p.is_file()}
         metadata = json.loads((ROOT / 'build-info.json').read_text())
         manifest={'version':metadata.get('display_version') or metadata['major_version'] + ' ' + metadata['release_label'],'os':'arch','arch':'x86_64','sha256':libraries,

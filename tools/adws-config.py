@@ -1091,6 +1091,22 @@ class TaskbarSettingsWindow(Gtk.Window):
             self.position.append(key, caption)
         self.position.set_active_id(options['position'])
         box.pack_start(row_widget(_tr('任务栏位置：'), self.position), False, False, 0)
+        self.split_panel = Gtk.CheckButton(label=_tr('分体任务栏（按有内容的区域显示）'))
+        self.split_panel.set_active(options['split_panel'])
+        box.pack_start(self.split_panel, False, False, 0)
+        self.panel_choices = {}
+        for key, title, choices in [
+            ('termination_mode', _tr('终止进程选项：'), [('shift',_tr('Shift 激活')),('below',_tr('列于关闭下方')),('disabled',_tr('禁用'))]),
+            ('panel_mode', _tr('任务栏模式：'), [('docked',_tr('吸附屏幕边缘')),('auto',_tr('有项目卡时吸附')),('floating',_tr('悬浮'))]),
+            ('panel_material', _tr('任务栏材质：'), [('solid',_tr('纯色')),('mica',_tr('云母')),('acrylic',_tr('亚克力')),('candy',_tr('糖果'))])]:
+            control=Gtk.ComboBoxText()
+            for value, label in choices: control.append(value,label)
+            control.set_active_id(options[key])
+            self.panel_choices[key]=control
+            box.pack_start(row_widget(title,control),False,False,0)
+        material_hint=Gtk.Label(label=_tr('透明材质的背景模糊由窗口管理器提供。'),xalign=0)
+        material_hint.set_line_wrap(True)
+        box.pack_start(material_hint,False,False,0)
         self.thickness = Gtk.SpinButton.new_with_range(24, 160, 1)
         self.thickness.set_value(options['thickness'])
         box.pack_start(row_widget(_tr('高度 / 竖栏宽度：'), self.thickness), False, False, 0)
@@ -1211,6 +1227,9 @@ class TaskbarSettingsWindow(Gtk.Window):
             from adws_panel_options import validate
             layout = self.layout_editor.collect_layout()
             options = dict(layout.get('options', {}))
+            options.update({key: control.get_active_id() for key,control in self.panel_choices.items()})
+            options['split_panel']=self.split_panel.get_active()
+            options['surface_color']='' if self.theme_background.get_active() else css_rgba(self.color_button.get_rgba())
             options.update(position=self.position.get_active_id(), thickness=self.thickness.get_value_as_int(),
                            window_rows=int(self.window_rows.get_active_id()), animation_duration=self.animation_duration.get_value_as_int())
             options.update({key: control.get_active() for key, control in self.panel_toggles.items()})
@@ -1241,6 +1260,8 @@ class TaskbarSettingsWindow(Gtk.Window):
         try:
             from adws_panel_options import DEFAULTS
             self.position.set_active_id(DEFAULTS['position'])
+            self.split_panel.set_active(DEFAULTS['split_panel'])
+            for key,control in self.panel_choices.items(): control.set_active_id(DEFAULTS[key])
             self.window_rows.set_active_id('1')
             self.thickness.set_value(DEFAULTS['thickness'])
             self.animation_duration.set_value(DEFAULTS['animation_duration'])

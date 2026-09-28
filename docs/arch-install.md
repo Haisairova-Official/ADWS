@@ -1,7 +1,7 @@
-# ADWS 1.31 A — Arch Linux x86_64
+# ADWS 1.31 B — Arch Linux x86_64
 
-解压 `ADWS1.31-A_for_arch.zip`，进入解压目录并运行 `./install.sh`。
-安装包包含三个预构建动态库和 Rust 插件运行器，校验 SHA-256 后直接安装，不需要 Rust/Cargo 或 C 编译。
+解压 `ADWS1.31-B_for_arch.zip`，进入解压目录并运行 `./install.sh`。
+安装包包含三个预构建动态库、Rust 插件运行器和原生开始菜单，校验 SHA-256 后直接安装，不需要 Rust/Cargo 或 C 编译。
 运行依赖仍需安装，缺少时会询问是否补齐；之后选择启动器、命令入口和 Niri 自启。
 中文系统显示中文，其余语言显示英文。
 
@@ -10,7 +10,7 @@
 `adws --uninstall` 卸载。支持 CFFI v2 的 Waybar 仍是必要条件。
 
 Extract the archive, enter its directory and run `./install.sh`.
-The three native libraries and the Rust plugin supervisor are prebuilt and verified with SHA-256 before installation.
+The three native libraries the Rust plugin supervisor and the native start menu are prebuilt and verified with SHA-256 before installation.
 No Rust/Cargo or C compiler is needed. The installer offers to install missing runtime
 dependencies, choose an application launcher, install command links and enable Niri autostart.
 Chinese locales use Chinese; all other display languages use English.

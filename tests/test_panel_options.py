@@ -76,3 +76,25 @@ class PanelOptionsTests(unittest.TestCase):
             'plugins': [], 'builtins': [{'id': 'windows', 'enabled': True, 'slot': 'left', 'order': 0}]}, available=[], base={})
         self.assertTrue(result['cffi/niri-taskbar']['window_animations'])
         self.assertEqual(result['cffi/niri-taskbar']['animation_duration'], 180)
+
+    def test_split_excludes_empty_center_and_preserves_surface(self):
+        result=layout.render_waybar_config({'options':{'split_panel':True,'panel_mode':'auto'},'plugins':[], 'builtins':[{'id':'start','enabled':True,'slot':'left','order':0},{'id':'clock','enabled':True,'slot':'right','order':0}]},available=[],base={})
+        self.assertEqual(result['_adws_options']['_occupied_slots'],['left','right'])
+        self.assertEqual(result['cffi/desktop-space']['panel_mode'],'auto')
+        from adws_panel_options import surface_from_css
+        appearance=surface_from_css('window#waybar > box {background:#123456; border-radius:19px;}')
+        for material in ('solid','mica','acrylic','candy'):
+            css=styles({**result['_adws_options'],**appearance,'panel_material':material})
+            self.assertIn('#123456',css)
+            self.assertIn('19px',css)
+            self.assertNotIn('.modules-center {',css)
+    def test_docked_edges_and_termination_choices(self):
+        for edge in ('top','bottom','left','right'):
+            cfg={}
+            geometry(cfg,{'position':edge,'panel_mode':'docked'})
+            self.assertTrue(all(cfg['margin-'+side]==0 for side in ('top','bottom','left','right')))
+        for mode in ('shift','below','disabled'):
+            result=layout.render_waybar_config({'options':{'termination_mode':mode},'plugins':[], 'builtins':[{'id':'windows','enabled':True,'slot':'left','order':0}]},available=[],base={})
+            self.assertEqual(result['cffi/niri-taskbar']['termination_mode'],mode)
+        for opts in ({'panel_material':'bad'},{'panel_mode':'bad'},{'termination_mode':'bad'},{'split_panel':1}):
+            with self.assertRaises(ValueError):validate(opts)

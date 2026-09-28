@@ -48,16 +48,17 @@ class InstallationTests(unittest.TestCase):
             shutil.copy2(ROOT/name, self.project/name)
         (self.project/'src/niri-taskbar').mkdir(parents=True)
         (self.project/'src/adws-runtime').mkdir(parents=True)
+        (self.project/'src/adws-start-menu').mkdir(parents=True)
         (self.project/'src/panel-rows').mkdir()
         (self.project/'src/panel-rows/libadws_panel.so').write_text('test panel')
         for program, script in {
-            'cargo': 'mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so\nprintf test > target/release/adws-plugin-runner',
+            'cargo': 'mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so\nprintf test > target/release/adws-plugin-runner\nprintf test > target/release/adws-start-menu',
             'make': 'exit 0',
             'cc': 'while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; printf test > "$1"; exit 0; fi; shift; done',
         }.items():
             file=self.bin/program;file.write_text('#!/bin/sh\n'+script+'\n');file.chmod(0o755)
 
-    def install(self, answer="y\nn\n"):
+    def install(self, answer="y\n1\nn\n"):
         # A fake HOME does not isolate /proc. Replace process discovery in the
         # transaction driver before invoking the real installer in this fixture.
         driver = """

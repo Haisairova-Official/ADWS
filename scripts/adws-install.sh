@@ -51,6 +51,7 @@ done
 
 python3 "$ROOT/tools/adws_include.py" "$CONFIG_DIR/config-bottom.jsonc"
 python3 "$ROOT/tools/adws_launcher.py" --apply "$CONFIG_DIR/modules.jsonc" "$LAUNCHER"
+python3 "$ROOT/tools/adws_launcher.py" --save-selection "$LAUNCHER"
 python3 "$ROOT/tools/adws_health.py" --init-desktop
 
 python3 "$ROOT/tools/adws_commands.py"

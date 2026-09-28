@@ -55,6 +55,18 @@ int main(int argc, char **argv) {
     wbcffi_deinit(self);
     drain(300);
     g_assert_cmpint(releases, ==, 2);
+    gtk_style_context_remove_class(style,"mode-invisible");
+    wbcffi_config_entry entries[]={{"panel_mode","auto"},{"split_panel","true"},{"position","bottom"}};
+    self=wbcffi_init(&info,entries,3);
+    drain(50);
+    g_assert_true(gtk_style_context_has_class(style,"adws-split"));
+    g_assert_false(gtk_style_context_has_class(style,"adws-docked"));
+    gtk_style_context_add_class(style,"adws-has-windows");drain(50);
+    g_assert_true(gtk_style_context_has_class(style,"adws-docked"));
+    gtk_style_context_remove_class(style,"adws-has-windows");drain(50);
+    g_assert_false(gtk_style_context_has_class(style,"adws-docked"));
+    g_assert_cmpuint(self->sync,==,0);
+    wbcffi_deinit(self);
     gtk_widget_destroy(window);
     g_print("PASS: deferred release, reversal, hidden startup, teardown, idle cleanup\n");
 }

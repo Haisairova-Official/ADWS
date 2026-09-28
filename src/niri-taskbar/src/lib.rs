@@ -562,6 +562,11 @@ impl Instance {
             self.displayed = displayed;
         }
         self.container.show_all();
+        if let Some(top)=self.container.toplevel() {
+            let style=top.style_context();
+            if self.displayed.is_empty() { style.remove_class("adws-has-windows"); }
+            else { style.add_class("adws-has-windows"); }
+        }
 
         // Update the last snapshot.
         self.last_snapshot = Some(windows);

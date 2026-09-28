@@ -681,12 +681,13 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
             if (!strcmp(entries[j].key, "start_animations")) s->animations = config_boolean(entries[j].value);
             else if (!strcmp(entries[j].key, "animation_duration")) s->fade_duration=CLAMP(atoi(value),80,1000);
             else if (!strcmp(entries[j].key, "vertical")) s->vertical = config_boolean(entries[j].value);
-            else if (!strcmp(entries[j].key, "start_image")) s->normal = gdk_pixbuf_new_from_file(value, NULL);
+            else if (!strcmp(entries[j].key, "start_image") && *value) s->normal = gdk_pixbuf_new_from_file(value, NULL);
             else if (!strcmp(entries[j].key, "start_hover_image") && *value) s->hover = gdk_pixbuf_new_from_file(value, NULL);
             else if (!strcmp(entries[j].key, "exec")) s->command = g_strdup(value);
             else if (!strcmp(entries[j].key, "start_right_command")) s->right_command = g_strdup(value);
             else if (!strcmp(entries[j].key, "start_middle_command")) s->middle_command = g_strdup(value);
             else if (!strcmp(entries[j].key, "start_tooltip") && *value) gtk_widget_set_tooltip_text(GTK_WIDGET(s), value);
+            else if (!strcmp(entries[j].key, "start_position")) s->position = g_strdup(value);
             else if (!strcmp(entries[j].key, "start_label")) s->label = g_strdup(value);
             g_free(value);
         }

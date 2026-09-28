@@ -12,7 +12,7 @@ from adws_layout import (BUILTIN_INFO, PROJECT_LAYOUT_PATH,
                          apply_layout)
 import adws_layout
 import adws_plugin as mplg
-from adws_launcher import rofi_theme_command
+from adws_launcher import rofi_theme_command, native_menu_command
 
 SLOT_ORDER = {"left": 0, "center": 1, "right": 2}
 
@@ -100,6 +100,7 @@ class LayoutWindow:
         launcher_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         launcher_row.pack_start(Gtk.Label(label=_tr('开始按钮启动器：')), False, False, 0)
         self.launcher_mode = Gtk.ComboBoxText()
+        self.launcher_mode.append("adws", _tr('ADWS 开始菜单'))
         self.launcher_mode.append("fuzzel", "fuzzel")
         self.launcher_mode.append("rofi", "rofi (-show drun)")
         self.launcher_mode.append("custom", _tr('自定义命令'))
@@ -114,6 +115,20 @@ class LayoutWindow:
         launcher_row.pack_start(self.rofi_theme_button, False, False, 0)
         self.launcher_mode.connect("changed", self.update_launcher_controls)
         outer.pack_start(launcher_row, False, False, 0)
+
+        self.menu_options = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.menu_options.pack_start(Gtk.Label(label=_tr('开始菜单主题：')), False, False, 0)
+        self.menu_theme = Gtk.ComboBoxText()
+        for key, caption in [('kde', _tr('KDE 风格')), ('aero', _tr('Vista Aero 风格')), ('xp', _tr('Windows XP 风格'))]:
+            self.menu_theme.append(key, caption)
+        self.menu_options.pack_start(self.menu_theme, False, False, 0)
+        self.menu_css = Gtk.Entry()
+        self.menu_css.set_placeholder_text(_tr('自定义 CSS 路径（可留空）'))
+        self.menu_options.pack_start(self.menu_css, True, True, 0)
+        preview = Gtk.Button(label=_tr('预览菜单'))
+        preview.connect('clicked', self.preview_start_menu)
+        self.menu_options.pack_start(preview, False, False, 0)
+        outer.pack_start(self.menu_options, False, False, 0)
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         add_btn = Gtk.Button(label=_tr('添加 .mplg…'))
@@ -284,7 +299,11 @@ class LayoutWindow:
         command = command if isinstance(command, str) and command.strip() else "fuzzel"
         self.rofi_themed = command.strip() == rofi_theme_command()
         mode = {"fuzzel": "fuzzel", "rofi -show drun": "rofi",
-                rofi_theme_command(): "rofi"}.get(command.strip(), "custom")
+                rofi_theme_command(): "rofi", native_menu_command(): "adws"}.get(command.strip(), "custom")
+        if options.get("start_launcher_mode") == "adws": mode = "adws"
+        self.menu_theme.set_active_id(options.get("start_menu_theme", "kde"))
+        if self.menu_theme.get_active_id() is None: self.menu_theme.set_active_id("kde")
+        self.menu_css.set_text(options.get("start_menu_css", ""))
         self.launcher_command.set_text(options.get("start_launcher_custom", command if mode == "custom" else ""))
         self.launcher_mode.set_active_id(mode)
         self.update_launcher_controls()
@@ -515,6 +534,17 @@ class LayoutWindow:
         mode = self.launcher_mode.get_active_id()
         self.launcher_command.set_sensitive(mode == "custom")
         self.rofi_theme_button.set_visible(mode == "rofi")
+        if hasattr(self, "menu_options"): self.menu_options.set_sensitive(mode == "adws")
+
+    def preview_start_menu(self, *_):
+        import subprocess
+        command = ['bash', str(adws_layout.PROJECT_ROOT / 'adws'), 'start-menu', '--theme', self.menu_theme.get_active_id() or 'kde']
+        path = self.menu_css.get_text().strip()
+        command += ['--css', str(Path(path).expanduser()) if path else '']
+        try:
+            subprocess.Popen(command, start_new_session=True)
+        except OSError as error:
+            self.show_message(_tr('无法打开开始菜单'), str(error), error=True)
 
     def on_rofi_theme(self, *_):
         self.rofi_themed = True
@@ -631,12 +661,18 @@ class LayoutWindow:
         adws_layout.validate_start_images(images)
         layout["options"].update(images)
         custom = self.launcher_command.get_text().strip()
-        command = {"fuzzel": "fuzzel", "rofi": rofi_theme_command() if self.rofi_themed else "rofi -show drun"}.get(
+        command = {"adws": native_menu_command(), "fuzzel": "fuzzel", "rofi": rofi_theme_command() if self.rofi_themed else "rofi -show drun"}.get(
             self.launcher_mode.get_active_id(), custom)
         if not command or "\x00" in command:
             raise ValueError(_tr('请输入启动器命令。'))
         layout["options"]["start_launcher_command"] = command
         layout["options"]["start_launcher_custom"] = custom
+        layout["options"]["start_launcher_mode"] = self.launcher_mode.get_active_id()
+        layout["options"]["start_menu_theme"] = self.menu_theme.get_active_id() or "kde"
+        css_path = self.menu_css.get_text().strip()
+        if self.launcher_mode.get_active_id() == "adws" and css_path and not Path(css_path).expanduser().is_file():
+            raise ValueError(_tr('自定义 CSS 文件不存在。'))
+        layout["options"]["start_menu_css"] = str(Path(css_path).expanduser().resolve()) if css_path else ""
         if self.clock_options is not None:
             layout["options"]["clock"] = self.clock_options
         layout["apiVersion"] = 1

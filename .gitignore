@@ -19,3 +19,4 @@ src/panel-rows/test-vertical
 .cache/
 
 /libexec/adws-plugin-runner
+/libexec/adws-start-menu

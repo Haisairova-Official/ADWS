@@ -6,9 +6,17 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development: **1.31 A** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.31 B** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
+
+## 1.31 B
+
+新增原生 Rust 开始菜单：KDE、Vista Aero、Windows XP 三套风格，支持 CSS 定制并跟随系统配色。菜单跟随实际开始按钮，在设置或安装时选择 ADWS 开始菜单、fuzzel、rofi。任务栏新增分体、吸附模式、四种材质和可配置的终止入口；Peek 增加关闭按钮，菜单圆角统一跟随任务栏。
+
+The native Rust start menu offers three themed presets, custom CSS and positioning beside the Start button. Settings and installation offer ADWS Start, fuzzel and rofi. Taskbar options add split surfaces, docking modes, four materials and configurable process termination; Peek gains close controls and consistent corners.
+
+使用与限制 / Usage and limits: [开始菜单与任务栏外观](docs/start-menu.md). 透明材质的背景模糊由窗口管理器提供 / Background blur depends on compositor support.
 
 ## 1.31 A
 

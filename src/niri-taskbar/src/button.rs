@@ -318,6 +318,8 @@ impl Button {
             }
 
             if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
+            let terminate = state.config().termination_mode() == "shift" && event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK);
+            let close_label = if terminate { crate::i18n::text("终止", "Terminate") } else { crate::i18n::text("关闭窗口", "Close window") };
             let window_id = recent.get();
             tracing::info!(id = window_id, "{}", crate::i18n::text("打开窗口右键菜单", "Open window context menu"));
             let menu = gtk::Menu::new();
@@ -353,15 +355,18 @@ impl Button {
                     let submenu = gtk::Menu::new();
                     for (caption, action) in [(crate::i18n::text("聚焦窗口", "Focus window"),0),
                         (crate::i18n::text("最小化 / 还原", "Minimize / restore"),1),
-                        (crate::i18n::text("关闭窗口", "Close window"),2)] {
+                        (close_label,2)] {
                         let action_item = gtk::MenuItem::with_label(caption);
+                        if action == 2 && terminate { crate::menu_style::destructive(&action_item, state.config().window_animations(),state.config().animation_duration()); }
                         let state = state.clone(); let id = *id;
                         action_item.connect_activate(move |_| {
+                            if action == 2 && terminate { state.niri().terminate_window(id); return; }
                             let result = match action {0 => state.niri().activate_window(id),1=>state.niri().toggle_window_minimized(id),_=>state.niri().close_window(id)};
                             if let Err(error) = result {tracing::warn!(%error,id,"group window action failed");}
                         });
                         submenu.append(&action_item);
                     }
+                    if state.config().termination_mode() == "below" { append_terminate(&submenu, &state, *id); }
                     item.set_submenu(Some(&submenu)); menu.append(&item);
                 }
                 show_menu(menu, None);
@@ -369,7 +374,8 @@ impl Button {
             }
             let focus = gtk::MenuItem::with_label(crate::i18n::text("聚焦窗口", "Focus window"));
             let minimize = gtk::MenuItem::with_label(crate::i18n::text("最小化 / 还原", "Minimize / restore"));
-            let close = gtk::MenuItem::with_label(crate::i18n::text("关闭窗口", "Close window"));
+            let close = gtk::MenuItem::with_label(close_label);
+            if terminate { crate::menu_style::destructive(&close, state.config().window_animations(),state.config().animation_duration()); }
 
             let clicked_state = state.clone();
             focus.connect_activate(move |_| {
@@ -387,6 +393,7 @@ impl Button {
 
             let clicked_state = state.clone();
             close.connect_activate(move |_| {
+                if terminate { clicked_state.niri().terminate_window(window_id); return; }
                 if let Err(e) = clicked_state.niri().close_window(window_id) {
                     tracing::warn!(%e, id = window_id, "error trying to close window");
                 }
@@ -395,6 +402,7 @@ impl Button {
             menu.append(&focus);
             menu.append(&minimize);
             menu.append(&close);
+            if state.config().termination_mode() == "below" { append_terminate(&menu, &state, window_id); }
             crate::menu_style::apply(&menu);
             menu.show_all();
             menu.connect_deactivate(|_| {
@@ -557,6 +565,15 @@ impl BorderExt for Border {
     }
 }
 
+fn append_terminate(menu: &gtk::Menu, state: &crate::state::State, id: u64) {
+    let item=gtk::MenuItem::with_label(crate::i18n::text("终止", "Terminate"));
+    crate::menu_style::destructive(&item,state.config().window_animations(),state.config().animation_duration());
+    item.set_tooltip_text(Some(crate::i18n::text("强制终止所属进程，未保存的内容会丢失。", "Force-terminate the owning process. Unsaved work will be lost.")));
+    let niri=*state.niri();
+    item.connect_activate(move |_| niri.terminate_window(id));
+    menu.append(&item);
+}
+
 fn show_menu(menu: gtk::Menu, anchor: Option<&gtk::Button>) {
     crate::menu_style::apply(&menu);
     menu.show_all();
@@ -573,4 +590,45 @@ fn show_menu(menu: gtk::Menu, anchor: Option<&gtk::Button>) {
 
 impl Drop for Button {
     fn drop(&mut self) { self.hover.borrow_mut().take(); }
+}
+
+#[cfg(test)]
+mod action_tests {
+    use super::*;
+    fn settle() {
+        for _ in 0..20 { while gtk::events_pending(){gtk::main_iteration();} std::thread::sleep(std::time::Duration::from_millis(5)); }
+    }
+    #[test]
+    #[ignore = "requires an isolated GTK display"]
+    fn termination_modes_and_submenu_styles() {
+        gtk::init().unwrap();
+        for mode in ["shift","below","disabled"] {
+            for shift in [false,true] {
+                for grouped in [false,true] {
+                    let config=serde_json::from_value(serde_json::json!({"termination_mode":mode,"window_animations":false})).unwrap();
+                    let state=crate::state::State::new(config);
+                    let button=Button::create(&state,Some("adws-test".into()),101,"Test window".into());
+                    if grouped {button.set_group(vec![(101,"One".into()),(102,"Two".into())],101);}
+                    let window=gtk::Window::new(gtk::WindowType::Toplevel);
+                    window.add(button.widget());window.show_all();settle();
+                    let mut event=gtk::gdk::Event::new(gtk::gdk::EventType::ButtonPress).downcast::<gtk::gdk::EventButton>().unwrap();
+                    event.as_mut().button=3;
+                    event.as_mut().state=if shift {gtk::gdk::ModifierType::SHIFT_MASK.bits()}else{0};
+                    event.set_device(gtk::gdk::Display::default().unwrap().default_seat().unwrap().pointer().as_ref());
+                    assert!(button.widget().emit_by_name::<bool>("button-press-event", &[&*event]));settle();
+                    let menu=ACTIVE_CONTEXT_MENU.with(|m|m.borrow().clone()).unwrap();
+                    let target=if grouped { menu.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).find_map(|i|i.submenu()).unwrap().downcast::<gtk::Menu>().unwrap() } else {menu.clone()};
+                    assert!(target.style_context().has_class("adws-menu"));
+                    let labels:Vec<_>=target.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).filter_map(|i|i.label()).map(|s|s.to_string()).collect();
+                    let kill=crate::i18n::text("终止","Terminate");let close=crate::i18n::text("关闭窗口","Close window");
+                    let replacing=mode=="shift"&&shift;
+                    assert_eq!(labels.iter().any(|s|s==kill),mode=="below"||replacing,"mode={mode} shift={shift}");
+                    assert_eq!(labels.iter().any(|s|s==close),!replacing);
+                    if mode=="below" {assert_eq!(labels.last().unwrap(),kill);}
+                    menu.popdown();settle();
+                    unsafe{window.destroy();}
+                }
+            }
+        }
+    }
 }

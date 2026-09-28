@@ -82,7 +82,7 @@ def integration_paths(root):
     paths += [directory/name for directory in (home/'.local/bin', Path('/usr/local/bin'))
               for name in ('adws', 'adws-config', 'mnws', 'mnws-config', 'taskbar-toggle.sh', 'taskbar-state.sh')]
     paths += [home/'.local/lib/waybar'/name for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so', 'libmnws_panel.so')]
-    paths += [root/'libexec/adws-plugin-runner']
+    paths += [root/'libexec/adws-plugin-runner', root/'libexec/adws-start-menu', root/'config/taskbar-layout.json']
     return paths
 
 

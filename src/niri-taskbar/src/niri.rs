@@ -37,6 +37,24 @@ impl Niri {
         reply::typed!(Handled, reply)
     }
 
+    /// Force-terminate the process owning this window; one process may own several windows.
+    pub fn terminate_window(&self, id: u64) {
+        std::thread::spawn(move || {
+            let result = (|| -> Result<(), Error> {
+                let windows: Vec<niri_ipc::Window> = reply::typed!(Windows, request(Request::Windows)?)?;
+                let pid = windows.iter().find(|w| w.id == id).and_then(|w| w.pid)
+                    .filter(|pid| *pid > 1 && *pid as u32 != std::process::id())
+                    .ok_or_else(|| Error::NiriReply("Window has no safe process ID".into()))?;
+                let status = std::process::Command::new("kill").args(["-KILL", "--", &pid.to_string()])
+                    .status().map_err(Error::NiriIpc)?;
+                if !status.success() { return Err(Error::NiriReply("Process termination failed".into())); }
+                tracing::info!(id, pid, "Window process terminated");
+                Ok(())
+            })();
+            if let Err(error)=result { tracing::warn!(id, %error, "Window termination failed"); }
+        });
+    }
+
     /// Toggles the minimized state of the given window ID.
     #[tracing::instrument(level = "TRACE", err)]
     pub fn toggle_window_minimized(&self, id: u64) -> Result<(), Error> {

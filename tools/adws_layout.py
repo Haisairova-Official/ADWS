@@ -421,34 +421,39 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
     panel, vertical = geometry(cfg, options)
 
     if ("start_label" in options or options.get("start_icon_mode") == "distro"
-            or "start_launcher_command" in options):
+            or "start_launcher_command" in options or options.get("start_launcher_mode") == "adws"):
         import html
         definition = launcher_definition(cfg, config_path)
         if "start_label" in options or options.get("start_icon_mode") == "distro":
             text = distro_logo()[1] if options.get("start_icon_mode") == "distro" else str(options.get("start_label") or _tr('开始'))
             definition["format"] = html.escape(text).replace("{", "{{").replace("}", "}}")
-        if "start_launcher_command" in options:
-            command = options["start_launcher_command"]
+        if "start_launcher_command" in options or options.get("start_launcher_mode") == "adws":
+            from adws_launcher import native_menu_command
+            command = native_menu_command() if options.get("start_launcher_mode") == "adws" else options["start_launcher_command"]
             if not isinstance(command, str) or not command.strip() or "\x00" in command:
                 raise ValueError(_tr('请输入启动器命令。'))
             definition["on-click"] = command.strip()
         cfg["custom/applauncher"] = definition
 
     items = enabled_builtins(layout) + enabled_plugins(layout, available)
-    if options.get("start_icon_mode") == "image":
-        validate_start_images(options)
+    from adws_launcher import native_menu_command
+    image_start = options.get("start_icon_mode") == "image"
+    if image_start or launcher_definition(cfg, config_path).get("on-click") == native_menu_command():
+        if image_start:
+            validate_start_images(options)
         definition = launcher_definition(cfg, config_path)
         cfg["cffi/start-button"] = {
             "module_path": str(Path.home() / ".local/lib/waybar/libadws_panel.so"),
-            "start_image": str(Path(options["start_image"]).expanduser().resolve()),
-            "start_hover_image": str(Path(options["start_hover_image"]).expanduser().resolve()) if options.get("start_hover_image") else "",
+            "start_image": str(Path(options["start_image"]).expanduser().resolve()) if image_start else "",
+            "start_hover_image": str(Path(options["start_hover_image"]).expanduser().resolve()) if image_start and options.get("start_hover_image") else "",
             "exec": definition.get("on-click", "fuzzel"),
             "start_animations": panel["window_animations"],
+            "start_position": panel["position"],
             "animation_duration": panel["animation_duration"],
             "start_right_command": definition.get("on-click-right", ""),
             "start_middle_command": definition.get("on-click-middle", ""),
             "start_tooltip": definition.get("tooltip-format", definition.get("format", "")) if definition.get("tooltip", True) else "",
-            "start_label": definition.get("format", _tr('开始')),
+            "start_label": definition.get("format", _tr('开始')).replace("{{", "{").replace("}}", "}"),
             "vertical": vertical,
             "thickness": panel["thickness"],
         }
@@ -478,6 +483,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
                 "vertical": vertical,
                 "rows": panel['window_rows'],
                 "group_windows": panel['group_windows'],
+                "termination_mode": panel["termination_mode"],
                 "position": panel['position'], "window_peek": panel['window_peek'],
                 "window_animations": panel['window_animations'],
                 "animation_duration": panel['animation_duration'],
@@ -497,6 +503,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             base_def = cfg.get(module)
             current = base_def.get("module_path") if isinstance(base_def, dict) else None
             return {
+                "panel_mode": panel["panel_mode"], "split_panel": panel["split_panel"], "position": panel["position"],
                 "module_path": str(desktop_space_library_path(layout, cfg)
                                    if not current else Path(current).expanduser()),
             }
@@ -632,7 +639,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
     cfg["modules-center"] = center_names
     cfg["modules-right"] = right_names or []
     cfg["_adws_css_rules"] = css_rules
-    cfg["_adws_options"] = {**options, **panel}
+    cfg["_adws_options"] = {**options, **panel, "_occupied_slots": [slot for slot,names in (("left",left_names),("center",center_names),("right",right_names)) if any(n != INTERNAL_SPACE_MODULE for n in names)]}
     return cfg
 
 
@@ -691,7 +698,10 @@ def apply_layout(layout: dict | None = None, restart: bool = False,
     try:
         cfg = render_waybar_config(layout, available=available, config_path=config_path)
         config_text = config_to_jsonc(cfg)
-        css_block = render_css_block(cfg.get("_adws_css_rules", []), cfg.get("_adws_options", {}))
+        from adws_panel_options import surface_from_css
+        old_style = style_path.read_text(encoding="utf-8") if style_path.exists() else ""
+        css_options={**cfg.get("_adws_options", {}), **surface_from_css(old_style)}
+        css_block = render_css_block(cfg.get("_adws_css_rules", []), css_options)
     except (OSError, ValueError) as exc:
         return False, _tr('渲染失败：%s') % exc
 

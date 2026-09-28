@@ -137,6 +137,7 @@ def help_text(component=None):
         commands += _tr('  setup                打开初始设置向导\n')
         commands = commands.replace("  -v", _tr("  -u, --update         检查 GitHub Release 更新，确认后安装\n      --preview        与 -u / --update 合用，检查 Beta 渠道\n") + "  -v", 1)
     target = component or "desktop"
+    commands += _tr('  start-menu           打开 ADWS 开始菜单\n\n')
     return ''.join([f'{title}', '\n', f'{info.get("help_version") or version_text(info)}', _tr('     构建日期：'), f'{build_date}', _tr('\n\n最新更新：\n'), f'{summary}', _tr('\n\n用法：'), f'{usage}', '\n\n', f'{commands}', _tr('组件选项（desktop / taskbar；每次选择一项）：\n  -s, --start           后台启动；已运行时不重复启动\n  -S, --stop            正常停止\n  -k, --kill            强制结束\n  -r, --restart         正常停止后重新启动\n  -d, --debug           在当前终端运行并输出日志；Ctrl+C 结束\n      --status          查询运行状态与 PID\n  -h, --help, -?        显示帮助\n\n日志级别（仅用于 --debug，默认 -4）：\n  -1 致命   -2 错误   -3 警告   -4 信息   -5 调试   -6 跟踪\n\n示例：\n  adws -s\n  adws -s '), f'{target}', '\n  adws ', f'{target}', ' -s\n  adws ', f'{target}', ' -d -6\n  adws ', f'{target}', _tr(' --status\n\n组件与选项可前后互换；省略组件时，启停、重启和状态查询同时作用于桌面和任务栏。\n调试须指定一个组件。启动成功不输出提示；失败时输出错误。\n调试模式先停止旧实例；结束后用 -s 恢复后台运行。\n停止 desktop 后桌面右键失效；--status 未运行时返回 1。\n\n我不知道 ADWS 含不含有超级牛力。\n')])
 
 

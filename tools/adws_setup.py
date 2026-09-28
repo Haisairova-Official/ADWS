@@ -82,7 +82,7 @@ def prepare():
     if not prebuilt:
         # File existence does not identify the ABI/source version. Cargo and
         # make reuse their build caches, but every source install checks all libs.
-        missing = ['libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so', 'adws-plugin-runner']
+        missing = ['libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so', 'adws-plugin-runner', 'adws-start-menu']
         print(_tr('将构建并更新原生组件：') + ', '.join(missing))
         if not confirm(_tr('是否现在构建并安装这些组件？首次构建可能需要下载依赖。')):
             raise RuntimeError(_tr('已取消安装；也可以按 README 手动构建后重新运行 install.sh。'))
@@ -98,6 +98,11 @@ def prepare():
                        env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
         atomic_install(ROOT / 'src/adws-runtime/target/release/adws-plugin-runner',
                        ROOT / 'libexec/adws-plugin-runner', mode=0o755)
+        subprocess.run(['cargo', 'build', '--release', '--locked'],
+                       cwd=ROOT / 'src/adws-start-menu', check=True,
+                       env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
+        atomic_install(ROOT / 'src/adws-start-menu/target/release/adws-start-menu',
+                       ROOT / 'libexec/adws-start-menu', mode=0o755)
         if 'libadws_panel.so' in missing:
             subprocess.run(['make', '-C', str(ROOT / 'src/panel-rows')], check=True)
             atomic_install(ROOT / 'src/panel-rows/libadws_panel.so', library_dir / 'libadws_panel.so')

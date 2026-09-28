@@ -1,8 +1,10 @@
 /* Image start button: height follows allocation; width preserves image aspect. */
+#include <gtk-layer-shell.h>
+
 typedef struct {
     GtkDrawingArea parent;
     GdkPixbuf *normal, *hover;
-    gchar *command, *right_command, *middle_command, *label;
+    gchar *command, *right_command, *middle_command, *label, *position;
     gboolean inside, vertical, animations;
     double mix, from_mix;
     gint64 fade_start;
@@ -21,6 +23,7 @@ static void start_metrics(GtkWidget *w, int height, int *width, int *image_heigh
     gtk_style_context_get_padding(ctx, GTK_STATE_FLAG_NORMAL, &pad);
     gtk_style_context_get_border(ctx, GTK_STATE_FLAG_NORMAL, &border);
     PangoLayout *text = gtk_widget_create_pango_layout(w, s->label ? s->label : "Apps");
+    pango_layout_set_markup(text, s->label ? s->label : "Start", -1);
     int tw, th, css_min = 0;
     pango_layout_get_pixel_size(text, &tw, &th);
     g_object_unref(text);
@@ -66,6 +69,13 @@ static gboolean start_draw(GtkWidget *w, cairo_t *cr) {
     if (!s->hover) {
         gtk_render_background(ctx, cr, 0, 0, width, height);
         gtk_render_frame(ctx, cr, 0, 0, width, height);
+    }
+    if (!s->normal) {
+        PangoLayout *layout = gtk_widget_create_pango_layout(w, NULL);
+        pango_layout_set_markup(layout, s->label ? s->label : "Start", -1);
+        int tw, th; pango_layout_get_pixel_size(layout, &tw, &th);
+        gtk_render_layout(ctx, cr, (width-tw)/2., (height-th)/2., layout);
+        g_object_unref(layout);
     }
     double mix = s->animations ? s->mix : (s->inside ? 1. : 0.);
     GdkPixbuf *images[] = {s->normal,s->hover};
@@ -120,16 +130,40 @@ static gboolean start_click(GtkWidget *w, GdkEventButton *event) {
     const gchar *command = event->button == 3 ? s->right_command : event->button == 2 ? s->middle_command : s->command;
     if (!command || !*command) return TRUE;
     const gchar *argv[] = {"/bin/sh", "-c", command, NULL};
+    // Layer surfaces do not expose reliable global GDK origins. Recover the
+    // bar origin from its anchors/margins, then send logical output coordinates.
+    gchar **env = g_get_environ();
+    GtkWidget *top = gtk_widget_get_toplevel(w);
+    GdkWindow *gw = gtk_widget_get_window(top);
+    GdkDisplay *display = gtk_widget_get_display(w);
+    GdkMonitor *monitor = gw ? gdk_display_get_monitor_at_window(display, gw) : NULL;
+    if (monitor && GTK_IS_WINDOW(top) && gtk_layer_is_layer_window(GTK_WINDOW(top))) {
+        GdkRectangle area; gdk_monitor_get_geometry(monitor, &area);
+        int x=0, y=0, index=0;
+        gtk_widget_translate_coordinates(w, top, 0, 0, &x, &y);
+        GtkWindow *bar = GTK_WINDOW(top);
+        int bw=gtk_widget_get_allocated_width(top), bh=gtk_widget_get_allocated_height(top);
+        x += gtk_layer_get_anchor(bar,GTK_LAYER_SHELL_EDGE_LEFT) ? gtk_layer_get_margin(bar,GTK_LAYER_SHELL_EDGE_LEFT)
+            : gtk_layer_get_anchor(bar,GTK_LAYER_SHELL_EDGE_RIGHT) ? area.width-bw-gtk_layer_get_margin(bar,GTK_LAYER_SHELL_EDGE_RIGHT) : (area.width-bw)/2;
+        y += gtk_layer_get_anchor(bar,GTK_LAYER_SHELL_EDGE_TOP) ? gtk_layer_get_margin(bar,GTK_LAYER_SHELL_EDGE_TOP)
+            : gtk_layer_get_anchor(bar,GTK_LAYER_SHELL_EDGE_BOTTOM) ? area.height-bh-gtk_layer_get_margin(bar,GTK_LAYER_SHELL_EDGE_BOTTOM) : (area.height-bh)/2;
+        for (int i=0;i<gdk_display_get_n_monitors(display);i++) if(gdk_display_get_monitor(display,i)==monitor) index=i;
+        gchar *anchor=g_strdup_printf("{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"monitor\":%d,\"edge\":\"%s\"}",x,y,
+            gtk_widget_get_allocated_width(w),gtk_widget_get_allocated_height(w),index,s->position?s->position:"bottom");
+        env=g_environ_setenv(env,"ADWS_START_ANCHOR",anchor,TRUE);
+        g_free(anchor);
+    }
     GError *error = NULL;
-    if (!g_spawn_async(NULL, (gchar **)argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, &error)) {
+    if (!g_spawn_async(NULL, (gchar **)argv, env, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, &error)) {
         g_warning("ADWS start: %s", error->message); g_clear_error(&error);
     }
+    g_strfreev(env);
     return TRUE;
 }
 static void start_finalize(GObject *obj) {
     AdwsStart *s = (AdwsStart *)obj;
     g_clear_object(&s->normal); g_clear_object(&s->hover);
-    g_free(s->command); g_free(s->right_command); g_free(s->middle_command); g_free(s->label);
+    g_free(s->command); g_free(s->right_command); g_free(s->middle_command); g_free(s->label); g_free(s->position);
     G_OBJECT_CLASS(adws_start_parent_class)->finalize(obj);
 }
 static void adws_start_class_init(AdwsStartClass *klass) {

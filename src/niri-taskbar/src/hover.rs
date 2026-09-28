@@ -13,6 +13,7 @@ thread_local! { static ACTIVE: RefCell<Weak<HoverPreview>> = RefCell::new(Weak::
 
 pub(crate) struct HoverPreview {
     popup: gtk::Popover,
+    radius_css: gtk::CssProvider,
     button: glib::WeakRef<gtk::Button>,
     state: State,
     members: Members,
@@ -21,7 +22,7 @@ pub(crate) struct HoverPreview {
     over_popup: Cell<bool>,
     capture: RefCell<Option<crate::preview::Capture>>,
     titles: RefCell<HashMap<u64, gtk::Label>>,
-    cards: RefCell<HashMap<u64, gtk::Button>>,
+    cards: RefCell<HashMap<u64, gtk::Overlay>>,
     items: RefCell<Option<gtk::Box>>,
     animation: RefCell<Option<gtk::TickCallbackId>>,
     progress: Cell<f64>,
@@ -36,6 +37,7 @@ impl HoverPreview {
     ) -> Rc<Self> {
         let this = Rc::new(Self {
             popup: popup.clone(),
+            radius_css: gtk::CssProvider::new(),
             button: button.downgrade(),
             state,
             members,
@@ -49,6 +51,7 @@ impl HoverPreview {
             animation: RefCell::new(None),
             progress: Cell::new(1.),
         });
+        popup.style_context().add_provider(&this.radius_css,gtk::STYLE_PROVIDER_PRIORITY_USER+1);
         for (widget, is_button) in [
             (button.clone().upcast::<gtk::Widget>(), true),
             (popup.clone().upcast(), false),
@@ -289,8 +292,17 @@ impl HoverPreview {
             self.render();
         }
     }
+    fn sync_radius(&self) {
+        let Some(button)=self.button.upgrade() else {return;};
+        let Some(top)=button.toplevel().and_then(|w|w.downcast::<gtk::Window>().ok()) else {return;};
+        let Some(bar)=top.child() else {return;};
+        let radius=crate::menu_style::bar_radius();
+        let font=bar.style_context().style_property_for_state("font-size",gtk::StateFlags::NORMAL).get::<f64>().unwrap_or(16.);
+        let _=self.radius_css.load_from_data(format!("popover {{border-radius:{radius}; font-size:{font}px;}}").as_bytes());
+    }
     fn render(self: &Rc<Self>) {
         self.stop_capture();
+        self.sync_radius();
         if let Some(child) = self.popup.child() {
             self.popup.remove(&child);
             unsafe {
@@ -351,7 +363,9 @@ impl HoverPreview {
             }
             content.pack_start(&text, false, false, 0);
             let select = gtk::Button::new();
-            self.cards.borrow_mut().insert(*id, select.clone());
+            let card = gtk::Overlay::new();
+            card.add(&select);
+            self.cards.borrow_mut().insert(*id, card.clone());
             select.add(&content);
             let weak = Rc::downgrade(self);
             let id = *id;
@@ -363,7 +377,25 @@ impl HoverPreview {
                     }
                 }
             });
-            items.pack_start(&select, false, false, 0);
+            let close = gtk::Button::from_icon_name(Some("window-close-symbolic"), gtk::IconSize::Menu);
+            close.set_halign(gtk::Align::End); close.set_valign(gtk::Align::Start);
+            close.set_tooltip_text(Some(crate::i18n::text("关闭窗口", "Close window")));
+            close.style_context().add_class("peek-close");
+            let provider=gtk::CssProvider::new();
+            let transition=if self.animations_enabled(){format!("background-color {}ms ease-in-out",self.state.config().animation_duration())}else{"none".into()};
+            let _=provider.load_from_data(format!("button.peek-close {{padding:4px; min-width:16px; min-height:16px; border-radius:50%; transition:{transition};}} button.peek-close:hover {{background-image:none; background-color:#c62828; color:white;}}").as_bytes());
+            close.style_context().add_provider(&provider,gtk::STYLE_PROVIDER_PRIORITY_USER+1);
+            let weak=Rc::downgrade(self);
+            close.connect_clicked(move |_| {
+                if let Some(this)=weak.upgrade() {
+                    this.dismiss();
+                    let niri=*this.state.niri();
+                    std::thread::spawn(move || {if let Err(error)=niri.close_window(id){tracing::warn!(id,%error,"preview close failed");}});
+                }
+            });
+            card.add_overlay(&close);
+            if !peek { text.set_margin_end(30); }
+            items.pack_start(&card, false, false, 0);
         }
         let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
         let horizontal = peek && !vertical;

@@ -101,7 +101,7 @@ fn panel_geometry_groups_and_colors() {
                     settle();
                     let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();settle();
                     fn choices(widget:&gtk::Widget)->Vec<gtk::Button>{
-                        if let Ok(button)=widget.clone().downcast::<gtk::Button>(){return vec![button];}
+                        if let Ok(button)=widget.clone().downcast::<gtk::Button>(){return if button.style_context().has_class("peek-close"){vec![]}else{vec![button]};}
                         widget.clone().downcast::<gtk::Container>().map(|c|c.children().iter().flat_map(choices).collect()).unwrap_or_default()
                     }
                     let choices=choices(&popup.child().unwrap());assert_eq!(choices.len(),2,"title-only cards must be clickable");
@@ -112,6 +112,16 @@ fn panel_geometry_groups_and_colors() {
                     assert_eq!(actions[1]["Action"]["FocusWindow"]["id"],1);drop(actions);
                     let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();settle();
 
+                    // A sibling close control sends only CloseWindow, never FocusWindow.
+                    fn close_control(widget:&gtk::Widget)->Option<gtk::Button>{
+                        if let Some(b)=widget.downcast_ref::<gtk::Button>() {if b.style_context().has_class("peek-close"){return Some(b.clone());}}
+                        widget.clone().downcast::<gtk::Container>().ok().and_then(|c|c.children().iter().find_map(close_control))
+                    }
+                    let before_close=requests.lock().unwrap().len();
+                    close_control(&popup.child().unwrap()).unwrap().emit_clicked();settle();
+                    assert!(!popup.is_visible());
+                    {let actions=requests.lock().unwrap();assert_eq!(actions.len(),before_close+1);assert!(actions.last().unwrap()["Action"].get("CloseWindow").is_some());}
+                    let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();settle();
                     let leave=gtk::gdk::Event::new(gtk::gdk::EventType::LeaveNotify);
                     let _:bool=first.emit_by_name("leave-notify-event",&[&leave]);
                     let _:bool=popup.emit_by_name("enter-notify-event",&[&enter]);

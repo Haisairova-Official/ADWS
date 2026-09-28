@@ -81,6 +81,14 @@ case "${1:-help}" in
     install)
         exec bash "$ROOT/scripts/adws-install.sh"
         ;;
+    start-menu)
+        shift
+        for menu in "$ROOT/libexec/adws-start-menu" "$ROOT/src/adws-start-menu/target/release/adws-start-menu"; do
+            if [ -x "$menu" ]; then exec "$menu" --root "$ROOT" "$@"; fi
+        done
+        adws_message "开始菜单尚未构建，请重新运行 install.sh 安装原生组件。" "The start menu has not been built. Run install.sh to install native components." >&2
+        exit 1
+        ;;
     autostart)
         action="${2:-status}"
         exec python3 "$ROOT/tools/adws-config.py" --autostart "$action"

@@ -150,6 +150,8 @@ def run(command, cwd, log, env=None):
 def prepare_libraries(root, prebuilt, log):
     run([sys.executable, '-m', 'compileall', '-q', str(root / 'tools'), str(root / 'src/niri-desktop-layer/desktop_layer')], root, log)
     runner = None
+    menu = None
+    has_menu = (root / 'src/adws-start-menu/Cargo.toml').is_file()
     has_runtime = (root / 'src/adws-runtime/Cargo.toml').is_file()
     if prebuilt:
         manifest = json.loads((root / 'prebuilt/manifest.json').read_text())
@@ -163,6 +165,9 @@ def prepare_libraries(root, prebuilt, log):
         if has_runtime:
             runner = Path('prebuilt/adws-plugin-runner')
             verified['adws-plugin-runner'] = runner
+        if has_menu:
+            menu = Path('prebuilt/adws-start-menu')
+            verified['adws-start-menu'] = menu
         for name, path in verified.items():
             if hashlib.sha256((root / path).read_bytes()).hexdigest() != manifest.get('sha256', {}).get(name):
                 raise ValueError(_tr('更新包校验失败。'))
@@ -176,6 +181,10 @@ def prepare_libraries(root, prebuilt, log):
             run(['cargo', 'build', '--release', '--locked', '--manifest-path', str(root / 'src/adws-runtime/Cargo.toml')], root, log,
                 env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
             runner = Path('src/adws-runtime/target/release/adws-plugin-runner')
+        if has_menu:
+            run(['cargo', 'build', '--release', '--locked', '--manifest-path', str(root / 'src/adws-start-menu/Cargo.toml')], root, log,
+                env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
+            menu = Path('src/adws-start-menu/target/release/adws-start-menu')
         run(['make', '-B', '-C', str(root / 'src/panel-rows')], root, log)
         flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk+-3.0', 'gtk-layer-shell-0'], text=True)
         output = root / 'src/niri-desktop-layer/integration/libwaybar-space.so'
@@ -184,7 +193,7 @@ def prepare_libraries(root, prebuilt, log):
         paths = {'libniri_taskbar.so': Path('src/niri-taskbar/target/release/libniri_taskbar.so'),
                  'libadws_panel.so': Path('src/panel-rows/libadws_panel.so'),
                  'libwaybar-space.so': Path('src/niri-desktop-layer/integration/libwaybar-space.so')}
-    for path in [*paths.values(), *([runner] if runner else [])]:
+    for path in [*paths.values(), *([runner] if runner else []), *([menu] if menu else [])]:
         if not (root / path).is_file():
             raise ValueError(_tr('更新包缺少原生组件。'))
         if shutil.which('ldd'):
@@ -194,6 +203,9 @@ def prepare_libraries(root, prebuilt, log):
     if runner:
         from adws_setup import atomic_install
         atomic_install(root / runner, root / 'libexec/adws-plugin-runner', mode=0o755)
+    if menu:
+        from adws_setup import atomic_install
+        atomic_install(root / menu, root / 'libexec/adws-start-menu', mode=0o755)
     return paths
 
 

@@ -1,5 +1,30 @@
 # Changelog / 更新记录
 
+## 1.31 B — 2026-09-28
+
+开发分支 / Development branch: `Pre-1.35`.
+
+- 新增 Rust 开始菜单，提供 KDE、Vista Aero、Windows XP 风格，支持自定义 CSS 并跟随系统配色。
+- Add a native Rust start menu with KDE, Vista Aero and Windows XP-inspired presets, custom CSS and system colors.
+
+- 开始菜单绑定实际开始按钮位置；设置、初始向导和安装器可选择 ADWS 开始菜单、fuzzel 或 rofi。
+- Anchor the menu to the actual Start button. Settings, OOBE and installation offer ADWS Start, fuzzel and rofi.
+
+- 统一任务栏右键菜单、子菜单和 Peek 的圆角；Peek 右上角新增独立关闭按钮。
+- Unify taskbar context-menu, submenu and Peek corners; add independent close controls to previews.
+
+- 新增终止进程选项：Shift 激活、列于关闭下方、禁用；危险操作使用红色悬停并跟随动效开关。
+- Configure process termination: Shift activation, a separate item below Close, or disabled. Red hover transitions follow animation settings.
+
+- 新增分体任务栏，按前、中、后有内容的区域显示；新增常驻吸附、有项目卡时吸附和悬浮模式，支持四边布局。
+- Add occupied-section split surfaces and docked, window-dependent docking and floating modes on all four edges.
+
+- 新增纯色、云母、亚克力和糖果材质，保留手动背景色；透明材质的背景模糊由窗口管理器提供。
+- Add Solid, Mica, Acrylic and Candy appearances, retaining manual base colors. Background blur depends on compositor support.
+
+- 修复安装器连续读取管道输入时吞掉后续答案的问题。（B）
+- Fix installation helpers reading ahead and consuming answers intended for later steps. (B)
+
 ## 1.31 A — 2026-09-28
 
 开发分支 / Development branch: `Pre-1.35`.

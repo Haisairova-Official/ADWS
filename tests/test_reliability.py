@@ -213,7 +213,9 @@ sys.exit(1)
             (root/'src/panel-rows/libadws_panel.so').write_text('NEW')
             def build(args, **kwargs):
                 if args[0]=='cargo':
-                    binary=root/'src/adws-runtime/target/release/adws-plugin-runner'
+                    crate = Path(kwargs['cwd']).name
+                    name = 'adws-plugin-runner' if crate == 'adws-runtime' else 'adws-start-menu'
+                    binary=root/'src'/crate/'target/release'/name
                     binary.parent.mkdir(parents=True,exist_ok=True);binary.write_text('NEW')
                 if args[0]=='bash':(lib/names[0]).write_text('NEW')
                 if args[0]=='cc':Path(args[args.index('-o')+1]).write_text('NEW')

@@ -48,6 +48,10 @@ with patch('adws_layout.load_layout',return_value={'options':{'tab_animations':T
             assert adjustment.get_value()!=position, 'Wheel did not scroll the page'
     window.window_rows.set_active_id('2')
     assert window.thickness.get_value()>=48
+    window.split_panel.set_active(True)
+    window.panel_choices['panel_mode'].set_active_id('auto')
+    window.panel_choices['panel_material'].set_active_id('acrylic')
+    window.panel_choices['termination_mode'].set_active_id('below')
     window.thickness.set_value(64)
     window.position.set_active_id('right')
     assert window.notebook.count == 2
@@ -70,6 +74,10 @@ with patch('adws_layout.load_layout',return_value={'options':{'tab_animations':T
         assert options['group_windows'] and options['window_animations']
         assert options['hover_color']=='#ff0088'
         assert options['start_label']=='Unified Start'
+        assert options['split_panel'] is True
+        assert options['panel_mode']=='auto'
+        assert options['panel_material']=='acrylic'
+        assert options['termination_mode']=='below'
         assert options['start_launcher_command']=='fuzzel --show-actions'
         assert apply.call_count == 1
         assert save.call_args.args[0]['options']==options

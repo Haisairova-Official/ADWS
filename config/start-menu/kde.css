@@ -1,0 +1,5 @@
+/* Kickoff-inspired spacing and side navigation; no fixed branding colors. */
+.adws-start-menu.kde { border-radius: 12px; }
+.adws-start-menu.kde .menu-header { background: alpha(@adws_accent, 0.08); }
+.adws-start-menu.kde .menu-sidebar { border-right: 1px solid @adws_border; }
+.adws-start-menu.kde row { margin: 1px 4px; }

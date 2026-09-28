@@ -309,10 +309,12 @@ class NativeSupervisorUpgradeTests(unittest.TestCase):
             root = Path(directory)
             (root/'src/adws-runtime').mkdir(parents=True)
             (root/'src/adws-runtime/Cargo.toml').touch()
+            (root/'src/adws-start-menu').mkdir(parents=True)
+            (root/'src/adws-start-menu/Cargo.toml').touch()
             (root/'build-info.json').write_text('{"display_version":"1.35 Development"}')
             folder = root/'prebuilt'; folder.mkdir()
             hashes = {}
-            for name in (*upgrade.LIBRARIES, 'adws-plugin-runner'):
+            for name in (*upgrade.LIBRARIES, 'adws-plugin-runner', 'adws-start-menu'):
                 (folder/name).write_bytes(b'artifact')
                 hashes[name] = hashlib.sha256(b'artifact').hexdigest()
             (folder/'manifest.json').write_text(json.dumps({'version':'1.35 Development','os':'arch','arch':'x86_64','sha256':hashes}))
@@ -322,6 +324,7 @@ class NativeSupervisorUpgradeTests(unittest.TestCase):
                 installed = root/'libexec/adws-plugin-runner'
                 self.assertEqual(installed.read_bytes(), b'artifact')
                 self.assertEqual(installed.stat().st_mode & 0o777, 0o755)
-                (folder/'adws-plugin-runner').write_bytes(b'corrupted')
+                self.assertEqual((root/'libexec/adws-start-menu').stat().st_mode & 0o777, 0o755)
+                (folder/'adws-start-menu').write_bytes(b'corrupted')
                 with self.assertRaises(ValueError): upgrade.prepare_libraries(root, True, io.BytesIO())
                 self.assertEqual(installed.read_bytes(), b'artifact')
