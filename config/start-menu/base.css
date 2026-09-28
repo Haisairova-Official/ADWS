@@ -14,7 +14,3 @@ window.adws-start-overlay { background: transparent; }
 .adws-start-menu .section-title { font-size: 0.9em; opacity: 0.7; padding: 10px; }
 .adws-start-menu button.active-category { background: alpha(@adws_accent, 0.2); border-color: @adws_accent; }
 .adws-start-menu .menu-footer { padding: 6px 10px; }
-.adws-start-menu .power-title { font-size: 1.15em; font-weight: bold; }
-.adws-start-menu .power-action { padding: 12px; }
-.adws-start-menu .power-destructive { border-color: #c62828; }
-.adws-start-menu .power-destructive:hover, .adws-start-menu .power-destructive:focus { background: #c62828; color: white; }

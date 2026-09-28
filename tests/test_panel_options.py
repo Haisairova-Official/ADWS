@@ -6,27 +6,6 @@ from adws_panel_options import validate, geometry, styles
 import adws_layout as layout
 
 class PanelOptionsTests(unittest.TestCase):
-    def test_center_buffer_follows_axis_and_corner_selection(self):
-        for edge in ('top', 'bottom', 'left', 'right'):
-            vertical = edge in ('left', 'right')
-            css = styles({'position': edge, 'split_panel': True, 'split_center_corners': 'pointed'})
-            self.assertIn('border-radius:0; padding:' + ('23px 0' if vertical else '0 23px') + ';', css)
-            inherited = styles({'position': edge, '_surface_radius': '17px'})
-            self.assertIn('.modules-center {', inherited)
-            self.assertIn('border-radius:17px;', inherited)
-        with self.assertRaises(ValueError):
-            validate({'split_center_corners': 'invalid'})
-
-    def test_docking_squares_only_outside_corners(self):
-        for edge in ('top', 'bottom', 'left', 'right'):
-            css = styles({'position': edge, '_surface_radius': '17px'})
-            vertical = edge in ('left','right')
-            self.assertIn('.modules-left {border-radius:' + ('0 0 17px 17px' if vertical else '0 17px 17px 0') + ';}', css)
-            self.assertIn('.modules-right {border-radius:' + ('17px 17px 0 0' if vertical else '17px 0 0 17px') + ';}', css)
-            self.assertIn('.modules-center {border-radius:17px;}', css)
-        css = styles({'split_center_corners': 'pointed', '_surface_radius': '17px'})
-        self.assertIn('.modules-center {border-radius:0;}', css)
-
     def test_every_edge_and_two_lanes(self):
         for position in ('top','bottom','left','right'):
             cfg={'height':36,'width':1200}

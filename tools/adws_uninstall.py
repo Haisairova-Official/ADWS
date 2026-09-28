@@ -87,8 +87,6 @@ def remove_autostart():
     cleaned = PATTERN.sub('', pattern.sub('', text))
     from adws_windows import PATTERN as WINDOW_RULES
     cleaned = WINDOW_RULES.sub('', cleaned)
-    from adws_keyboard import clean_block
-    cleaned = clean_block(cleaned)
     launchers = {str(ROOT / 'src/niri-desktop-layer/start-desktop-layer')}
     previous_root = read_inventory().get('root')
     if isinstance(previous_root, str):

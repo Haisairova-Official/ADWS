@@ -16,7 +16,7 @@
 - 新增终止进程选项：Shift 激活、列于关闭下方、禁用；危险操作使用红色悬停并跟随动效开关。
 - Configure process termination: Shift activation, a separate item below Close, or disabled. Red hover transitions follow animation settings.
 
-- 新增分体任务栏，按前、中、后有内容的区域显示；新增常驻吸附、有平铺窗口时吸附和悬浮模式，支持四边布局。
+- 新增分体任务栏，按前、中、后有内容的区域显示；新增常驻吸附、有项目卡时吸附和悬浮模式，支持四边布局。
 - Add occupied-section split surfaces and docked, window-dependent docking and floating modes on all four edges.
 
 - 新增纯色、云母、亚克力和糖果材质，保留手动背景色；透明材质的背景模糊由窗口管理器提供。
@@ -39,36 +39,6 @@
 
 - 修复安装器连续读取管道输入时吞掉后续答案的问题。（B）
 - Fix installation helpers reading ahead and consuming answers intended for later steps. (B)
-
-- 开始菜单新增电源与会话入口，按系统能力提供锁屏、注销、挂起、休眠、重启和关机；注销、重启和关机需再次确认。
-- Add Power and session to Start, offering available lock, logout, suspend, hibernate, restart and shutdown actions; confirm logout, restart and shutdown.
-
-- 开始菜单支持搜索与命令输入，直接回车执行命令，选择搜索结果后回车启动应用。
-- Search applications or enter a command in Start; direct Enter runs the command, while Enter on a selected result launches the application.
-
-- 新增 Waylander、Traditional、Reversed 键位方案；检测 Niri 单修饰键支持，应用前校验并备份配置，不支持时保留原键位。
-- Add Waylander, Traditional and Reversed keyboard profiles; detect modifier-tap support, validate and back up before applying, and preserve bindings on unsupported Niri builds.
-
-- 提供可选的官方 Niri 26.04 单修饰键兼容补丁，锁定源码与校验值，独立构建和安装，保留原版与恢复入口。
-- Provide an optional modifier-tap patch for upstream Niri 26.04 with pinned source and checksums, separate builds and installation, and an original-session recovery path.
-
-- 开始菜单底部铭文显示 ADWS 与当前版本号，自动跟随构建信息。
-- Show ADWS and the current version in the Start menu footer, following build metadata automatically.
-
-- 开始按钮后台启动程序，首页快捷应用优先显示，并优化开始菜单浮入曲线。
-- Launch Start commands off the taskbar UI thread, show home shortcuts before the full app list, and reveal the menu with an ease-out transition.
-
-- 任务栏新增独立无响应检测：连续 10 秒未响应时记录诊断并自动恢复，10 分钟最多两次，短暂延迟仅记录。
-- Add an independent taskbar heartbeat: log diagnostics and recover after 10 seconds without a response, with at most two attempts per 10 minutes; log shorter delays without restarting.
-
-- 分体内容两端各预留 5px，各分体端头可选跟随圆角设置或 < > 尖端，吸附仅将外侧四角变直，内部圆角保留；只有当前桌面的平铺窗口触发自动吸附，浮窗不触发。（B）
-- Reserve 5px around segment content; use rounded or pointed < > ends on every segment. Docking squares only the outside corners, retaining rounded inner ends. Only current-workspace tiled windows trigger auto-docking. (B)
-
-- 优化任务栏启动：窗口数据连接与图标查找不再阻塞界面，首次吸附及时提交，不再等待组件刷新后才到位。
-- Improve taskbar startup: keep window connections and icon lookup off the UI thread, and commit initial docking promptly without waiting for a component refresh.
-
-- 统一快捷键与按钮的开始菜单定位；头像和昵称按登录会话缓存，后台获取，同一次登录不再重复查询。
-- Use the live Start button position for both keyboard and button launches; cache the avatar and name per login session, with account lookup in the background.
 
 ## 1.31 A — 2026-09-28
 

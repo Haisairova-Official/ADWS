@@ -3,7 +3,7 @@ import re
 from adws_i18n import tr as _tr
 
 DEFAULTS = {
-    'split_center_corners': 'same', 'termination_mode': 'shift', 'split_panel': False, 'panel_mode': 'floating', 'panel_material': 'solid', 'surface_color': '',
+    'termination_mode': 'shift', 'split_panel': False, 'panel_mode': 'floating', 'panel_material': 'solid', 'surface_color': '',
     'position': 'bottom', 'thickness': 36, 'window_rows': 1,
     'group_windows': True, 'window_peek': False, 'window_animations': False, 'tab_animations': False,
     'animation_duration': 280, 'hover_color': '', 'focus_color': '',
@@ -13,11 +13,9 @@ DEFAULTS = {
 
 def validate(options):
     result = {key: options.get(key, value) for key, value in DEFAULTS.items()}
-    if result['split_center_corners'] == 'square':
-        result['split_center_corners'] = 'pointed'
     if result['position'] not in ('top', 'bottom', 'left', 'right'):
         raise ValueError(_tr('任务栏位置无效。'))
-    for key, allowed in [('split_center_corners', ('same','pointed')), ('panel_mode', ('docked','auto','floating')), ('panel_material', ('solid','mica','acrylic','candy')), ('termination_mode', ('shift','below','disabled'))]:
+    for key, allowed in [('panel_mode', ('docked','auto','floating')), ('panel_material', ('solid','mica','acrylic','candy')), ('termination_mode', ('shift','below','disabled'))]:
         if result[key] not in allowed:
             raise ValueError(_tr('任务栏设置无效：%s') % key)
     for key, low, high in [('thickness', 24, 160), ('window_rows', 1, 2), ('animation_duration', 80, 1000)]:
@@ -102,30 +100,10 @@ def styles(options):
     lines.append(f'{segment} {{background:transparent; border:none; box-shadow:none; min-width:0; min-height:0;}}')
     for slot in options.get('_occupied_slots', ('left','center','right')):
         if slot not in ('left','center','right'): continue
-        pointed = values['split_center_corners'] == 'pointed'
-        inset = values['thickness'] / 2 + 5 if pointed else 5
-        padding = f'{inset:g}px 0' if values['position'] in ('left', 'right') else f'0 {inset:g}px'
-        corners = '0' if pointed else radius
-        lines.append(f'{segment}.modules-{slot} {{ {material} border-radius:{corners}; padding:{padding}; }}')
-    # Dock only the outside corners. Inner ends and the center keep the
-    # configured radius; pointed center ends keep their polygon instead.
+        lines.append(f'{segment}.modules-{slot} {{ {material} border-radius:{radius}; }}')
+    # Docked surfaces are square on all four corners, including split segments.
     lines.append('window#waybar.adws-panel.adws-docked > box { border-radius:0; }')
-    parts = str(radius).split()
-    tl, tr, br, bl = (parts * 4)[:4] if len(parts) in (1,2,4) else [parts[0],parts[1],parts[2],parts[1]]
-    vertical = values['position'] in ('left','right')
-    docked = {
-        'left': f'0 0 {br} {bl}' if vertical else f'0 {tr} {br} 0',
-        'right': f'{tl} {tr} 0 0' if vertical else f'{tl} 0 0 {bl}',
-        'center': '0' if values['split_center_corners'] == 'pointed' else radius,
-    }
-    for slot in options.get('_occupied_slots', ('left','center','right')):
-        if slot not in docked: continue
-        corners = '0' if values['split_center_corners'] == 'pointed' else docked[slot]
-        inset = values['thickness'] / 2 + 5
-        padding = ''
-        if values['split_center_corners'] == 'pointed' and slot != 'center':
-            padding = f'padding:5px 0 {inset:g}px 0;' if vertical and slot == 'left' else f'padding:{inset:g}px 0 5px 0;' if vertical else f'padding:0 {inset:g}px 0 5px;' if slot == 'left' else f'padding:0 5px 0 {inset:g}px;'
-        lines.append(f'window#waybar.adws-panel.adws-split.adws-docked > box > box.modules-{slot} {{border-radius:{corners};{padding}}}')
+    lines.append('window#waybar.adws-panel.adws-split.adws-docked > box > box {border-radius:0;}')
     return '\n'.join(lines)
 
 

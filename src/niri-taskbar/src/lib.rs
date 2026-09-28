@@ -38,7 +38,6 @@ mod niri;
 mod notify;
 mod output;
 mod panel;
-mod watchdog;
 mod preview;
 mod hover;
 mod process;
@@ -153,11 +152,10 @@ impl Instance {
     }
 
     pub async fn task(&mut self) {
-        let startup = std::time::Instant::now();
-        let timing = std::env::var_os("ADWS_TASKBAR_TIMING").is_some();
-        let mut first_snapshot = true;
         // We have to build the output filter here, because until the Glib event loop has run the
         // container hasn't been realised, which means we can't figure out which output we're on.
+        let output_filter = Arc::new(Mutex::new(self.build_output_filter().await));
+
         let mut stream = match self.state.event_stream() {
             Ok(stream) => Box::pin(stream),
             Err(e) => {
@@ -165,18 +163,12 @@ impl Instance {
                 return;
             }
         };
-        let output_filter = Arc::new(Mutex::new(self.build_output_filter().await));
-        if timing { eprintln!("ADWS_TASKBAR_TIMING outputs_ready_ms={}", startup.elapsed().as_millis()); }
         while let Some(event) = stream.next().await {
             match event {
                 Event::Notification(notification) => self.process_notification(notification).await,
                 Event::WindowSnapshot(windows) => {
                     self.process_window_snapshot(windows, output_filter.clone())
-                        .await;
-                    if first_snapshot {
-                        if timing { eprintln!("ADWS_TASKBAR_TIMING cards_ready_ms={}", startup.elapsed().as_millis()); }
-                        first_snapshot = false;
-                    }
+                        .await
                 }
                 Event::PinsChanged(pins) => {
                     self.pins=pins;
@@ -572,7 +564,7 @@ impl Instance {
         self.container.show_all();
         if let Some(top)=self.container.toplevel() {
             let style=top.style_context();
-            let occupied = windows.iter().any(|w| w.blocks_auto_dock() && on_output(w));
+            let occupied = !self.displayed.is_empty();
             let changed = style.has_class("adws-has-windows") != occupied;
             if occupied { style.add_class("adws-has-windows"); }
             else { style.remove_class("adws-has-windows"); }

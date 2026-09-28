@@ -81,10 +81,8 @@ fn watch_responsiveness() {
     use std::{cell::Cell, time::{Duration, Instant}};
     thread_local! { static STARTED: Cell<bool> = const { Cell::new(false) }; }
     if STARTED.with(|started| started.replace(true)) { return; }
-    let heartbeat = crate::watchdog::start(application_tool_candidates("tools/adws_taskbar_recover.py").into_iter().find(|p| p.is_file()));
     let mut previous = Instant::now();
     gtk::glib::timeout_add_local(Duration::from_millis(200), move || {
-        heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let now = Instant::now();
         let gap = now.duration_since(previous);
         if gap > Duration::from_millis(700) {

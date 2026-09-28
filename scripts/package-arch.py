@@ -39,7 +39,7 @@ def main():
         # Stage only Git-tracked source, including reviewed additions in the index.
         # Native binaries are injected explicitly below after their release builds.
         files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
-        roots = {'patches', 'config', 'docs', 'language', 'plugins', 'samples', 'scripts', 'src', 'tools', 'vendor'}
+        roots = {'config', 'docs', 'language', 'plugins', 'samples', 'scripts', 'src', 'tools', 'vendor'}
         top_files = {'adws','install.sh','README.md','Language.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','build-info.json','.gitignore'}
         excluded = {'target','__pycache__','.cache','.git','state','node_modules'}
         hashes = {}

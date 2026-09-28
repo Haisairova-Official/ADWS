@@ -1099,9 +1099,8 @@ class TaskbarSettingsWindow(Gtk.Window):
         box.pack_start(self.split_panel, False, False, 0)
         self.panel_choices = {}
         for key, title, choices in [
-            ('split_center_corners', _tr('分体端头样式：'), [('same',_tr('同两侧一样')),('pointed',_tr('尖角（< >）'))]),
             ('termination_mode', _tr('终止进程选项：'), [('shift',_tr('Shift 激活')),('below',_tr('列于关闭下方')),('disabled',_tr('禁用'))]),
-            ('panel_mode', _tr('任务栏模式：'), [('docked',_tr('吸附屏幕边缘')),('auto',_tr('有平铺窗口时吸附')),('floating',_tr('悬浮'))]),
+            ('panel_mode', _tr('任务栏模式：'), [('docked',_tr('吸附屏幕边缘')),('auto',_tr('有项目卡时吸附')),('floating',_tr('悬浮'))]),
             ('panel_material', _tr('任务栏材质：'), [('solid',_tr('纯色')),('mica',_tr('云母')),('acrylic',_tr('亚克力')),('candy',_tr('糖果'))])]:
             control=Gtk.ComboBoxText()
             for value, label in choices: control.append(value,label)

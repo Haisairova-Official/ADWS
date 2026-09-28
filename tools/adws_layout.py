@@ -505,7 +505,6 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             current = base_def.get("module_path") if isinstance(base_def, dict) else None
             return {
                 "panel_mode": panel["panel_mode"], "split_panel": panel["split_panel"], "position": panel["position"],
-                "split_center_corners": panel["split_center_corners"], "thickness": panel["thickness"],
                 "window_animations": panel["window_animations"], "animation_duration": panel["animation_duration"],
                 "module_path": str(desktop_space_library_path(layout, cfg)
                                    if not current else Path(current).expanduser()),

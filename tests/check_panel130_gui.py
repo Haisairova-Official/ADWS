@@ -49,7 +49,6 @@ with patch('adws_layout.load_layout',return_value={'options':{'tab_animations':T
     window.window_rows.set_active_id('2')
     assert window.thickness.get_value()>=48
     window.split_panel.set_active(True)
-    window.panel_choices['split_center_corners'].set_active_id('pointed')
     window.panel_choices['panel_mode'].set_active_id('auto')
     window.panel_choices['panel_material'].set_active_id('acrylic')
     window.panel_choices['termination_mode'].set_active_id('below')
@@ -58,14 +57,6 @@ with patch('adws_layout.load_layout',return_value={'options':{'tab_animations':T
     assert window.notebook.count == 3
     window.layout_editor.on_start_settings()
     assert window.notebook.get_current_page() == 2
-    for profile in ('traditional', 'reversed', 'waylander'):
-        window.layout_editor.keyboard_profile.set_active_id(profile)
-        with patch('adws_keyboard.apply_profile') as apply_keys:
-            window.layout_editor.apply_keyboard_profile()
-            apply_keys.assert_called_once_with(profile)
-    with patch('adws_keyboard.apply_profile', side_effect=ValueError('unsupported')), patch.object(window.layout_editor, 'show_message') as error:
-        window.layout_editor.apply_keyboard_profile()
-        assert error.called
     window.layout_editor.start_enabled.set_active(False)
     assert not next(row for row in window.layout_editor.rows if row['key']=='start')['widgets']['switch'].get_active()
     window.layout_editor.menu_theme.set_active_id('xp')
@@ -97,7 +88,6 @@ with patch('adws_layout.load_layout',return_value={'options':{'tab_animations':T
         assert options['hover_color']=='#ff0088'
         assert options['start_label']=='Unified Start'
         assert options['split_panel'] is True
-        assert options['split_center_corners']=='pointed'
         assert options['panel_mode']=='auto'
         assert options['panel_material']=='acrylic'
         assert options['termination_mode']=='below'

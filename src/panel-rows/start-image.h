@@ -119,22 +119,20 @@ static gboolean start_press(GtkWidget *w, GdkEventButton *event) {
     ((AdwsStart *)w)->pressed = event->button;
     return TRUE;
 }
-/* Spawning waits for the child exec handshake. Never do that on GTK's thread. */
-typedef struct { gchar **argv, **env; } StartLaunch;
-static gpointer start_launch_worker(gpointer data) {
-    StartLaunch *launch = data;
-    GError *error = NULL;
-    if (!g_spawn_async(NULL, launch->argv, launch->env, G_SPAWN_SEARCH_PATH,
-                      NULL, NULL, NULL, &error)) {
-        g_warning("ADWS start: %s", error->message); g_clear_error(&error);
-    }
-    g_strfreev(launch->argv); g_strfreev(launch->env); g_free(launch);
-    return NULL;
-}
-static gchar *start_anchor(GtkWidget *w) {
+static gboolean start_click(GtkWidget *w, GdkEventButton *event) {
+    AdwsStart *s = (AdwsStart *)w;
+    if (event->button < 1 || event->button > 3) return FALSE;
+    gboolean pressed = s->pressed == event->button;
+    s->pressed = FALSE;
+    if (!pressed || event->x < 0 || event->y < 0
+            || event->x >= gtk_widget_get_allocated_width(w)
+            || event->y >= gtk_widget_get_allocated_height(w)) return TRUE;
+    const gchar *command = event->button == 3 ? s->right_command : event->button == 2 ? s->middle_command : s->command;
+    if (!command || !*command) return TRUE;
+    const gchar *argv[] = {"/bin/sh", "-c", command, NULL};
     // Layer surfaces do not expose reliable global GDK origins. Recover the
     // bar origin from its anchors/margins, then send logical output coordinates.
-    AdwsStart *s = (AdwsStart *)w;
+    gchar **env = g_get_environ();
     GtkWidget *top = gtk_widget_get_toplevel(w);
     GdkWindow *gw = gtk_widget_get_window(top);
     GdkDisplay *display = gtk_widget_get_display(w);
@@ -152,72 +150,18 @@ static gchar *start_anchor(GtkWidget *w) {
         for (int i=0;i<gdk_display_get_n_monitors(display);i++) if(gdk_display_get_monitor(display,i)==monitor) index=i;
         gchar *anchor=g_strdup_printf("{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"monitor\":%d,\"edge\":\"%s\"}",x,y,
             gtk_widget_get_allocated_width(w),gtk_widget_get_allocated_height(w),index,s->position?s->position:"bottom");
-        return anchor;
+        env=g_environ_setenv(env,"ADWS_START_ANCHOR",anchor,TRUE);
+        g_free(anchor);
     }
-    return NULL;
-}
-
-/* Both launch routes ask the live widget for the same geometry. No file cache
- * or repeated polling: keyboard launch performs one asynchronous session call. */
-static GList *start_widgets;
-static guint start_bus_owner, start_bus_registration;
-static GDBusConnection *start_bus;
-static void start_anchor_call(GDBusConnection *connection, const gchar *sender,
-        const gchar *path, const gchar *interface, const gchar *method,
-        GVariant *parameters, GDBusMethodInvocation *invocation, gpointer data) {
-    (void)connection; (void)sender; (void)path; (void)interface;
-    (void)method; (void)parameters; (void)data;
-    GVariantBuilder anchors;
-    g_variant_builder_init(&anchors,G_VARIANT_TYPE("as"));
-    for(GList *item=start_widgets;item;item=item->next) {
-        GtkWidget *widget=item->data;
-        if(!gtk_widget_get_mapped(widget)) continue;
-        gchar *anchor=start_anchor(widget);
-        if(anchor) { g_variant_builder_add(&anchors,"s",anchor);g_free(anchor); }
+    GError *error = NULL;
+    if (!g_spawn_async(NULL, (gchar **)argv, env, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, &error)) {
+        g_warning("ADWS start: %s", error->message); g_clear_error(&error);
     }
-    g_dbus_method_invocation_return_value(invocation,g_variant_new("(as)",&anchors));
-}
-static void start_bus_acquired(GDBusConnection *connection,const gchar *name,gpointer data) {
-    (void)name;(void)data;
-    const gchar *xml="<node><interface name='org.ADWS.Taskbar.Start'><method name='GetAnchors'><arg type='as' direction='out'/></method></interface></node>";
-    GDBusNodeInfo *info=g_dbus_node_info_new_for_xml(xml,NULL);
-    static const GDBusInterfaceVTable vtable={.method_call=start_anchor_call};
-    start_bus=g_object_ref(connection);
-    start_bus_registration=g_dbus_connection_register_object(connection,"/org/ADWS/Taskbar/Start",info->interfaces[0],&vtable,NULL,NULL,NULL);
-    g_dbus_node_info_unref(info);
-}
-static gboolean start_click(GtkWidget *w, GdkEventButton *event) {
-    AdwsStart *s = (AdwsStart *)w;
-    if (event->button < 1 || event->button > 3) return FALSE;
-    gboolean pressed = s->pressed == event->button;
-    s->pressed = FALSE;
-    if (!pressed || event->x < 0 || event->y < 0
-            || event->x >= gtk_widget_get_allocated_width(w)
-            || event->y >= gtk_widget_get_allocated_height(w)) return TRUE;
-    const gchar *command = event->button == 3 ? s->right_command : event->button == 2 ? s->middle_command : s->command;
-    if (!command || !*command) return TRUE;
-
-    gchar **env = g_get_environ();
-    gchar *anchor = start_anchor(w);
-    if (anchor) { env=g_environ_setenv(env,"ADWS_START_ANCHOR",anchor,TRUE); g_free(anchor); }
-    StartLaunch *launch = g_new0(StartLaunch, 1);
-    launch->argv = g_new0(gchar *, 4);
-    launch->argv[0] = g_strdup("/bin/sh");
-    launch->argv[1] = g_strdup("-c");
-    launch->argv[2] = g_strdup(command);
-    launch->env = env;
-    g_thread_unref(g_thread_new("adws-start", start_launch_worker, launch));
+    g_strfreev(env);
     return TRUE;
 }
 static void start_finalize(GObject *obj) {
     AdwsStart *s = (AdwsStart *)obj;
-    start_widgets=g_list_remove(start_widgets,obj);
-    if(!start_widgets) {
-        if(start_bus_registration && start_bus)g_dbus_connection_unregister_object(start_bus,start_bus_registration);
-        start_bus_registration=0;g_clear_object(&start_bus);
-        if(start_bus_owner)g_bus_unown_name(start_bus_owner);
-        start_bus_owner=0;
-    }
     g_clear_object(&s->normal); g_clear_object(&s->hover);
     g_free(s->command); g_free(s->right_command); g_free(s->middle_command); g_free(s->label); g_free(s->position);
     G_OBJECT_CLASS(adws_start_parent_class)->finalize(obj);
@@ -234,8 +178,6 @@ static void adws_start_class_init(AdwsStartClass *klass) {
     G_OBJECT_CLASS(klass)->finalize=start_finalize;
 }
 static void adws_start_init(AdwsStart *s) {
-    start_widgets=g_list_prepend(start_widgets,s);
-    if(!start_bus_owner)start_bus_owner=g_bus_own_name(G_BUS_TYPE_SESSION,"org.ADWS.Taskbar.Start",G_BUS_NAME_OWNER_FLAGS_NONE,start_bus_acquired,NULL,NULL,NULL,NULL);
     s->fade_duration=280;
     GtkWidget *w=GTK_WIDGET(s);
     gtk_widget_set_name(w,"custom-applauncher");

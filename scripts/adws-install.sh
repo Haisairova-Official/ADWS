@@ -63,6 +63,3 @@ fi
 "$ROOT/adws" -v
 adws_message "安装完成。运行 adws-config 打开统一设置；运行 adws desktop --start（或 -s）启动桌面。" "Installation complete. Run adws-config for settings or adws -s to start desktop and taskbar."
 python3 "$ROOT/tools/adws_autostart.py"
-
-# Optional compositor compatibility never blocks the main installation.
-python3 "$ROOT/tools/adws_niri_compat.py" offer

@@ -26,10 +26,7 @@ typedef struct {
     gboolean animations;
     int duration;
     gulong occupancy_handler;
-    gboolean split, pointed;
-    GtkWidget *segments[3];
-    gulong segment_draw[3];
-    int thickness;
+    gboolean split;
     char *mode, *position;
     GtkStyleContext *window_style;
     gulong window_handler;
@@ -62,11 +59,6 @@ static void apply_gap(Space *self, double gap) {
     if(self->window && gtk_layer_is_layer_window(self->window)) {
         GtkLayerShellEdge inward=g_strcmp0(self->position,"top")==0?GTK_LAYER_SHELL_EDGE_BOTTOM:g_strcmp0(self->position,"left")==0?GTK_LAYER_SHELL_EDGE_RIGHT:g_strcmp0(self->position,"right")==0?GTK_LAYER_SHELL_EDGE_LEFT:GTK_LAYER_SHELL_EDGE_TOP;
         for(int edge=0;edge<4;edge++) gtk_layer_set_margin(self->window,edge,edge==(int)inward?0:(int)(gap+0.5));
-        /* A margin-only change may leave an otherwise idle surface without a
-         * frame. Schedule damage and commit instead of waiting for a clock or
-         * plugin update to finish initial placement. */
-        gtk_widget_queue_draw(GTK_WIDGET(self->window));
-        gtk_layer_try_force_commit(self->window);
     }
 #endif
 }
@@ -92,7 +84,6 @@ static gboolean sync_state(gpointer data) {
     gboolean docked=g_strcmp0(self->mode,"docked")==0 || (g_strcmp0(self->mode,"auto")==0 && gtk_style_context_has_class(style,"adws-has-windows"));
     if (self->docked != docked) {
         gboolean initial=self->docked<0;
-        if(g_getenv("ADWS_TASKBAR_TIMING"))g_printerr("ADWS_TASKBAR_TIMING space_dock=%d at_us=%lld\n",docked,(long long)g_get_monotonic_time());
         self->docked=docked;
         if(docked) gtk_style_context_add_class(style,"adws-docked"); else gtk_style_context_remove_class(style,"adws-docked");
         stop_animation(self);
@@ -119,40 +110,12 @@ static void changed(GtkStyleContext *style, gpointer data) {
     (void)style;
     Space *self = data;
     /* Defer until Waybar has finished applying the new mode. */
-    if (!self->sync) self->sync = g_idle_add_full(G_PRIORITY_HIGH_IDLE, sync_state, self, NULL);
+    if (!self->sync) self->sync = g_idle_add(sync_state, self);
 }
 
 static void occupancy_changed(GtkWidget *window, gpointer data) {
     (void)window;
     changed(NULL,data);
-}
-/* Clip the segment's normal CSS rendering, preserving materials and live colors.
- * Invoke the class renderer inside our clip; GTK restores Cairo between signal
- * handlers, so returning FALSE here would lose the polygon before default draw. */
-static void segment_path(cairo_t *cr, double w, double h, gboolean vertical, double tip, gboolean front, gboolean back) {
-    tip=MIN(tip,(vertical?h:w)/2.);
-    double start=front?tip:0, end=back?tip:0;
-    if(vertical) {
-        cairo_move_to(cr,front?w/2.:0,0); cairo_line_to(cr,w,start);
-        cairo_line_to(cr,w,h-end); cairo_line_to(cr,back?w/2.:w,h);
-        cairo_line_to(cr,0,h-end); cairo_line_to(cr,0,start);
-    } else {
-        cairo_move_to(cr,0,front?h/2.:0); cairo_line_to(cr,start,0);
-        cairo_line_to(cr,w-end,0); cairo_line_to(cr,w,back?h/2.:0);
-        cairo_line_to(cr,w-end,h); cairo_line_to(cr,start,h);
-        cairo_line_to(cr,0,front?h/2.:h);
-    }
-    cairo_close_path(cr);
-}
-static gboolean draw_segment(GtkWidget *widget, cairo_t *cr, gpointer data) {
-    Space *self=data;
-    gboolean vertical=g_strcmp0(self->position,"left")==0 || g_strcmp0(self->position,"right")==0;
-    gboolean front=!(self->docked>0 && widget==self->segments[0]);
-    gboolean back=!(self->docked>0 && widget==self->segments[2]);
-    segment_path(cr,gtk_widget_get_allocated_width(widget),gtk_widget_get_allocated_height(widget),vertical,self->thickness/2.,front,back);
-    cairo_clip(cr);
-    GTK_WIDGET_GET_CLASS(widget)->draw(widget,cr);
-    return TRUE;
 }
 static gboolean attach(gpointer data) {
     Space *self = data;
@@ -172,24 +135,6 @@ static gboolean attach(gpointer data) {
     g_object_add_weak_pointer(G_OBJECT(top), (gpointer *)&self->window);
     /* The content box opacity actually changes; the window style may not. */
     GtkWidget *content = gtk_bin_get_child(GTK_BIN(top));
-    if(self->split && self->pointed && GTK_IS_BOX(content)) {
-        const char *classes[]={"modules-left","modules-center","modules-right"};
-        GList *children=gtk_container_get_children(GTK_CONTAINER(content));
-        for(GList *it=children;it;it=it->next) {
-            GtkWidget *child=it->data;
-            GtkStyleContext *ctx=gtk_widget_get_style_context(child);
-            for(int i=0;i<3;i++) {
-                if(gtk_style_context_has_class(ctx,classes[i]) || (i==1 && child==gtk_box_get_center_widget(GTK_BOX(content)))) {
-                    self->segments[i]=child;
-                    g_object_add_weak_pointer(G_OBJECT(child),(gpointer *)&self->segments[i]);
-                    self->segment_draw[i]=g_signal_connect(child,"draw",G_CALLBACK(draw_segment),self);
-                    gtk_widget_queue_draw(child);
-                    break;
-                }
-            }
-        }
-        g_list_free(children);
-    }
     self->style = g_object_ref(gtk_widget_get_style_context(content));
     self->handler = g_signal_connect(self->style, "changed", G_CALLBACK(changed), self);
     return sync_state(self);
@@ -200,8 +145,7 @@ void *wbcffi_init(const wbcffi_init_info *info,
                   const wbcffi_config_entry *entries, size_t count) {
 
     Space *self = g_new0(Space, 1);
-    if(g_getenv("ADWS_TASKBAR_TIMING"))g_printerr("ADWS_TASKBAR_TIMING space_init_us=%lld\n",(long long)g_get_monotonic_time());
-    self->hidden = -1; self->docked=-1; self->duration=280; self->thickness=36;
+    self->hidden = -1; self->docked=-1; self->duration=280;
     for(size_t i=0;i<count;i++) {
         const char *value=entries[i].value;
         char *clean=g_strstrip(g_strdup(value));
@@ -210,8 +154,6 @@ void *wbcffi_init(const wbcffi_init_info *info,
         else if(!strcmp(entries[i].key,"position"))self->position=g_strdup(clean);
         else if(!strcmp(entries[i].key,"window_animations"))self->animations=!strcmp(clean,"true");
         else if(!strcmp(entries[i].key,"animation_duration"))self->duration=CLAMP(atoi(clean),80,1000);
-        else if(!strcmp(entries[i].key,"split_center_corners"))self->pointed=!strcmp(clean,"pointed");
-        else if(!strcmp(entries[i].key,"thickness"))self->thickness=CLAMP(atoi(clean),24,160);
         else if(!strcmp(entries[i].key,"split_panel"))self->split=!strcmp(clean,"true");
         g_free(clean);
     }
@@ -219,17 +161,13 @@ void *wbcffi_init(const wbcffi_init_info *info,
     /* This is a controller, not a visible module; it adds no spacing. */
     gtk_widget_set_no_show_all(self->root, TRUE);
     gtk_widget_hide(self->root);
-    self->sync = g_idle_add_full(G_PRIORITY_HIGH_IDLE, attach, self, NULL);
+    self->sync = g_idle_add(attach, self);
     return self;
 }
 
 void wbcffi_deinit(void *instance) {
     Space *self = instance;
     stop_animation(self);
-    for(int i=0;i<3;i++) if(self->segments[i]) {
-        g_signal_handler_disconnect(self->segments[i],self->segment_draw[i]);
-        g_object_remove_weak_pointer(G_OBJECT(self->segments[i]),(gpointer *)&self->segments[i]);
-    }
     if(self->window && self->occupancy_handler)g_signal_handler_disconnect(self->window,self->occupancy_handler);
     cancel(&self->sync);
     cancel(&self->release);

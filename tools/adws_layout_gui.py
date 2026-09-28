@@ -73,46 +73,6 @@ class LayoutWindow:
         self.start_settings.pack_start(hint, False, False, 0)
         self.start_enabled = Gtk.CheckButton(label=_tr('在任务栏显示开始按钮'))
         self.start_settings.pack_start(self.start_enabled, False, False, 0)
-
-        keys_row = Gtk.Box(spacing=8)
-        keys_row.pack_start(Gtk.Label(label=_tr('快捷键位'), xalign=0), False, False, 0)
-        self.keyboard_profile = Gtk.ComboBoxText()
-        for key, label in [('waylander', 'Waylander：Super 全览 / Ctrl 无动作'),
-                           ('traditional', 'Traditional：Super 开始 / Ctrl 全览'),
-                           ('reversed', 'Reversed：Ctrl 开始 / Super 全览')]:
-            self.keyboard_profile.append(key, key.capitalize() if key != "waylander" else "Waylander")
-        from adws_keyboard import current_profile, modifier_taps_supported
-        try:
-            self.keyboard_profile.set_active_id(current_profile())
-        except OSError:
-            self.keyboard_profile.set_active_id('waylander')
-        taps_supported = modifier_taps_supported()
-        self.keyboard_profile.set_sensitive(taps_supported)
-        keys_row.pack_start(self.keyboard_profile, True, True, 0)
-        keys_apply = Gtk.Button(label=_tr('应用键位方案'))
-        keys_apply.connect('clicked', self.apply_keyboard_profile)
-        keys_apply.set_sensitive(taps_supported)
-        keys_row.pack_start(keys_apply, False, False, 0)
-        self.start_settings.pack_start(keys_row, False, False, 0)
-        keys_description = Gtk.Label(xalign=0)
-        keys_description.set_line_wrap(True)
-        def describe_keys(*_args):
-            labels = {'waylander': 'Waylander：Super 全览 / Ctrl 无动作',
-                      'traditional': 'Traditional：Super 开始 / Ctrl 全览',
-                      'reversed': 'Reversed：Ctrl 开始 / Super 全览'}
-            keys_description.set_text(_tr(labels[self.keyboard_profile.get_active_id() or 'waylander']))
-        self.keyboard_profile.connect('changed', describe_keys)
-        describe_keys()
-        self.start_settings.pack_start(keys_description, False, False, 0)
-        keys_hint = Gtk.Label(label=_tr('单独轻按并松开生效，组合键不变。独立应用到 Niri；开始动作打开 ADWS 菜单。' if taps_supported else '当前 Niri 不支持单修饰键方案，已保留原配置。开始菜单仍可使用普通组合键启动。'), xalign=0)
-        keys_hint.set_line_wrap(True)
-        keys_hint.get_style_context().add_class('dim-label')
-        self.start_settings.pack_start(keys_hint, False, False, 0)
-        if not taps_supported:
-            compat_hint = Gtk.Label(label=_tr('可选兼容补丁：在终端运行 adws niri-compat build。系统 Niri 不会被替换。'), xalign=0)
-            compat_hint.set_line_wrap(True)
-            compat_hint.set_selectable(True)
-            self.start_settings.pack_start(compat_hint, False, False, 0)
         if not self.embedded:
             outer.pack_start(self.start_settings, False, False, 0)
 
@@ -344,15 +304,6 @@ class LayoutWindow:
         self.list_box.pack_start(box, False, False, 0)
         if self.embedded and hasattr(self, "protect_scroll"):
             self.protect_scroll(box)
-
-    def apply_keyboard_profile(self, _button=None):
-        from adws_keyboard import apply_profile
-        try:
-            apply_profile(self.keyboard_profile.get_active_id())
-        except (OSError, ValueError) as exc:
-            self.show_message(_tr('应用失败'), str(exc), error=True)
-            return
-        self.status.set_text(_tr('键位方案已应用，Niri 将自动重载。'))
 
     def reload(self, layout=None):
         self._clear_rows()

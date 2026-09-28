@@ -134,7 +134,6 @@ def help_text(component=None):
         usage = _tr('adws <命令> [选项]')
         commands = _tr('全局选项：\n  -v                   仅显示版本\n  --status             同时查看桌面和任务栏状态\n  --uninstall          卸载 ADWS（默认取消，可选择保留配置）\n\n命令：\n  desktop              管理桌面图标和桌面右键菜单\n  taskbar              管理底部任务栏\n  config               打开设置（--tab desktop|taskbar|components）\n  check                检查组件与配置状态\n  install              安装配置和命令入口\n  autostart            桌面登录自启：on / off / status\n  layout               组件布局：show / render / apply / gui\n  mplg                 插件管理：init / build / add / list / run / validate\n  build-taskbar        编译并安装任务栏模块\n  restart              重启组件：desktop / taskbar\n  help                 显示此帮助\n\n')
     if component is None:
-        commands += _tr('  niri-compat          可选 Niri 补丁：status / build / install / restore\n')
         commands += _tr('  setup                打开初始设置向导\n')
         commands = commands.replace("  -v", _tr("  -u, --update         检查 GitHub Release 更新，确认后安装\n      --preview        与 -u / --update 合用，检查 Beta 渠道\n") + "  -v", 1)
     target = component or "desktop"
