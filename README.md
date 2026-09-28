@@ -20,6 +20,22 @@ The native Rust start menu offers three themed presets, custom CSS and positioni
 
 The presets now have distinct layouts and show the system avatar and real name. App discovery runs off the UI thread; menu and docking transitions follow animation preferences. Docked corners are square, and termination menus track Shift after the popup grab.
 
+开始菜单增加电源与会话操作，支持直接回车执行命令；新增三种可选键位方案，检测 Niri 单修饰键支持后再允许应用，标准版仍可使用普通组合键，也可选择[独立构建兼容补丁版](patches/niri/README.md)。
+
+Start now includes power/session actions and direct Enter command execution. Three optional keyboard profiles require detected modifier-tap support; regular shortcuts remain available on upstream Niri, with an [optional separate compatibility build](patches/niri/README.md).
+
+开始按钮启动不再占用界面线程；首页快捷应用优先显示。任务栏新增有次数限制的无响应自动恢复与诊断记录；所有分体增加两端 5px 内容缓冲，各分体可选圆角或 < > 尖端；只有平铺窗口触发自动吸附。
+
+Start launches run off the UI thread and home shortcuts load first. Taskbar recovery records diagnostics and limits restart attempts; segments gain 5px content padding, with optional pointed ends; only tiled windows trigger auto-docking.
+
+优化任务栏启动：窗口数据连接与图标查找不再阻塞界面，首次吸附及时提交，不再等待组件刷新后才到位。
+
+Improve taskbar startup: keep window connections and icon lookup off the UI thread, and commit initial docking promptly without waiting for a component refresh.
+
+统一快捷键与按钮的开始菜单定位；头像和昵称按登录会话缓存，后台获取，同一次登录不再重复查询。
+
+Use the live Start button position for both keyboard and button launches; cache the avatar and name per login session, with account lookup in the background.
+
 使用与限制 / Usage and limits: [开始菜单与任务栏外观](docs/start-menu.md). 透明材质的背景模糊由窗口管理器提供 / Background blur depends on compositor support.
 
 ## 1.31 A

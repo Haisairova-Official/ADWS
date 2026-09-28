@@ -1,6 +1,6 @@
 """Run in Xvfb with a private DBus session; launches only a temporary fixture."""
 from pathlib import Path
-import os,subprocess,time,tempfile
+import os,subprocess,time,tempfile,shlex
 root=Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='adws-menu-keyboard-') as tmp:
     tmp=Path(tmp);apps=tmp/'applications';apps.mkdir();marker=tmp/'launched'
@@ -20,11 +20,22 @@ with tempfile.TemporaryDirectory(prefix='adws-menu-keyboard-') as tmp:
         marker.unlink(missing_ok=True)
         p=launch()
         subprocess.run(['xdotool','type','--clearmodifiers','Keyboard Fixture'],check=True);time.sleep(.4)
-        subprocess.run(['xdotool','key','Return'],check=True)
+        subprocess.run(['xdotool','key','Down','Return'],check=True)
         p.wait(timeout=5)
         for _ in range(30):
             if marker.exists():break
             time.sleep(.05)
         assert marker.exists(),'Enter did not launch the filtered .desktop application'
-        p=launch();subprocess.run(['xdotool','key','Escape'],check=True);assert p.wait(timeout=5)==0
-        print('Keyboard search/Enter launches only the fixture; Escape dismisses menu.')
+        command_marker=tmp/'command with spaces'
+        command_marker.unlink(missing_ok=True)
+        p=launch()
+        subprocess.run(['xdotool','type','--clearmodifiers','touch -- '+shlex.quote(str(command_marker))],check=True)
+        time.sleep(.2);assert not command_marker.exists(),'Typing executed a command before Enter'
+        subprocess.run(['xdotool','key','Return'],check=True);assert p.wait(timeout=5)==0
+        for _ in range(30):
+            if command_marker.exists():break
+            time.sleep(.05)
+        assert command_marker.exists(),'Direct Enter did not execute the typed command'
+        p=launch();subprocess.run(['xdotool','key','Return'],check=True);time.sleep(.2);assert p.poll() is None
+        subprocess.run(['xdotool','key','Escape'],check=True);assert p.wait(timeout=5)==0
+        print(theme+': selection launches fixture; direct Enter runs command; typing/empty Enter do nothing; Escape dismisses.')

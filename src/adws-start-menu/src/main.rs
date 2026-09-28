@@ -1,3 +1,5 @@
+mod power;
+mod account;
 use glib::translate::ToGlibPtr;
 use gtk::{gdk, gio, glib, prelude::*};
 use serde_json::Value;
@@ -8,6 +10,15 @@ use std::{
     rc::Rc,
     time::Duration,
 };
+
+static MENU_STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+fn timing(stage: &str) {
+    if std::env::var_os("ADWS_MENU_TIMING").is_some() {
+        if let Some(start) = MENU_STARTED.get() {
+            eprintln!("ADWS menu: {stage}: {} ms", start.elapsed().as_millis());
+        }
+    }
+}
 
 #[link(name = "gtk-layer-shell")]
 extern "C" {
@@ -269,6 +280,18 @@ fn launch(info: &gio::AppInfo, application: &gtk::Application, error: &gtk::Labe
         }
     }
 }
+// Only an explicit activation of the search entry executes its exact contents.
+// App-row activation remains a separate path; typing/filtering never runs code.
+fn run_command(command: &str) -> Result<(), std::io::Error> {
+    if command.trim().is_empty() {
+        return Ok(());
+    }
+    std::process::Command::new("/bin/sh")
+        .args(["-c", command])
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+}
 thread_local! {static CLOSE:RefCell<Option<Rc<dyn Fn()>>>=RefCell::new(None);}
 fn dismiss(application: &gtk::Application) {
     let close = CLOSE.with(|slot| slot.borrow().clone());
@@ -289,6 +312,7 @@ struct Motion {
 }
 impl Motion {
     fn set(&self, value: f64) {
+        if self.progress.get() == 0. && value > 0. { timing("animation visible"); }
         self.progress.set(value);
         self.menu.set_opacity(value);
         let offset = ((1. - value) * 8.).round() as i32;
@@ -315,20 +339,18 @@ impl Motion {
             return;
         }
         let from = self.progress.get();
-        let start = std::cell::Cell::new(None::<i64>);
+        let start = glib::monotonic_time();
         let weak = Rc::downgrade(self);
         let tick = self.menu.add_tick_callback(move |_, clock| {
             let Some(this) = weak.upgrade() else {
                 return glib::ControlFlow::Break;
             };
             let now = clock.frame_time();
-            let began = start.get().unwrap_or_else(|| {
-                start.set(Some(now));
-                now
-            });
-            let t = ((now - began) as f64 / (this.duration * (target - from).abs().max(0.01)))
+            let t = ((now - start) as f64 / (this.duration * (target - from).abs().max(0.01)))
                 .clamp(0., 1.);
-            this.set(from + (target - from) * t * t * (3. - 2. * t));
+            // Reveal promptly, then settle; closing retains a smooth fade.
+            let eased = if target > from { 1. - (1. - t).powi(3) } else { t * t * (3. - 2. * t) };
+            this.set(from + (target - from) * eased);
             if t >= 1. {
                 this.tick.borrow_mut().take();
                 if target == 0. {
@@ -356,15 +378,26 @@ fn load_catalog(
     text: &Text,
 ) {
     let (send, recv) = std::sync::mpsc::sync_channel(1);
+    let favorite_count = if theme == "kde" { 9 } else { 8 };
     std::thread::spawn(move || {
-        let records: Vec<_> = applications()
+        let catalog = applications();
+        let pins = json_file(&config_home().join("adws/taskbar-pins.json"));
+        let pinned: Vec<_> = pins["apps"].as_array().into_iter().flatten()
+            .filter_map(|v| v["desktop_id"].as_str()).collect();
+        let mut featured: Vec<_> = catalog.iter().enumerate().collect();
+        featured.sort_by_key(|(i, app)| (
+            pinned.iter().position(|id| app.info.id().as_deref() == Some(*id)).unwrap_or(usize::MAX),
+            !app.categories.split(';').any(|v| matches!(v, "WebBrowser" | "FileManager" | "TerminalEmulator")), *i));
+        let featured: Vec<_> = featured.into_iter().take(favorite_count)
+            .filter_map(|(_, app)| app.info.clone().downcast::<gio::DesktopAppInfo>().ok()?.filename()).collect();
+        let records: Vec<_> = catalog
             .into_iter()
             .filter_map(|app| {
                 let desktop = app.info.downcast::<gio::DesktopAppInfo>().ok()?;
                 Some((desktop.filename()?, app.searchable, app.categories))
             })
             .collect();
-        let _ = send.send(records);
+        let _ = send.send((records, featured));
     });
     let list = list.clone();
     let favorites = favorites.clone();
@@ -378,7 +411,10 @@ fn load_catalog(
     glib::timeout_add_local(Duration::from_millis(8), move || {
         if pending.is_none() {
             match recv.try_recv() {
-                Ok(data) => pending = Some(data.into()),
+                Ok((data, featured)) => {
+                    fill_favorites(&featured, &favorites, &theme, &application, &status);
+                    pending = Some(data.into());
+                },
                 Err(std::sync::mpsc::TryRecvError::Empty) => return glib::ControlFlow::Continue,
                 Err(_) => {
                     empty.set_text(&text.get("没有匹配的应用程序"));
@@ -423,35 +459,15 @@ fn load_catalog(
             return glib::ControlFlow::Continue;
         }
         empty.set_text(&text.get("没有匹配的应用程序"));
-        let pins = json_file(&config_home().join("adws/taskbar-pins.json"));
-        let pinned: Vec<_> = pins["apps"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|v| v["desktop_id"].as_str())
-            .collect();
-        let data = apps.borrow();
-        let mut featured: Vec<_> = data.iter().enumerate().collect();
-        // User pins first, then common launchers, then alphabetical fallback.
-        featured.sort_by_key(|(i, app)| {
-            (
-                pinned
-                    .iter()
-                    .position(|id| app.info.id().as_deref() == Some(*id))
-                    .unwrap_or(usize::MAX),
-                !app.categories.split(';').any(|v| {
-                    matches!(
-                        v,
-                        "WebBrowser" | "FileManager" | "TerminalEmulator" | "TextEditor"
-                    )
-                }),
-                *i,
-            )
-        });
-        for (_, app) in featured
-            .into_iter()
-            .take(if theme == "kde" { 9 } else { 8 })
-        {
+
+        glib::ControlFlow::Break
+    });
+}
+// Home shortcuts do not wait for every installed application row and icon.
+fn fill_favorites(paths: &[PathBuf], favorites: &gtk::FlowBox, theme: &str,
+                  application: &gtk::Application, status: &gtk::Label) {
+        for path in paths {
+            let Some(info) = gio::DesktopAppInfo::from_filename(path).map(|v| v.upcast::<gio::AppInfo>()) else { continue; };
             let button = gtk::Button::new();
             add_class(&button, "shortcut");
             let line = gtk::Box::new(
@@ -463,26 +479,24 @@ fn load_catalog(
                 8,
             );
             line.pack_start(
-                &app_image(&app.info, if theme == "kde" { 40 } else { 32 }),
+                &app_image(&info, if theme == "kde" { 40 } else { 32 }),
                 false,
                 false,
                 0,
             );
-            let label = gtk::Label::new(Some(&app.info.display_name()));
+            let label = gtk::Label::new(Some(&info.display_name()));
             label.set_ellipsize(gtk::pango::EllipsizeMode::End);
             label.set_max_width_chars(if theme == "kde" { 15 } else { 24 });
             label.set_xalign(if theme == "kde" { 0.5 } else { 0. });
             line.pack_start(&label, true, true, 0);
             button.add(&line);
-            let info = app.info.clone();
+            let info = info.clone();
             let a = application.clone();
             let error = status.clone();
             button.connect_clicked(move |_| launch(&info, &a, &error));
             favorites.insert(&button, -1);
         }
         favorites.show_all();
-        glib::ControlFlow::Break
-    });
 }
 fn app_image(info: &gio::AppInfo, size: i32) -> gtk::Image {
     let image = info
@@ -498,95 +512,26 @@ fn app_image(info: &gio::AppInfo, size: i32) -> gtk::Image {
     image
 }
 
-fn account_widgets(avatar: &gtk::Image, name: &gtk::Label) {
-    let login = glib::user_name().to_string_lossy().into_owned();
-    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let size = avatar.pixel_size();
-    let set_avatar = |path: &Path| {
-        if let Ok(pixbuf) = gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(path, size, size, true) {
-            avatar.set_from_pixbuf(Some(&pixbuf));
-            true
-        } else {
-            false
-        }
-    };
-    for path in [
-        home.join(".face"),
-        home.join(".face.icon"),
-        PathBuf::from("/var/lib/AccountsService/icons").join(&login),
-    ] {
-        if path.is_file() && set_avatar(&path) {
-            break;
-        }
-    }
-    let avatar = avatar.downgrade();
-    let name = name.downgrade();
-    glib::MainContext::default().spawn_local(async move {
-        let Ok(bus) = gio::bus_get_future(gio::BusType::System).await else {
-            return;
-        };
-        let Ok(reply) = bus
-            .call_future(
-                Some("org.freedesktop.Accounts"),
-                "/org/freedesktop/Accounts",
-                "org.freedesktop.Accounts",
-                "FindUserByName",
-                Some(&(login,).to_variant()),
-                None,
-                gio::DBusCallFlags::NONE,
-                1000,
-            )
-            .await
-        else {
-            return;
-        };
-        let Some((path,)) = reply.get::<(glib::variant::ObjectPath,)>() else {
-            return;
-        };
-        let Ok(reply) = bus
-            .call_future(
-                Some("org.freedesktop.Accounts"),
-                &path,
-                "org.freedesktop.DBus.Properties",
-                "GetAll",
-                Some(&("org.freedesktop.Accounts.User",).to_variant()),
-                None,
-                gio::DBusCallFlags::NONE,
-                1000,
-            )
-            .await
-        else {
-            return;
-        };
-        let Some((props,)) = reply.get::<(std::collections::HashMap<String, glib::Variant>,)>()
-        else {
-            return;
-        };
-        if let Some(real) = props
-            .get("RealName")
-            .and_then(|v| v.str())
-            .filter(|s| !s.trim().is_empty())
-        {
-            if let Some(label) = name.upgrade() {
-                label.set_text(real);
-            }
-        }
-        if let Some(path) = props
-            .get("IconFile")
-            .and_then(|v| v.str())
-            .filter(|s| !s.is_empty())
-        {
-            if let (Some(image), Ok(pixbuf)) = (
-                avatar.upgrade(),
-                gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(path, size, size, true),
-            ) {
-                image.set_from_pixbuf(Some(&pixbuf));
-            }
-        }
-    });
+// Fetch current geometry from the taskbar instead of estimating the button's
+// position from configured padding. Missing/older taskbars retain the fallback.
+async fn taskbar_anchor() -> Option<Value> {
+    let display = gdk::Display::default()?;
+    let monitor = display.default_seat().and_then(|s| s.pointer()).and_then(|p| {
+        let (_, x, y) = p.position(); display.monitor_at_point(x, y)
+    }).or_else(|| display.primary_monitor()).or_else(|| display.monitor(0))?;
+    let index = (0..display.n_monitors()).find(|&i| display.monitor(i).as_ref() == Some(&monitor))?;
+    let bus = gio::bus_get_future(gio::BusType::Session).await.ok()?;
+    let reply = bus.call_future(Some("org.ADWS.Taskbar.Start"), "/org/ADWS/Taskbar/Start",
+        "org.ADWS.Taskbar.Start", "GetAnchors", None, None,
+        gio::DBusCallFlags::NO_AUTO_START, 150).await.ok()?;
+    let (anchors,) = reply.get::<(Vec<String>,)>()?;
+    anchors.iter().filter_map(|s| serde_json::from_str::<Value>(s).ok())
+        .find(|a| a["monitor"].as_i64() == Some(index as i64))
 }
 
 fn main() {
+    let _ = MENU_STARTED.set(std::time::Instant::now());
+    timing("process entry");
     let args: Vec<_> = std::env::args().collect();
     if args.iter().any(|s| s == "--help" || s == "-h") {
         println!("adws-start-menu --root PATH [--theme kde|aero|xp] [--css PATH]");
@@ -625,26 +570,42 @@ fn main() {
         gio::ApplicationFlags::empty()
     };
     let app = gtk::Application::new(Some("org.ADWS.StartMenu"), flags);
+    app.connect_startup(|_| timing("GTK startup"));
+    let opening = Rc::new(std::cell::Cell::new(false));
     app.connect_activate(move |application| {
         if !application.windows().is_empty() {
+            if !application.windows().iter().any(|w| w.is_visible()) {
+                return;
+            }
             dismiss(application);
             return;
         }
-        build(
-            application,
-            &root,
-            &theme,
-            custom.as_deref(),
-            &options_owned(&layout),
-            smoke.as_deref(),
-            layer_probe,
-        );
+        if opening.replace(true) { return; }
+        let opening = opening.clone();
+        let application = application.clone();
+        let hold = application.hold();
+        let root = root.clone(); let theme = theme.clone(); let custom = custom.clone();
+        let options = options_owned(&layout); let smoke = smoke.clone();
+        glib::MainContext::default().spawn_local(async move {
+            let mut anchor = std::env::var("ADWS_START_ANCHOR").ok()
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok());
+            if anchor.is_none() && (smoke.is_none() || layer_probe) {
+                anchor = taskbar_anchor().await;
+                timing(if anchor.is_some() { "live Start anchor" } else { "fallback Start anchor" });
+            }
+            build(&application, &root, &theme, custom.as_deref(), &options,
+                smoke.as_deref(), MenuPlacement { layer_probe, anchor });
+            opening.set(false);
+            drop(hold);
+        });
     });
     app.run_with_args(&["adws-start-menu"]);
 }
 fn options_owned(layout: &Value) -> Value {
     layout["options"].clone()
 }
+struct MenuPlacement { layer_probe: bool, anchor: Option<Value> }
+
 fn build(
     application: &gtk::Application,
     root: &Path,
@@ -652,8 +613,10 @@ fn build(
     custom: Option<&Path>,
     options: &Value,
     smoke: Option<&Path>,
-    layer_probe: bool,
+    placement: MenuPlacement,
 ) {
+    let MenuPlacement { layer_probe, anchor } = placement;
+    timing("activation");
     let started = std::time::Instant::now();
     let text = Text::new(root);
     let window = gtk::ApplicationWindow::new(application);
@@ -670,9 +633,6 @@ fn build(
     }
     let layered = (smoke.is_none() || layer_probe) && unsafe { gtk_layer_is_supported() != 0 };
     let display = gdk::Display::default().expect("GTK display");
-    let anchor = std::env::var("ADWS_START_ANCHOR")
-        .ok()
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok());
     let monitor = anchor
         .as_ref()
         .and_then(|a| a["monitor"].as_i64())
@@ -782,7 +742,15 @@ fn build(
     }
     overlay.add_overlay(&stage);
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    menu.add(&content);
+    let menu_pages = gtk::Stack::new();
+    menu_pages.set_transition_type(gtk::StackTransitionType::Crossfade);
+    menu_pages.set_transition_duration(if options["tab_animations"].as_bool().unwrap_or(false) {
+        150
+    } else {
+        0
+    });
+    menu.add(&menu_pages);
+    menu_pages.add_named(&content, "launcher");
     for edge in [
         gtk::PositionType::Left,
         gtk::PositionType::Right,
@@ -801,24 +769,19 @@ fn build(
     add_class(&status, "menu-status");
     status.set_line_wrap(true);
     status.set_no_show_all(true);
-    let user = glib::real_name().to_string_lossy().into_owned();
-    let user = if user.is_empty() || user == "Unknown" {
-        glib::user_name().to_string_lossy().into_owned()
-    } else {
-        user
-    };
+    let user = std::env::var("USER").unwrap_or_default();
     let avatar = gtk::Image::from_icon_name(Some("avatar-default"), gtk::IconSize::Dialog);
     avatar.set_pixel_size(if theme == "aero" { 52 } else { 40 });
     add_class(&avatar, "menu-avatar");
     let search = gtk::SearchEntry::new();
-    search.set_placeholder_text(Some(&text.get("搜索应用程序…")));
+    search.set_placeholder_text(Some(&text.get("请输入搜索内容或命令")));
     add_class(&search, "menu-search");
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     add_class(&header, "menu-header");
     if theme != "aero" {
         header.pack_start(&avatar, false, false, 0);
         let name = gtk::Label::new(Some(&user));
-        account_widgets(&avatar, &name);
+        account::populate(&avatar, &name);
         name.set_xalign(0.);
         add_class(&name, "menu-title");
         header.pack_start(&name, theme == "xp", theme == "xp", 0);
@@ -914,7 +877,7 @@ fn build(
     } else if theme == "aero" {
         sidebar.pack_start(&avatar, false, false, 4);
         let name = gtk::Label::new(Some(&user));
-        account_widgets(&avatar, &name);
+        account::populate(&avatar, &name);
         add_class(&name, "menu-title");
         name.set_ellipsize(gtk::pango::EllipsizeMode::End);
         name.set_max_width_chars(18);
@@ -1105,16 +1068,28 @@ fn build(
     let footer = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     add_class(&footer, "menu-footer");
     content.pack_start(&footer, false, false, 0);
-    let brand = gtk::Label::new(Some("ADWS"));
+    let build = json_file(&root.join("build-info.json"));
+    let version = build["display_version"].as_str().unwrap_or("").trim();
+    let inscription = if version.is_empty() {
+        "ADWS".to_owned()
+    } else {
+        format!("ADWS {version}")
+    };
+    let brand = gtk::Label::new(Some(&inscription));
+    brand.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    brand.set_max_width_chars(28);
     add_class(&brand, "menu-subtitle");
     footer.pack_start(&brand, false, false, 0);
     if theme == "kde" {
         footer.pack_end(&settings, false, false, 0);
     }
-    let close = icon_button(&text.get("关闭"), "window-close-symbolic");
+    let close = icon_button(&text.get("关闭菜单"), "window-close-symbolic");
     let a = application.clone();
     close.connect_clicked(move |_| dismiss(&a));
     footer.pack_end(&close, false, false, 0);
+    let power = power::PowerMenu::new(&menu_pages, &footer, &text);
+    power.connect(application, &window);
+    menu_pages.set_visible_child_name("launcher");
     let q = query.clone();
     let c = category.clone();
     let l = list.clone();
@@ -1143,20 +1118,28 @@ fn build(
         &empty,
         &text,
     );
-    let l = list.clone();
-    search.connect_activate(move |_| {
-        if let Some(row) = l
-            .children()
-            .iter()
-            .filter_map(|w| w.clone().downcast::<gtk::ListBoxRow>().ok())
-            .find(|r| r.is_child_visible())
-        {
-            l.emit_by_name::<()>("row-activated", &[&row]);
+    let a = application.clone();
+    let error = status.clone();
+    let t = text.clone();
+    search.connect_activate(move |entry| {
+        if let Err(message) = run_command(entry.text().as_str()) {
+            error.set_text(&format!("{} {message}", t.get("命令启动失败：")));
+            error.show();
+        } else if !entry.text().trim().is_empty() {
+            dismiss(&a);
         }
     });
     let a = application.clone();
     let entry = search.clone();
+    let power_keys = power.clone();
     window.connect_key_press_event(move |_, event| {
+        if power_keys.active() {
+            if event.keyval() == gdk::keys::constants::Escape {
+                power_keys.back();
+                return glib::Propagation::Stop;
+            }
+            return glib::Propagation::Proceed;
+        }
         if event.keyval() == gdk::keys::constants::Escape {
             dismiss(&a);
             glib::Propagation::Stop
@@ -1262,7 +1245,9 @@ fn build(
         }
         *last.borrow_mut() = source;
     };
+    timing("widgets constructed");
     reload();
+    timing("styles loaded");
     glib::timeout_add_local(Duration::from_millis(750), move || {
         reload();
         glib::ControlFlow::Continue
@@ -1270,7 +1255,9 @@ fn build(
     if !layered && smoke.is_none() {
         let a = application.clone();
         window.connect_focus_out_event(move |_, _| {
-            dismiss(&a);
+            if !power.busy() {
+                dismiss(&a);
+            }
             glib::Propagation::Proceed
         });
     }
@@ -1310,6 +1297,12 @@ fn build(
             )
         });
     }
+    window.connect_map(|_| timing("window mapped"));
+    let drawn = std::cell::Cell::new(false);
+    window.connect_draw(move |_, _| {
+        if !drawn.replace(true) { timing("first draw"); }
+        glib::Propagation::Proceed
+    });
     motion.set(0.);
     window.show_all();
     motion.animate(1.);

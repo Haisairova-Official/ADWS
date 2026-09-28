@@ -11,21 +11,19 @@ use waybar_cffi::gtk::{
 
 /// A cache for taskbar icons.
 #[derive(Debug, Clone, Default)]
-pub struct Cache(Arc<Mutex<HashMap<String, PathBuf>>>);
+pub struct Cache(Arc<Mutex<HashMap<String, Option<PathBuf>>>>);
 
 impl Cache {
     /// Look up an icon for the given application ID.
     #[tracing::instrument(level = "TRACE", ret)]
     pub fn lookup(&self, id: &str) -> Option<PathBuf> {
-        let mut cache = self.0.lock().expect("icon cache lock");
-
-        if !cache.contains_key(id) {
-            if let Some(path) = lookup(id) {
-                cache.insert(id.to_string(), path);
-            }
+        if let Some(result) = self.0.lock().expect("icon cache lock").get(id).cloned() {
+            return result;
         }
-
-        cache.get(id).cloned()
+        // Disk/theme lookup runs on a worker; never hold the shared lock over I/O.
+        let result = lookup(id);
+        self.0.lock().expect("icon cache lock").insert(id.to_string(), result.clone());
+        result
     }
 }
 

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use futures::Stream;
-use niri_ipc::{Action, Event, Output, Reply, Request, Workspace, socket::Socket};
+use niri_ipc::{Action, Output, Reply, Request, socket::Socket};
 pub use state::{Snapshot, Window};
 #[cfg(test)]
 pub use state::WindowSet;
@@ -79,28 +78,7 @@ impl Niri {
         WindowStream::new(current_workspace_only)
     }
 
-    /// Returns a stream of workspace changes.
-    pub fn workspace_stream(&self) -> Result<impl Stream<Item = Vec<Workspace>> + use<>, Error> {
-        let mut socket = socket()?;
-        let reply = socket.send(Request::EventStream).map_err(Error::NiriIpc)?;
-        reply::typed!(Handled, reply)?;
 
-        let mut next = socket.read_events();
-        Ok(async_stream::stream! {
-            loop {
-                match next() {
-                    Ok(Event::WorkspacesChanged { workspaces }) => {
-                        yield workspaces;
-                    }
-                    Ok(_) => (),
-                    Err(e) => {
-                        tracing::error!(%e, "Niri IPC error reading from event stream");
-                        if e.kind() != std::io::ErrorKind::InvalidData { break; }
-                    }
-                }
-            }
-        })
-    }
 }
 
 // Helper to marshal request errors into our own type system.

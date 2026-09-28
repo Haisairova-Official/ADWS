@@ -28,12 +28,17 @@ esac
 # Help must not run component-changing commands (for example install -h).
 if [[ "${2:-}" == "-h" || "${2:-}" == "--help" || "${2:-}" == "-?" ]]; then
     case "${1:-}" in
+        niri-compat) exec python3 "$ROOT/tools/adws_niri_compat.py" --help ;;
         desktop|taskbar) exec python3 "$ROOT/tools/adws_runtime.py" "$1" --help ;;
         *) usage; exit 0 ;;
     esac
 fi
 
 case "${1:-help}" in
+    niri-compat)
+        shift
+        exec python3 "$ROOT/tools/adws_niri_compat.py" "$@"
+        ;;
     setup)
         shift
         exec python3 "$ROOT/tools/adws_oobe.py" "$@"

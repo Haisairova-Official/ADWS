@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use async_channel::Sender;
 use futures::{Stream, StreamExt};
-use niri_ipc::Workspace;
 use waybar_cffi::gtk::glib;
 
 use crate::{
@@ -56,18 +55,9 @@ impl State {
 
         glib::spawn_future_local(crate::pins::watch(tx.clone()));
 
-        // We don't want to send a set of workspaces through until after the window stream has
-        // yielded a window snapshot, and it's easier to defer it here than in the calling code.
-        let mut delay = Some((tx, self.niri().workspace_stream()?));
-
+        // All socket reads belong to the single background window stream.
         Ok(async_stream::stream! {
             while let Ok(event) = rx.recv().await {
-                if let Some((tx, stream)) = delay.take() {
-                    if let &Event::Workspaces(_) = &event {
-                        glib::spawn_future_local(workspace_stream(tx, stream));
-                    }
-                }
-
                 yield event;
             }
         })
@@ -99,18 +89,10 @@ async fn notify_stream(tx: Sender<Event>) {
 }
 
 async fn window_stream(tx: Sender<Event>, window_stream: WindowStream) {
-    while let Some(snapshot) = window_stream.next().await {
+    while let Some((snapshot, outputs_changed)) = window_stream.next().await {
+        if outputs_changed && tx.send(Event::Workspaces(())).await.is_err() { break; }
         if let Err(e) = tx.send(Event::WindowSnapshot(snapshot)).await {
             tracing::error!(%e, "error sending window snapshot");
-        }
-    }
-}
-
-async fn workspace_stream(tx: Sender<Event>, workspace_stream: impl Stream<Item = Vec<Workspace>>) {
-    let mut workspace_stream = Box::pin(workspace_stream);
-    while workspace_stream.next().await.is_some() {
-        if let Err(e) = tx.send(Event::Workspaces(())).await {
-            tracing::error!(%e, "error sending workspaces");
         }
     }
 }

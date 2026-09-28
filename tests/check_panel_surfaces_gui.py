@@ -31,3 +31,23 @@ for material in ('solid','mica','acrylic','candy'):
     window.draw(cairo.Context(surface));surface.write_to_png('/tmp/adws-b-material-'+material+'.png')
     window.destroy();Gtk.StyleContext.remove_provider_for_screen(window.get_screen(),css)
 print('Four materials rendered; empty center remains transparent; segments request content width.')
+
+for edge in ('top', 'bottom', 'left', 'right'):
+    for corners in ('same', 'pointed'):
+        window=Gtk.Window(); window.set_name('waybar')
+        window.get_style_context().add_class('adws-panel')
+        window.get_style_context().add_class('adws-split')
+        outer=Gtk.Box(); window.add(outer)
+        center=Gtk.Box(); center.get_style_context().add_class('modules-center')
+        center.add(Gtk.Label(label='Lyrics'))
+        outer.pack_start(center,False,False,0)
+        css=Gtk.CssProvider()
+        css.load_from_data(('@define-color surface_container_high #303849; @define-color primary #6dc5e6; @define-color on_surface #e9eaff; '+styles({'split_panel':True,'position':edge,'split_center_corners':corners,'_occupied_slots':['center']})).encode())
+        Gtk.StyleContext.add_provider_for_screen(window.get_screen(),css,800)
+        window.show_all()
+        while Gtk.events_pending(): Gtk.main_iteration()
+        padding=center.get_style_context().get_padding(Gtk.StateFlags.NORMAL)
+        inset=23 if corners=='pointed' else 5
+        assert (padding.top,padding.right,padding.bottom,padding.left)==((inset,0,inset,0) if edge in ('left','right') else (0,inset,0,inset))
+        window.destroy();Gtk.StyleContext.remove_provider_for_screen(window.get_screen(),css)
+print('Center 5px axial padding and both corner variants parsed on all four edges.')

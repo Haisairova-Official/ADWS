@@ -131,10 +131,6 @@ impl Button {
                 .add_provider(provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION - 1);
         });
 
-        let icon_path = app_id
-            .as_deref()
-            .and_then(|id| state.icon_cache().lookup(id));
-
         let button = Self {
             app_id,
             button,
@@ -155,7 +151,7 @@ impl Button {
         button.connect_click_handler(window_id);
         button.connect_context_menu(window_id);
         button.connect_hover_description();
-        button.connect_size_allocate(icon_path);
+        button.connect_size_allocate();
         let hover = button.hover.clone();
         button.button.connect_destroy(move |_| { hover.borrow_mut().take(); });
 
@@ -437,8 +433,24 @@ impl Button {
     }
 
     #[tracing::instrument(level = "TRACE")]
-    fn connect_size_allocate(&self, icon_path: Option<PathBuf>) {
-        let last_size = RefCell::new(None);
+    fn connect_size_allocate(&self) {
+        let last_size = Rc::new(RefCell::new(None));
+        let icon_path = Rc::new(RefCell::new(None::<PathBuf>));
+        if let Some(id) = self.app_id.clone() {
+            let cache = self.state.icon_cache().clone();
+            let path = icon_path.clone();
+            let last = last_size.clone();
+            let weak = self.button.downgrade();
+            gtk::glib::spawn_future_local(async move {
+                let Ok(found) = gtk::gio::spawn_blocking(move || cache.lookup(&id)).await else { return; };
+                if let Some(button) = weak.upgrade() {
+                    if button.in_destruction() { return; }
+                    *path.borrow_mut() = found;
+                    last.borrow_mut().take();
+                    button.queue_resize();
+                }
+            });
+        }
         let icon = self.icon.clone();
         let vertical = self.state.config().vertical();
         let lane = (self.state.config().thickness() / self.state.config().rows()) as i32;
@@ -500,7 +512,7 @@ impl Button {
 
                     // Now we know the size, we can actually load the image.
                     let image =
-                        Self::icon_image(icon_path.as_ref(), button, size).unwrap_or_else(|| {
+                        Self::icon_image(icon_path.borrow().as_ref(), button, size).unwrap_or_else(|| {
                             // If we can't find an application icon, then we need to use a
                             // fallback.
                             static FALLBACK_ICON: &str = "application-x-executable";
