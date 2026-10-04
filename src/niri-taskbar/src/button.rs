@@ -342,7 +342,7 @@ impl Button {
                 menu.append(&pin);
             }
             if members.borrow().is_empty() {
-                show_menu(menu, event);
+                show_menu(menu, event, button);
                 return gtk::glib::Propagation::Stop;
             }
             menu.append(&gtk::SeparatorMenuItem::new());
@@ -373,7 +373,7 @@ impl Button {
                 if state.config().termination_mode() == "shift" {
                     track_shift(&menu, terminate, close_items);
                 }
-                show_menu(menu, event);
+                show_menu(menu, event, button);
                 return gtk::glib::Propagation::Stop;
             }
             let focus = gtk::MenuItem::with_label(crate::i18n::text("聚焦窗口", "Focus window"));
@@ -414,7 +414,7 @@ impl Button {
             if state.config().termination_mode() == "shift" {
                 track_shift(&menu, terminate, close_items);
             }
-            show_menu(menu, event);
+            show_menu(menu, event, button);
 
             gtk::glib::Propagation::Stop
         });
@@ -630,7 +630,7 @@ fn bind_shift_events(menu: &gtk::Menu, update: Rc<dyn Fn(bool)>,
     });
     let apply = update.clone();
     let released = held.clone();
-    menu.connect_key_release_event(move |_, event| {
+    menu.connect_key_release_event(move |menu, event| {
         let (mut left, mut right) = released.get();
         match event.keyval() {
             gtk::gdk::keys::constants::Shift_L => left = false,
@@ -638,14 +638,21 @@ fn bind_shift_events(menu: &gtk::Menu, update: Rc<dyn Fn(bool)>,
             _ => return gtk::glib::Propagation::Proceed,
         }
         released.set((left, right));
-        apply(left || right);
+        apply(if menu.display().type_().name() == "GdkWaylandDisplay" {
+            shift_down(&menu.display()) || left || right
+        } else { left || right });
         gtk::glib::Propagation::Proceed
     });
     for child in menu.children() {
         if let Ok(item) = child.downcast::<gtk::MenuItem>() {
             let apply = update.clone();
-            item.connect_enter_notify_event(move |_, event| {
-                apply(event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK));
+            let held_keys = held.clone();
+            item.connect_enter_notify_event(move |item, event| {
+                let (left, right) = held_keys.get();
+                // A crossing event may have been queued before the popup gained
+                // keyboard focus; do not replace current modifiers with that zero.
+                apply(event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK)
+                    || shift_down(&item.display()) || left || right);
                 gtk::glib::Propagation::Proceed
             });
             if let Some(submenu) = item.submenu().and_then(|w| w.downcast::<gtk::Menu>().ok()) {
@@ -664,7 +671,68 @@ fn append_terminate(menu: &gtk::Menu, state: &crate::state::State, id: u64) {
     menu.append(&item);
 }
 
-fn show_menu(menu: gtk::Menu, event: &gtk::gdk::EventButton) {
+// Wayland does not send modifiers to a keyboard-inert layer surface. Merely
+// reading GDK state cannot recover a Shift held in another application's focus.
+// Temporarily allow focus while the popup is active, then restore the bar's mode.
+// Resolve the runtime library dynamically: non-layer/X11 hosts need no new link.
+#[derive(Clone, Copy)]
+struct LayerKeyboardApi {
+    is_layer: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow) -> i32,
+    get_mode: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow) -> i32,
+    set_mode: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow, i32),
+}
+#[link(name = "dl")]
+unsafe extern "C" {
+    fn dlopen(name: *const std::ffi::c_char, flags: i32) -> *mut std::ffi::c_void;
+    fn dlsym(handle: *mut std::ffi::c_void, name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
+}
+fn layer_keyboard_api() -> Option<LayerKeyboardApi> {
+    static API: std::sync::OnceLock<Option<LayerKeyboardApi>> = std::sync::OnceLock::new();
+    *API.get_or_init(|| unsafe {
+        // The cached function pointers keep this single handle alive for the process.
+        let handle = dlopen(c"libgtk-layer-shell.so.0".as_ptr(), 1);
+        if handle.is_null() { return None; }
+        let is_layer = dlsym(handle, c"gtk_layer_is_layer_window".as_ptr());
+        let get_mode = dlsym(handle, c"gtk_layer_get_keyboard_mode".as_ptr());
+        let set_mode = dlsym(handle, c"gtk_layer_set_keyboard_mode".as_ptr());
+        if is_layer.is_null() || get_mode.is_null() || set_mode.is_null() { return None; }
+        Some(LayerKeyboardApi {
+            is_layer: std::mem::transmute::<*mut std::ffi::c_void, unsafe extern "C" fn(*mut gtk::ffi::GtkWindow) -> i32>(is_layer),
+            get_mode: std::mem::transmute::<*mut std::ffi::c_void, unsafe extern "C" fn(*mut gtk::ffi::GtkWindow) -> i32>(get_mode),
+            set_mode: std::mem::transmute::<*mut std::ffi::c_void, unsafe extern "C" fn(*mut gtk::ffi::GtkWindow, i32)>(set_mode),
+        })
+    })
+}
+fn menu_keyboard_focus(menu: &gtk::Menu, button: &gtk::Button) {
+    use gtk::glib::translate::ToGlibPtr;
+    let Some(api) = layer_keyboard_api() else { return; };
+    let Some(window) = button.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok()) else { return; };
+    // SAFETY: all calls are on GTK's owning thread, with a live GtkWindow.
+    let previous = unsafe {
+        if (api.is_layer)(window.to_glib_none().0) == 0 { return; }
+        let mode = (api.get_mode)(window.to_glib_none().0);
+        if mode != 0 { return; } // Preserve an existing interactive mode.
+        (api.set_mode)(window.to_glib_none().0, 2); // GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND
+        mode
+    };
+    let weak = window.downgrade();
+    let restored = Rc::new(std::cell::Cell::new(false));
+    let restore: Rc<dyn Fn()> = Rc::new(move || {
+        if restored.replace(true) { return; }
+        if let Some(window) = weak.upgrade() {
+            if !window.in_destruction() {
+                unsafe { (api.set_mode)(window.to_glib_none().0, previous); }
+            }
+        }
+    });
+    let close = restore.clone();
+    menu.connect_deactivate(move |_| close());
+    let close = restore.clone();
+    menu.connect_unmap(move |_| close());
+    menu.connect_destroy(move |_| restore());
+}
+
+fn show_menu(menu: gtk::Menu, event: &gtk::gdk::EventButton, button: &gtk::Button) {
     crate::menu_style::apply(&menu);
     menu.show_all();
     menu.connect_deactivate(|menu| {
@@ -678,6 +746,7 @@ fn show_menu(menu: gtk::Menu, event: &gtk::gdk::EventButton) {
         if let Some(old) = old {old.popdown(); unsafe { old.destroy(); }}
         *slot.borrow_mut() = Some(menu.clone());
     });
+    menu_keyboard_focus(&menu, button);
     menu.popup_at_pointer(Some(event));
 }
 
@@ -692,6 +761,72 @@ mod action_tests {
     fn settle() {
         for _ in 0..20 { while gtk::events_pending(){gtk::main_iteration();} std::thread::sleep(std::time::Duration::from_millis(5)); }
     }
+    #[test]
+    #[ignore = "requires nested Wayland compositor and external real-input driver"]
+    fn wayland_layer_shift_menu() {
+        use gtk::glib::translate::ToGlibPtr;
+        use std::time::{Duration,Instant};
+        #[link(name = "gtk-layer-shell")]
+        unsafe extern "C" {
+            fn gtk_layer_init_for_window(window: *mut gtk::ffi::GtkWindow);
+            fn gtk_layer_set_layer(window: *mut gtk::ffi::GtkWindow, layer: i32);
+            fn gtk_layer_set_anchor(window: *mut gtk::ffi::GtkWindow, edge: i32, anchor: i32);
+            fn gtk_layer_set_exclusive_zone(window: *mut gtk::ffi::GtkWindow, zone: i32);
+        }
+        gtk::init().unwrap();
+        assert_eq!(gtk::gdk::Display::default().unwrap().type_().name(),"GdkWaylandDisplay");
+        let folder=PathBuf::from(std::env::var_os("ADWS_SHIFT_TEST_DIR").unwrap());
+        let api=layer_keyboard_api().unwrap();
+        let window=gtk::Window::new(gtk::WindowType::Toplevel);
+        unsafe {
+            gtk_layer_init_for_window(window.to_glib_none().0);
+            gtk_layer_set_layer(window.to_glib_none().0,1);
+            for edge in [0,1,3] {gtk_layer_set_anchor(window.to_glib_none().0,edge,1);}
+            gtk_layer_set_exclusive_zone(window.to_glib_none().0,60);
+            (api.set_mode)(window.to_glib_none().0,0);
+        }
+        window.set_size_request(-1,60);
+        let state=State::new(serde_json::from_value(serde_json::json!({"termination_mode":"shift"})).unwrap());
+        let single=Button::create(&state,Some("adws-test".into()),101,"Single".into());
+        let spacer=gtk::Label::new(None);
+        // Keep hover previews out of this input/focus regression.
+        single.hover.borrow_mut().take();
+        let row=gtk::Box::new(gtk::Orientation::Horizontal,0);
+        row.pack_start(single.widget(),true,true,0);row.pack_start(&spacer,true,true,0);
+        window.add(&row);window.show_all();settle();
+        let a=single.widget().allocation();
+        std::fs::write(folder.join("ready.json"),serde_json::json!({"single":[a.x()+a.width()/2,a.y()+a.height()/2],"height":window.allocated_height()}).to_string()).unwrap();
+        fn labels(menu:&gtk::Menu,grouped:bool,active:bool)->bool {
+            let wanted=if active{crate::i18n::text("结束进程","End process")}else{crate::i18n::text("关闭窗口","Close window")};
+            let menus:Vec<gtk::Menu>=if grouped{menu.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).filter_map(|i|i.submenu()).filter_map(|s|s.downcast::<gtk::Menu>().ok()).collect()}else{vec![menu.clone()]};
+            !menus.is_empty() && menus.iter().all(|m|m.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).any(|i|i.label().as_deref()==Some(wanted) && i.style_context().has_class("adws-destructive")==active))
+        }
+        let wait=|predicate:&dyn Fn()->bool| {
+            let until=Instant::now()+Duration::from_secs(8);
+            while !predicate() {
+                if Instant::now()>=until {
+                    eprintln!("mode={} single={:?}",unsafe{(api.get_mode)(window.to_glib_none().0)},single.widget().allocation());
+                    ACTIVE_CONTEXT_MENU.with(|m|eprintln!("menu={:?}",m.borrow().as_ref().map(|m|m.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).map(|i|i.label()).collect::<Vec<_>>())));
+                    panic!("timed out waiting for real Wayland input");
+                }
+                while gtk::events_pending(){gtk::main_iteration();}
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+        let grouped=false;
+        let prefix="single";
+        for (suffix,active) in [("shift",true),("close",false),("repress",true),("restored",false)] {
+            let phase=format!("{prefix}-{suffix}");
+            if phase.ends_with("restored") {
+                wait(&||ACTIVE_CONTEXT_MENU.with(|m|m.borrow().is_none()) && unsafe{(api.get_mode)(window.to_glib_none().0)}==0);
+            } else {
+                wait(&||ACTIVE_CONTEXT_MENU.with(|m|m.borrow().as_ref().is_some_and(|m|labels(m,grouped,active))) && unsafe{(api.get_mode)(window.to_glib_none().0)}==2);
+            }
+            std::fs::write(folder.join("phase"),phase).unwrap();
+        }
+        unsafe {window.destroy();}
+    }
+
     #[test]
     #[ignore = "requires an isolated GTK display"]
     fn termination_modes_and_submenu_styles() {

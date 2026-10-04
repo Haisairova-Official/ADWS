@@ -1718,5 +1718,6 @@
   "默认布局：左侧开始与窗口图标，中间留空，右侧声音、亮度、托盘与时钟；已有布局保留。（E）": "Default to Start and window icons at the front, an empty center, and sound, brightness, tray and clock at the back, preserving existing layouts. (E)",
   "新增内置托盘，超过三个图标折叠；声音与亮度支持点击、滚轮和详细面板，外观跟随任务栏。（E）": "Add a tray with overflow after three icons, plus audio/brightness click, wheel and detailed controls following taskbar appearance. (E)",
   "优化启动、事件队列、歌词渲染与资源清理，新增无响应诊断和自动恢复；修复托盘图标、重复菜单、下拉错位及开关拉伸等问题。（1.32／1.33）": "Improve startup, event queues, lyric rendering and resource cleanup; add stall diagnostics/recovery and fix tray icons, duplicate menus, misplaced selectors and stretched switches. (1.32/1.33)",
-  "卸载保留系统设置，个人布局不再覆盖默认配置；登录启动项支持右键删除并确认名称。（1.33／F）": "Preserve system settings on uninstall, keep personal layouts separate from shipped defaults, and confirm named login-entry deletions. (1.33/F)"
+  "卸载保留系统设置，个人布局不再覆盖默认配置；登录启动项支持右键删除并确认名称。（1.33／F）": "Preserve system settings on uninstall, keep personal layouts separate from shipped defaults, and confirm named login-entry deletions. (1.33/F)",
+  "修复 Wayland 下 Shift＋右键无反应的问题；按住显示红色“结束进程”，松开恢复“关闭窗口”。（G）": "Fix unresponsive Shift + right-click on Wayland: hold Shift for red End process, and release it to restore Close window. (G)"
 }

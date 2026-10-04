@@ -6,9 +6,17 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development: **1.33-F** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.33-G** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
+
+## 1.33-G
+
+修复 Wayland 下 Shift＋右键无反应的问题；按住显示红色“结束进程”，松开恢复“关闭窗口”。（G）
+
+Fix unresponsive Shift + right-click on Wayland: hold Shift for red End process, and release it to restore Close window. (G)
+
+[完整累计更新 / Consolidated update notes](docs/update-notes-1.33-G-2026-10-05.md)。
 
 ## 1.33-F
 

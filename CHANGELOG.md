@@ -1,8 +1,19 @@
 # Changelog / 更新记录
 
+## 1.33-G — 2026-10-05
+
+开发分支 / Development branch: `Pre-1.35`.
+
+- 修复 Wayland 下 Shift＋右键无反应的问题；按住显示红色“结束进程”，松开恢复“关闭窗口”。（G）
+- Fix unresponsive Shift + right-click on Wayland: hold Shift for red End process, and release it to restore Close window. (G)
+
+验证：真实 Wayland 输入、菜单关闭后的焦点恢复，以及合并子菜单和终止动作回归通过。 / Verified real Wayland input, focus restoration, grouped-menu state and action regressions.
+
+[累计更新 / Cumulative notes](docs/update-notes-1.33-G-2026-10-05.md) · [验证记录 / Verification](docs/shift-menu-verification-2026-10-05.md)
+
 ## 1.33-F — 2026-10-05
 
-开发分支 / Development branch: `Pre-1.35` · 待发布 / Pending publication.
+开发分支 / Development branch: `Pre-1.35`.
 
 ### 1.30 之后累计更新 / Changes since 1.30
 
