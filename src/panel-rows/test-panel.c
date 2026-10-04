@@ -325,6 +325,19 @@ int main(int argc, char **argv) {
     GdkPixbuf *image = gtk_offscreen_window_get_pixbuf(GTK_OFFSCREEN_WINDOW(window));
     gdk_pixbuf_save(image, "/tmp/adws-bilingual-preview.png", "png", NULL, NULL);
     g_object_unref(image);
+    // Color/class refreshes must not repeat the font binary search.
+    p->profile_source = g_timeout_add_seconds(3600, profile_rows, p);
+    guint64 fits_before = p->profile_fits;
+    for (int i = 0; i < 20; i++) fit_height(p, p->allocated_height);
+    g_assert_cmpuint(p->profile_fits, ==, fits_before);
+    g_free(p->font_family); p->font_family = g_strdup("Serif");
+    fit_height(p, p->allocated_height);
+    g_assert_cmpuint(p->profile_fits, ==, fits_before + 1);
+    g_free(p->font_family); p->font_family = g_strdup("Sans");
+    fit_height(p, p->allocated_height);
+    g_assert_cmpuint(p->profile_fits, ==, fits_before + 2);
+    g_source_remove(p->profile_source); p->profile_source = 0;
+    g_print("Font-fit cache checks passed (unchanged style, font invalidation)\n");
     int previous_unit = p->font_unit;
     int heights[] = {54, 72, 30, 36};
     for (guint i = 0; i < G_N_ELEMENTS(heights); i++) {

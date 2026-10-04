@@ -44,6 +44,7 @@ mod hover;
 mod process;
 mod state;
 mod scroll;
+mod tasks;
 #[cfg(test)]
 mod panel_tests;
 
@@ -57,7 +58,7 @@ static TRACING: LazyLock<()> = LazyLock::new(|| {
     }
 });
 
-struct TaskbarModule {}
+struct TaskbarModule { _tasks: tasks::Tasks }
 
 impl Module for TaskbarModule {
     type Config = Config;
@@ -66,17 +67,19 @@ impl Module for TaskbarModule {
         // Ensure tracing-subscriber is initialised.
         *TRACING;
 
-        let module = Self {};
+        let mut module = Self { _tasks: tasks::Tasks::default() };
         let state = State::new(config);
 
         let context = MainContext::default();
-        if let Err(e) = context.block_on(init(info, state)) {
-            tracing::error!(%e, "Niri taskbar module init failed");
-            if std::env::var("ADWS_LOG_LEVEL").as_deref() == Ok("1") {
-                eprintln!("CRITICAL: Niri taskbar module init failed: {e}");
+        match context.block_on(init(info, state)) {
+            Ok(task) => module._tasks.0.push(task),
+            Err(e) => {
+                tracing::error!(%e, "Niri taskbar module init failed");
+                if std::env::var("ADWS_LOG_LEVEL").as_deref() == Ok("1") {
+                    eprintln!("CRITICAL: Niri taskbar module init failed: {e}");
+                }
             }
         }
-
         module
     }
 }
@@ -84,7 +87,7 @@ impl Module for TaskbarModule {
 waybar_module!(TaskbarModule);
 
 #[tracing::instrument(level = "DEBUG", skip_all, err)]
-async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<(), Error> {
+async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<gtk::glib::JoinHandle<()>, Error> {
     // Set up the box that we'll use to contain the actual window buttons.
     menu_style::watch_palette();
     let root = info.get_root_widget();
@@ -113,11 +116,9 @@ async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<(), Error> {
 
     // We need to spawn a task to receive the window snapshots and update the container.
     let context = MainContext::default();
-    context.spawn_local(async move {
+    Ok(context.spawn_local(async move {
         Instance::new(state, container).task().await
-    });
-
-    Ok(())
+    }))
 }
 
 struct Instance {
@@ -431,6 +432,7 @@ impl Instance {
         windows: Snapshot,
         filter: Arc<Mutex<output::Filter>>,
     ) {
+        let update_started = std::time::Instant::now();
         // We need to track which, if any, windows are no longer present.
         let mut omitted = self.buttons.keys().copied().collect::<BTreeSet<_>>();
 
@@ -572,17 +574,26 @@ impl Instance {
         self.container.show_all();
         if let Some(top)=self.container.toplevel() {
             let style=top.style_context();
-            let occupied = windows.iter().any(|w| w.blocks_auto_dock() && on_output(w));
+            let tiled_windows = windows.iter().filter(|w| w.blocks_auto_dock() && on_output(w)).count();
+            let occupied = tiled_windows > 0;
             let changed = style.has_class("adws-has-windows") != occupied;
             if occupied { style.add_class("adws-has-windows"); }
             else { style.remove_class("adws-has-windows"); }
-            if changed && gtk::glib::subclass::SignalId::lookup("adws-windows-changed", top.type_()).is_some() {
-                top.emit_by_name::<()>("adws-windows-changed", &[]);
+            if changed {
+                tracing::info!(occupied, tiled_windows, visible_windows=windows.iter().filter(|w| on_output(w) && w.workspace_active()).count(), "Taskbar auto-dock state changed");
+                if gtk::glib::subclass::SignalId::lookup("adws-windows-changed", top.type_()).is_some() {
+                    top.emit_by_name::<()>("adws-windows-changed", &[]);
+                }
             }
         }
 
         // Update the last snapshot.
         self.last_snapshot = Some(windows);
+        let elapsed = update_started.elapsed();
+        if elapsed > std::time::Duration::from_millis(50) {
+            tracing::warn!(elapsed_ms=elapsed.as_millis(), windows=self.buttons.len(),
+                "ADWS taskbar window snapshot rendering delayed");
+        }
     }
 }
 

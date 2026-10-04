@@ -36,6 +36,10 @@ Improve taskbar startup: keep window connections and icon lookup off the UI thre
 
 Use the live Start button position for both keyboard and button launches; cache the avatar and name per login session, with account lookup in the background.
 
+本次维护更新（2026-10-04）修复更新队列堆积、歌词动效重复加载图标、字体重复测量和模块监听清理；尖角模式覆盖没有中区的分体布局。[验证记录](docs/taskbar-verification-2026-10-03.md)。
+
+The 2026-10-04 maintenance update bounds update queues, avoids redundant icon loading and font measurement, releases module listeners, and fixes pointed surfaces without a center segment. See the [verification record](docs/taskbar-verification-2026-10-03.md).
+
 使用与限制 / Usage and limits: [开始菜单与任务栏外观](docs/start-menu.md). 透明材质的背景模糊由窗口管理器提供 / Background blur depends on compositor support.
 
 ## 1.31 A

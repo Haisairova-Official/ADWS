@@ -457,25 +457,15 @@ impl Button {
 
         self.button
             .connect_size_allocate(move |button, allocation| {
-                // Figure out if we actually need to redraw, since it's relatively expensive.
-                //
-                // The first condition is pretty easy: is there an image on the button? If not,
-                // then it's the first draw, and we have no choice but to draw.
-                let mut must_redraw = button.image().is_none();
-
-                // Otherwise, let's check if the size allocation has changed since the last time
-                // this was called.
-                if !must_redraw {
-                    if let Some(last_size) = last_size.take() {
-                        if last_size != (allocation.width(), allocation.height()) {
-                            must_redraw = true;
-                        }
-                    } else {
-                        must_redraw = true;
-                    }
-
-                    last_size.replace(Some((allocation.width(), allocation.height())));
-                }
+                // Lyrics animate along the bar's long axis. That allocation
+                // change cannot change an icon's pixel size, and decoding on
+                // every animation frame synchronously stalls the GTK thread.
+                // DPI and the cross axis do affect the image; an async path
+                // lookup also invalidates this key above.
+                let cross = if vertical { allocation.width() } else { allocation.height() };
+                let key = (cross.min(lane), button.scale_factor());
+                let must_redraw = last_size.replace(Some(key)) != Some(key)
+                    || icon.child().is_none();
 
                 if must_redraw {
                     // Calculate the actual image size we need.

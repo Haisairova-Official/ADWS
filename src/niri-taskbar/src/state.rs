@@ -42,23 +42,30 @@ impl State {
     }
 
     pub fn event_stream(&self) -> Result<impl Stream<Item = Event> + use<>, Error> {
-        let (tx, rx) = async_channel::unbounded();
+        // Backpressure here must reach WindowStream's latest-state mailbox;
+        // an unbounded second queue would merely move the snapshot backlog.
+        let (tx, rx) = async_channel::bounded(1);
 
+        let mut tasks = crate::tasks::Tasks::default();
         if self.config().notifications_enabled() {
-            glib::spawn_future_local(notify_stream(tx.clone()));
+            tasks.0.push(glib::spawn_future_local(notify_stream(tx.clone())));
         }
 
-        glib::spawn_future_local(window_stream(
+        tasks.0.push(glib::spawn_future_local(window_stream(
             tx.clone(),
             self.niri().window_stream(false),
-        ));
+        )));
 
-        glib::spawn_future_local(crate::pins::watch(tx.clone()));
+        tasks.0.push(glib::spawn_future_local(crate::pins::watch(tx.clone())));
 
         // All socket reads belong to the single background window stream.
         Ok(async_stream::stream! {
+            let _tasks = tasks;
             while let Ok(event) = rx.recv().await {
                 yield event;
+                // A ready channel does not yield the executor. Give input,
+                // drawing and timers a turn even under a continuous event flood.
+                glib::timeout_future(std::time::Duration::from_millis(1)).await;
             }
         })
     }
@@ -84,6 +91,7 @@ async fn notify_stream(tx: Sender<Event>) {
     while let Some(notification) = stream.next().await {
         if let Err(e) = tx.send(Event::Notification(Box::new(notification))).await {
             tracing::error!(%e, "error sending notification");
+            break;
         }
     }
 }
@@ -93,6 +101,7 @@ async fn window_stream(tx: Sender<Event>, window_stream: WindowStream) {
         if outputs_changed && tx.send(Event::Workspaces(())).await.is_err() { break; }
         if let Err(e) = tx.send(Event::WindowSnapshot(snapshot)).await {
             tracing::error!(%e, "error sending window snapshot");
+            break;
         }
     }
 }

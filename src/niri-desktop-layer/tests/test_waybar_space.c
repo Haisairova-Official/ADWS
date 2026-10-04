@@ -87,6 +87,7 @@ int main(int argc, char **argv) {
     wbcffi_config_entry pointed[]={{"split_panel","true"},{"split_center_corners","pointed"},{"position","bottom"},{"thickness","36"}};
     self=wbcffi_init(&info,pointed,4);gtk_widget_show_all(window);drain(60);
     g_assert_true(self->segments[1]==center);
+    g_assert_cmpuint(self->segment_draw[0],==,0);g_assert_cmpuint(self->segment_draw[2],==,0);
     int width=gtk_widget_get_allocated_width(center),height=gtk_widget_get_allocated_height(center);
     cairo_surface_t *surface=cairo_image_surface_create(CAIRO_FORMAT_ARGB32,width,height);
     cairo_t *cr=cairo_create(surface);gtk_widget_draw(center,cr);cairo_destroy(cr);cairo_surface_flush(surface);
@@ -105,6 +106,7 @@ int main(int argc, char **argv) {
     wbcffi_config_entry docked_pointed[]={{"split_panel","true"},{"split_center_corners","pointed"},{"position","bottom"},{"thickness","36"},{"panel_mode","docked"}};
     self=wbcffi_init(&info,docked_pointed,5);gtk_widget_show_all(window);drain(60);
     g_assert_true(self->segments[0]==front);g_assert_true(self->segments[2]==back);
+    g_assert_cmpuint(self->segment_draw[0],>,0);g_assert_cmpuint(self->segment_draw[2],>,0);
     for(int index=0;index<2;index++) {
         GtkWidget *segment=index?back:front;
         width=gtk_widget_get_allocated_width(segment);height=gtk_widget_get_allocated_height(segment);

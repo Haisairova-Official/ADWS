@@ -1,6 +1,6 @@
 # Changelog / 更新记录
 
-## 1.31 B — 2026-09-28
+## 1.31 B — 2026-10-04
 
 开发分支 / Development branch: `Pre-1.35`.
 
@@ -61,7 +61,7 @@
 - 任务栏新增独立无响应检测：连续 10 秒未响应时记录诊断并自动恢复，10 分钟最多两次，短暂延迟仅记录。
 - Add an independent taskbar heartbeat: log diagnostics and recover after 10 seconds without a response, with at most two attempts per 10 minutes; log shorter delays without restarting.
 
-- 分体内容两端各预留 5px，各分体端头可选跟随圆角设置或 < > 尖端，吸附仅将外侧四角变直，内部圆角保留；只有当前桌面的平铺窗口触发自动吸附，浮窗不触发。（B）
+- 分体内容预留 5px 余量，可选圆角或 < > 尖角；吸附只拉直贴屏外缘，当前桌面平铺窗口触发自动吸附，浮窗不触发。（B）
 - Reserve 5px around segment content; use rounded or pointed < > ends on every segment. Docking squares only the outside corners, retaining rounded inner ends. Only current-workspace tiled windows trigger auto-docking. (B)
 
 - 优化任务栏启动：窗口数据连接与图标查找不再阻塞界面，首次吸附及时提交，不再等待组件刷新后才到位。
@@ -69,6 +69,21 @@
 
 - 统一快捷键与按钮的开始菜单定位；头像和昵称按登录会话缓存，后台获取，同一次登录不再重复查询。
 - Use the live Start button position for both keyboard and button launches; cache the avatar and name per login session, with account lookup in the background.
+
+- 限制窗口更新队列并合并过期快照，避免高频事件持续堆积、挤占任务栏界面线程。
+- Bound window-update queues and coalesce stale snapshots to prevent high-frequency events from accumulating and starving the taskbar UI.
+
+- 修复歌词宽度动画反复加载应用图标，以及配色和样式变化重复测量歌词字体的问题。
+- Fix redundant application-icon loading during lyric width animations and repeated lyric font measurement after color or style changes.
+
+- 补齐任务栏模块与后台监听的退出清理，卸载时主动取消任务并中断等待中的 Niri 读取。
+- Cancel taskbar tasks and background listeners on unload, including interruption of idle Niri socket reads.
+
+- 修复尖角模式在没有中间分体时退化为普通模式的问题：两侧朝向间隙的端头也显示尖角，保留 5px 内容余量。
+- Fix pointed mode falling back to ordinary surfaces when the center segment is empty: gap-facing ends of the side segments are pointed too, with 5px of content clearance.
+
+- 新增歌词长时间压力、窗口事件洪流、模块释放和图标缓存回归测试，并记录验证结果。
+- Add lyric soak, window-event flood, teardown and icon-cache regression tests, with documented verification results.
 
 ## 1.31 A — 2026-09-28
 

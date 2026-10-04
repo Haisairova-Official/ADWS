@@ -34,6 +34,13 @@ typedef struct {
     guint retry;
     int font_unit;
     int allocated_height, fitted_height;
+    int measured_height;
+    PangoFontDescription *measured_font;
+    PangoFontMap *measured_map;
+    guint measured_map_serial;
+    PangoLanguage *measured_language;
+    double measured_resolution;
+    cairo_font_options_t *measured_options;
     guint refresh_source;
     guint palette_watch;
     guint hover_source;
@@ -48,6 +55,9 @@ typedef struct {
     gboolean has_color[2];
     gboolean has_separator_color;
     GdkRGBA separator_color;
+    guint profile_source;
+    guint64 profile_updates, profile_fits;
+    gint64 profile_update_max, profile_fit_max;
 } Panel;
 
 typedef struct { GtkBox parent; Panel *panel; } AdwsRows;
@@ -145,6 +155,7 @@ static void theme_changed(GtkWidget *widget, gpointer data) {
 
 static void fit_height(Panel *p, int height) {
     if (height <= 1) return;
+    gint64 profile_start = p->profile_source ? g_get_monotonic_time() : 0;
     // Measure the active font, including CJK fallback, against the allocated bar
     // height. Font sizes are 3u and 2u; u is found rather than fixed in pixels.
     PangoLayout *layout = gtk_widget_create_pango_layout(p->primary, "Ag国語あいう");
@@ -152,6 +163,33 @@ static void fit_height(Panel *p, int height) {
         pango_context_get_font_description(pango_layout_get_context(layout)));
     if (p->font_family && *p->font_family)
         pango_font_description_set_family(font, p->font_family);
+    // CSS color/hover/class updates also emit style-updated. Reuse metrics
+    // unless an input that affects text shaping changed. Keep only one entry.
+    PangoContext *context = pango_layout_get_context(layout);
+    PangoFontMap *map = pango_context_get_font_map(context);
+    guint serial = map ? pango_font_map_get_serial(map) : 0;
+    PangoLanguage *language = pango_context_get_language(context);
+    double resolution = pango_cairo_context_get_resolution(context);
+    const cairo_font_options_t *options = pango_cairo_context_get_font_options(context);
+    gboolean same_options = options ? (p->measured_options &&
+        cairo_font_options_equal(options, p->measured_options)) : !p->measured_options;
+    if (p->measured_font && p->measured_height == height &&
+        pango_font_description_equal(p->measured_font, font) &&
+        p->measured_map == map && p->measured_map_serial == serial &&
+        p->measured_language == language && p->measured_resolution == resolution && same_options) {
+        pango_font_description_free(font);
+        g_object_unref(layout);
+        return;
+    }
+    if (p->measured_font) pango_font_description_free(p->measured_font);
+    p->measured_font = pango_font_description_copy(font);
+    g_set_object(&p->measured_map, map);
+    p->measured_map_serial = serial;
+    p->measured_language = language;
+    p->measured_resolution = resolution;
+    if (p->measured_options) cairo_font_options_destroy(p->measured_options);
+    p->measured_options = options ? cairo_font_options_copy(options) : NULL;
+    p->measured_height = height;
     int thickness = MAX(1, (height + 18) / 36);
     if (p->previous_button && p->next_button) {
         int icon_size = MAX(1, height / 2);
@@ -178,6 +216,10 @@ static void fit_height(Panel *p, int height) {
     }
     pango_font_description_free(font);
     g_object_unref(layout);
+    if (profile_start) {
+        p->profile_fits++;
+        p->profile_fit_max = MAX(p->profile_fit_max, g_get_monotonic_time()-profile_start);
+    }
 }
 
 static gboolean refresh_palette(gpointer data) {
@@ -286,9 +328,13 @@ static void panel_unref(gpointer data) {
     g_free(p->next_command);
     g_free(p->state);
     g_free(p->font_family);
+    if (p->measured_font) pango_font_description_free(p->measured_font);
+    g_clear_object(&p->measured_map);
+    if (p->measured_options) cairo_font_options_destroy(p->measured_options);
     if (p->refresh_source) g_source_remove(p->refresh_source);
     if (p->palette_watch) g_source_remove(p->palette_watch);
     if (p->hover_source) g_source_remove(p->hover_source);
+    if (p->profile_source) g_source_remove(p->profile_source);
     g_free(p);
 }
 
@@ -299,6 +345,7 @@ static const char *string_member(JsonObject *obj, const char *name) {
 }
 
 static void update(Panel *p, const char *line) {
+    gint64 profile_start = p->profile_source ? g_get_monotonic_time() : 0;
     JsonParser *parser = json_parser_new();
     if (!json_parser_load_from_data(parser, line, -1, NULL)) { g_object_unref(parser); return; }
     JsonNode *root = json_parser_get_root(parser);
@@ -333,6 +380,22 @@ static void update(Panel *p, const char *line) {
             gtk_widget_get_allocated_width(parent), gtk_widget_get_allocated_height(parent), p->font_unit);
     }
     g_object_unref(parser);
+    if (profile_start) {
+        p->profile_updates++;
+        p->profile_update_max = MAX(p->profile_update_max, g_get_monotonic_time()-profile_start);
+    }
+}
+
+static gboolean profile_rows(gpointer data) {
+    Panel *p=data;
+    g_message("ADWS rows profile widget=%s updates=%" G_GUINT64_FORMAT
+        " fits=%" G_GUINT64_FORMAT " update_max_us=%" G_GINT64_FORMAT
+        " fit_max_us=%" G_GINT64_FORMAT " height=%d font_unit=%d",
+        gtk_widget_get_name(p->event_box), p->profile_updates, p->profile_fits,
+        p->profile_update_max, p->profile_fit_max, p->allocated_height, p->font_unit);
+    p->profile_updates=p->profile_fits=0;
+    p->profile_update_max=p->profile_fit_max=0;
+    return G_SOURCE_CONTINUE;
 }
 
 static void read_next(Panel *p);
@@ -641,6 +704,7 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
     // GTK does not emit style-updated for changes affecting only named colors.
     // Compare the resolved palette; only changed colors cause widget updates.
     p->palette_watch = g_timeout_add(100, refresh_palette, p);
+    if (g_getenv("ADWS_PANEL_PROFILE")) p->profile_source=g_timeout_add_seconds(30,profile_rows,p);
     return p;
 }
 
@@ -762,6 +826,7 @@ void wbcffi_deinit(void *instance) {
         return;
     }
     p->disposed = TRUE;
+    if (p->profile_source) { g_source_remove(p->profile_source); p->profile_source=0; }
     if (p->refresh_source) { g_source_remove(p->refresh_source); p->refresh_source = 0; }
     if (p->palette_watch) { g_source_remove(p->palette_watch); p->palette_watch = 0; }
     if (p->hover_source) { g_source_remove(p->hover_source); p->hover_source = 0; }

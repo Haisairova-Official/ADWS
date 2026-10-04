@@ -147,9 +147,7 @@ static void segment_path(cairo_t *cr, double w, double h, gboolean vertical, dou
 static gboolean draw_segment(GtkWidget *widget, cairo_t *cr, gpointer data) {
     Space *self=data;
     gboolean vertical=g_strcmp0(self->position,"left")==0 || g_strcmp0(self->position,"right")==0;
-    gboolean front=!(self->docked>0 && widget==self->segments[0]);
-    gboolean back=!(self->docked>0 && widget==self->segments[2]);
-    segment_path(cr,gtk_widget_get_allocated_width(widget),gtk_widget_get_allocated_height(widget),vertical,self->thickness/2.,front,back);
+    segment_path(cr,gtk_widget_get_allocated_width(widget),gtk_widget_get_allocated_height(widget),vertical,self->thickness/2.,widget!=self->segments[0],widget!=self->segments[2]);
     cairo_clip(cr);
     GTK_WIDGET_GET_CLASS(widget)->draw(widget,cr);
     return TRUE;
@@ -227,7 +225,7 @@ void wbcffi_deinit(void *instance) {
     Space *self = instance;
     stop_animation(self);
     for(int i=0;i<3;i++) if(self->segments[i]) {
-        g_signal_handler_disconnect(self->segments[i],self->segment_draw[i]);
+        if(self->segment_draw[i])g_signal_handler_disconnect(self->segments[i],self->segment_draw[i]);
         g_object_remove_weak_pointer(G_OBJECT(self->segments[i]),(gpointer *)&self->segments[i]);
     }
     if(self->window && self->occupancy_handler)g_signal_handler_disconnect(self->window,self->occupancy_handler);

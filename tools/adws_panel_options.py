@@ -100,32 +100,37 @@ def styles(options):
     segment='window#waybar.adws-panel.adws-split > box > box'
     lines.append(f'window#waybar.adws-panel.adws-split > box {{ background:transparent; border:none; box-shadow:none; }}')
     lines.append(f'{segment} {{background:transparent; border:none; box-shadow:none; min-width:0; min-height:0;}}')
-    for slot in options.get('_occupied_slots', ('left','center','right')):
-        if slot not in ('left','center','right'): continue
-        pointed = values['split_center_corners'] == 'pointed'
-        inset = values['thickness'] / 2 + 5 if pointed else 5
-        padding = f'{inset:g}px 0' if values['position'] in ('left', 'right') else f'0 {inset:g}px'
-        corners = '0' if pointed else radius
-        lines.append(f'{segment}.modules-{slot} {{ {material} border-radius:{corners}; padding:{padding}; }}')
-    # Dock only the outside corners. Inner ends and the center keep the
-    # configured radius; pointed center ends keep their polygon instead.
-    lines.append('window#waybar.adws-panel.adws-docked > box { border-radius:0; }')
     parts = str(radius).split()
     tl, tr, br, bl = (parts * 4)[:4] if len(parts) in (1,2,4) else [parts[0],parts[1],parts[2],parts[1]]
     vertical = values['position'] in ('left','right')
+    pointed = values['split_center_corners'] == 'pointed'
+    # Every end facing a split gap is pointed, including a two-segment bar
+    # with an empty center. Only the outward ends retain the configured radius.
+    tip_inset = values['thickness'] / 2 + 5
+    pointed_radii = {
+        'left': f'{tl} {tr} 0 0' if vertical else f'{tl} 0 0 {bl}',
+        'right': f'0 0 {br} {bl}' if vertical else f'0 {tr} {br} 0',
+        'center': '0',
+    }
+    for slot in options.get('_occupied_slots', ('left','center','right')):
+        if slot not in ('left','center','right'): continue
+        front = tip_inset if pointed and slot != 'left' else 5
+        back = tip_inset if pointed and slot != 'right' else 5
+        padding = f'{front:g}px 0 {back:g}px 0' if vertical else f'0 {back:g}px 0 {front:g}px'
+        corners = pointed_radii[slot] if pointed else radius
+        lines.append(f'{segment}.modules-{slot} {{ {material} border-radius:{corners}; padding:{padding}; }}')
+    # Docking squares only the screen-facing ends; the clipped inward tips
+    # remain intact. Rounded mode retains the original inward radii.
+    lines.append('window#waybar.adws-panel.adws-docked > box { border-radius:0; }')
     docked = {
         'left': f'0 0 {br} {bl}' if vertical else f'0 {tr} {br} 0',
         'right': f'{tl} {tr} 0 0' if vertical else f'{tl} 0 0 {bl}',
-        'center': '0' if values['split_center_corners'] == 'pointed' else radius,
+        'center': radius,
     }
     for slot in options.get('_occupied_slots', ('left','center','right')):
         if slot not in docked: continue
-        corners = '0' if values['split_center_corners'] == 'pointed' else docked[slot]
-        inset = values['thickness'] / 2 + 5
-        padding = ''
-        if values['split_center_corners'] == 'pointed' and slot != 'center':
-            padding = f'padding:5px 0 {inset:g}px 0;' if vertical and slot == 'left' else f'padding:{inset:g}px 0 5px 0;' if vertical else f'padding:0 {inset:g}px 0 5px;' if slot == 'left' else f'padding:0 5px 0 {inset:g}px;'
-        lines.append(f'window#waybar.adws-panel.adws-split.adws-docked > box > box.modules-{slot} {{border-radius:{corners};{padding}}}')
+        corners = '0' if pointed else docked[slot]
+        lines.append(f'window#waybar.adws-panel.adws-split.adws-docked > box > box.modules-{slot} {{border-radius:{corners};}}')
     return '\n'.join(lines)
 
 

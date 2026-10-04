@@ -10,7 +10,7 @@ class PanelOptionsTests(unittest.TestCase):
         for edge in ('top', 'bottom', 'left', 'right'):
             vertical = edge in ('left', 'right')
             css = styles({'position': edge, 'split_panel': True, 'split_center_corners': 'pointed'})
-            self.assertIn('border-radius:0; padding:' + ('23px 0' if vertical else '0 23px') + ';', css)
+            self.assertIn('border-radius:0; padding:' + ('23px 0 23px 0' if vertical else '0 23px 0 23px') + ';', css)
             inherited = styles({'position': edge, '_surface_radius': '17px'})
             self.assertIn('.modules-center {', inherited)
             self.assertIn('border-radius:17px;', inherited)
@@ -26,6 +26,17 @@ class PanelOptionsTests(unittest.TestCase):
             self.assertIn('.modules-center {border-radius:17px;}', css)
         css = styles({'split_center_corners': 'pointed', '_surface_radius': '17px'})
         self.assertIn('.modules-center {border-radius:0;}', css)
+
+    def test_pointed_two_segments_reserve_tip_and_content_buffer(self):
+        for edge in ('top', 'bottom', 'left', 'right'):
+            css = styles({'position': edge, 'split_panel': True,
+                          'split_center_corners': 'pointed', '_occupied_slots': ['left', 'right']})
+            vertical = edge in ('left', 'right')
+            self.assertIn('padding:' + ('5px 0 23px 0' if vertical else '0 23px 0 5px') + ';', css)
+            self.assertIn('padding:' + ('23px 0 5px 0' if vertical else '0 5px 0 23px') + ';', css)
+            self.assertNotIn('.modules-center {', css)
+            for slot in ('left', 'right'):
+                self.assertIn(f'.modules-{slot} {{border-radius:0;}}', css)
 
     def test_every_edge_and_two_lanes(self):
         for position in ('top','bottom','left','right'):
