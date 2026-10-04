@@ -308,21 +308,18 @@ impl Button {
         let hover=self.hover.clone();
         let app_id = self.app_id.clone();
         let recent = self.recent_window.clone();
-        self.button.connect_button_press_event(move |_button, event| {
+        self.button.connect_button_press_event(move |button, event| {
             if event.button() != 3 {
                 return gtk::glib::Propagation::Proceed;
             }
 
             if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
-            let terminate = Rc::new(std::cell::Cell::new(state.config().termination_mode() == "shift" && event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK)));
-            let close_items = Rc::new(RefCell::new(Vec::<gtk::MenuItem>::new()));
-            let close_label = if terminate.get() { crate::i18n::text("终止", "Terminate") } else { crate::i18n::text("关闭窗口", "Close window") };
+            let terminate = Rc::new(std::cell::Cell::new(state.config().termination_mode() == "shift" && (event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK) || shift_down(&button.display()))));
+            let close_items = Rc::new(RefCell::new(Vec::<gtk::glib::WeakRef<gtk::MenuItem>>::new()));
+            let close_label = if terminate.get() { crate::i18n::text("结束进程", "End process") } else { crate::i18n::text("关闭窗口", "Close window") };
             let window_id = recent.get();
             tracing::info!(id = window_id, "{}", crate::i18n::text("打开窗口右键菜单", "Open window context menu"));
             let menu = gtk::Menu::new();
-            if state.config().termination_mode() == "shift" {
-                track_shift(&menu, terminate.clone(), close_items.clone());
-            }
             for (label, administrator) in [
                 (crate::i18n::text("打开新窗口", "Open new window"), false),
                 (crate::i18n::text("以管理员权限运行", "Run as administrator"), true),
@@ -359,7 +356,7 @@ impl Button {
                         let action_item = gtk::MenuItem::with_label(caption);
                         if action == 2 && state.config().termination_mode() == "shift" {
                             prepare_close(&action_item, &state, terminate.get());
-                            close_items.borrow_mut().push(action_item.clone());
+                            close_items.borrow_mut().push(action_item.downgrade());
                         }
                         let terminate = terminate.clone();
                         let state = state.clone(); let id = *id;
@@ -373,6 +370,9 @@ impl Button {
                     if state.config().termination_mode() == "below" { append_terminate(&submenu, &state, *id); }
                     item.set_submenu(Some(&submenu)); menu.append(&item);
                 }
+                if state.config().termination_mode() == "shift" {
+                    track_shift(&menu, terminate, close_items);
+                }
                 show_menu(menu, event);
                 return gtk::glib::Propagation::Stop;
             }
@@ -381,7 +381,7 @@ impl Button {
             let close = gtk::MenuItem::with_label(close_label);
             if state.config().termination_mode() == "shift" {
                 prepare_close(&close, &state, terminate.get());
-                close_items.borrow_mut().push(close.clone());
+                close_items.borrow_mut().push(close.downgrade());
             }
 
             let clicked_state = state.clone();
@@ -399,8 +399,9 @@ impl Button {
             });
 
             let clicked_state = state.clone();
+            let close_terminate = terminate.clone();
             close.connect_activate(move |_| {
-                if terminate.get() { clicked_state.niri().terminate_window(window_id); return; }
+                if close_terminate.get() { clicked_state.niri().terminate_window(window_id); return; }
                 if let Err(e) = clicked_state.niri().close_window(window_id) {
                     tracing::warn!(%e, id = window_id, "error trying to close window");
                 }
@@ -410,23 +411,10 @@ impl Button {
             menu.append(&minimize);
             menu.append(&close);
             if state.config().termination_mode() == "below" { append_terminate(&menu, &state, window_id); }
-            crate::menu_style::apply(&menu);
-            menu.show_all();
-            menu.connect_deactivate(|_| {
-                ACTIVE_CONTEXT_MENU.with(|slot| {
-                    slot.borrow_mut().take();
-                });
-            });
-
-            ACTIVE_CONTEXT_MENU.with(|slot| {
-                let old = slot.borrow_mut().take();
-                if let Some(old) = old {
-                    old.popdown();
-                }
-                *slot.borrow_mut() = Some(menu.clone());
-            });
-            // 传入触发事件，让 GTK 在指针位置弹出菜单；不传时部分 Wayland 环境会定位失败。
-            menu.popup_at_pointer(Some(event));
+            if state.config().termination_mode() == "shift" {
+                track_shift(&menu, terminate, close_items);
+            }
+            show_menu(menu, event);
 
             gtk::glib::Propagation::Stop
         });
@@ -583,21 +571,32 @@ fn prepare_close(item: &gtk::MenuItem, state: &State, terminate: bool) {
     if !terminate { item.style_context().remove_class("adws-destructive"); }
 }
 
-// Wayland may deliver keyboard modifiers only after the popup grab. Keep the
-// label and the action on the same live state, including grouped submenus.
-fn track_shift(menu: &gtk::Menu, terminate: Rc<std::cell::Cell<bool>>, items: Rc<RefCell<Vec<gtk::MenuItem>>>) {
+fn shift_down(display: &gtk::gdk::Display) -> bool {
+    gtk::gdk::Keymap::for_display(display).is_some_and(|keys|
+        keys.modifier_state() & gtk::gdk::ModifierType::SHIFT_MASK.bits() != 0)
+}
+
+// A layer surface can receive a pointer event before the compositor supplies
+// keyboard focus/modifiers for the popup. Seed from the keymap as well as the
+// click, then track both root and grouped menus without a polling timer.
+fn track_shift(menu: &gtk::Menu, terminate: Rc<std::cell::Cell<bool>>,
+               items: Rc<RefCell<Vec<gtk::glib::WeakRef<gtk::MenuItem>>>>) {
+    let held = Rc::new(std::cell::Cell::new((false, false)));
     let update: Rc<dyn Fn(bool)> = Rc::new(move |active| {
         terminate.set(active);
-        for item in items.borrow().iter() {
-            item.set_label(if active {crate::i18n::text("终止", "Terminate")} else {crate::i18n::text("关闭窗口", "Close window")});
+        for item in items.borrow().iter().filter_map(|item| item.upgrade()) {
+            item.set_label(if active {crate::i18n::text("结束进程", "End process")} else {crate::i18n::text("关闭窗口", "Close window")});
             if active {item.style_context().add_class("adws-destructive");}
             else {item.style_context().remove_class("adws-destructive");}
         }
     });
     if let Some(keymap) = gtk::gdk::Keymap::for_display(&menu.display()) {
         let apply = update.clone();
+        let held_keys = held.clone();
         let handler = keymap.connect_state_changed(move |keys| {
-            apply(keys.modifier_state() & gtk::gdk::ModifierType::SHIFT_MASK.bits() != 0);
+            let active = keys.modifier_state() & gtk::gdk::ModifierType::SHIFT_MASK.bits() != 0;
+            if !active { held_keys.set((false, false)); }
+            apply(active);
         });
         let connection = Rc::new(RefCell::new(Some(handler)));
         let keys = keymap.clone();
@@ -605,19 +604,59 @@ fn track_shift(menu: &gtk::Menu, terminate: Rc<std::cell::Cell<bool>>, items: Rc
         menu.connect_deactivate(move |_| {if let Some(id)=id.borrow_mut().take(){keys.disconnect(id);}});
         menu.connect_destroy(move |_| {if let Some(id)=connection.borrow_mut().take(){keymap.disconnect(id);}});
     }
+    bind_shift_events(menu, update, held);
+}
+
+fn bind_shift_events(menu: &gtk::Menu, update: Rc<dyn Fn(bool)>,
+                     held: Rc<std::cell::Cell<(bool, bool)>>) {
     let apply = update.clone();
+    menu.connect_map(move |menu| {
+        // Do not erase a valid click mask with a stale, unfocused Wayland
+        // keymap. Subsequent state-changed/pointer events are authoritative.
+        if shift_down(&menu.display()) { apply(true); }
+    });
+    let apply = update.clone();
+    let pressed = held.clone();
     menu.connect_key_press_event(move |_, event| {
-        if matches!(event.keyval(), gtk::gdk::keys::constants::Shift_L | gtk::gdk::keys::constants::Shift_R) {apply(true);}
+        let (mut left, mut right) = pressed.get();
+        match event.keyval() {
+            gtk::gdk::keys::constants::Shift_L => left = true,
+            gtk::gdk::keys::constants::Shift_R => right = true,
+            _ => { apply(event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK)); return gtk::glib::Propagation::Proceed; }
+        }
+        pressed.set((left, right));
+        apply(true);
         gtk::glib::Propagation::Proceed
     });
+    let apply = update.clone();
+    let released = held.clone();
     menu.connect_key_release_event(move |_, event| {
-        if matches!(event.keyval(), gtk::gdk::keys::constants::Shift_L | gtk::gdk::keys::constants::Shift_R) {update(false);}
+        let (mut left, mut right) = released.get();
+        match event.keyval() {
+            gtk::gdk::keys::constants::Shift_L => left = false,
+            gtk::gdk::keys::constants::Shift_R => right = false,
+            _ => return gtk::glib::Propagation::Proceed,
+        }
+        released.set((left, right));
+        apply(left || right);
         gtk::glib::Propagation::Proceed
     });
+    for child in menu.children() {
+        if let Ok(item) = child.downcast::<gtk::MenuItem>() {
+            let apply = update.clone();
+            item.connect_enter_notify_event(move |_, event| {
+                apply(event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK));
+                gtk::glib::Propagation::Proceed
+            });
+            if let Some(submenu) = item.submenu().and_then(|w| w.downcast::<gtk::Menu>().ok()) {
+                bind_shift_events(&submenu, update.clone(), held.clone());
+            }
+        }
+    }
 }
 
 fn append_terminate(menu: &gtk::Menu, state: &crate::state::State, id: u64) {
-    let item=gtk::MenuItem::with_label(crate::i18n::text("终止", "Terminate"));
+    let item=gtk::MenuItem::with_label(crate::i18n::text("结束进程", "End process"));
     crate::menu_style::destructive(&item,state.config().window_animations(),state.config().animation_duration());
     item.set_tooltip_text(Some(crate::i18n::text("强制终止所属进程，未保存的内容会丢失。", "Force-terminate the owning process. Unsaved work will be lost.")));
     let niri=*state.niri();
@@ -628,10 +667,15 @@ fn append_terminate(menu: &gtk::Menu, state: &crate::state::State, id: u64) {
 fn show_menu(menu: gtk::Menu, event: &gtk::gdk::EventButton) {
     crate::menu_style::apply(&menu);
     menu.show_all();
-    menu.connect_deactivate(|_| { ACTIVE_CONTEXT_MENU.with(|slot| {slot.borrow_mut().take();}); });
+    menu.connect_deactivate(|menu| {
+        ACTIVE_CONTEXT_MENU.with(|slot| {slot.borrow_mut().take();});
+        // Popups are rebuilt on demand; release their children and modifier
+        // handlers when dismissed instead of retaining an inactive menu.
+        unsafe { menu.destroy(); }
+    });
     ACTIVE_CONTEXT_MENU.with(|slot| {
         let old = slot.borrow_mut().take();
-        if let Some(old) = old {old.popdown();}
+        if let Some(old) = old {old.popdown(); unsafe { old.destroy(); }}
         *slot.borrow_mut() = Some(menu.clone());
     });
     menu.popup_at_pointer(Some(event));
@@ -671,19 +715,33 @@ mod action_tests {
                     let target=if grouped { menu.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).find_map(|i|i.submenu()).unwrap().downcast::<gtk::Menu>().unwrap() } else {menu.clone()};
                     assert!(target.style_context().has_class("adws-menu"));
                     let labels:Vec<_>=target.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).filter_map(|i|i.label()).map(|s|s.to_string()).collect();
-                    let kill=crate::i18n::text("终止","Terminate");let close=crate::i18n::text("关闭窗口","Close window");
+                    let kill=crate::i18n::text("结束进程","End process");let close=crate::i18n::text("关闭窗口","Close window");
                     let replacing=mode=="shift"&&shift;
                     assert_eq!(labels.iter().any(|s|s==kill),mode=="below"||replacing,"mode={mode} shift={shift}");
                     assert_eq!(labels.iter().any(|s|s==close),!replacing);
                     if mode=="below" {assert_eq!(labels.last().unwrap(),kill);}
                     // Modifiers can arrive after a Wayland popup takes its grab.
                     if mode=="shift" {
-                        for held in [true,false,true] {
-                            let mut key=gtk::gdk::Event::new(if held {gtk::gdk::EventType::KeyPress}else{gtk::gdk::EventType::KeyRelease}).downcast::<gtk::gdk::EventKey>().unwrap();
-                            key.as_mut().keyval=gtk::gdk::keys::constants::Shift_L.into_glib();
-                            menu.emit_by_name::<bool>(if held {"key-press-event"}else{"key-release-event"}, &[&*key]);
-                            let close_item=target.children().into_iter().filter_map(|w|w.downcast::<gtk::MenuItem>().ok()).find(|item|item.label().as_deref()==Some(if held{kill}else{close})).unwrap();
-                            assert_eq!(close_item.style_context().has_class("adws-destructive"),held);
+                        // Keyboard focus can be on a grouped submenu, not the root.
+                        for receiver in [&menu, &target] {
+                            for held in [true,false,true] {
+                                let mut key=gtk::gdk::Event::new(if held {gtk::gdk::EventType::KeyPress}else{gtk::gdk::EventType::KeyRelease}).downcast::<gtk::gdk::EventKey>().unwrap();
+                                key.as_mut().keyval=gtk::gdk::keys::constants::Shift_L.into_glib();
+                                receiver.emit_by_name::<bool>(if held {"key-press-event"}else{"key-release-event"}, &[&*key]);
+                                let close_item=target.children().into_iter().filter_map(|w|w.downcast::<gtk::MenuItem>().ok()).find(|item|item.label().as_deref()==Some(if held{kill}else{close})).unwrap();
+                                assert_eq!(close_item.style_context().has_class("adws-destructive"),held);
+                            }
+                        }
+                        // Releasing one of two held Shift keys must retain termination.
+                        for (keyval, pressed, expected) in [
+                            (gtk::gdk::keys::constants::Shift_R,true,true),
+                            (gtk::gdk::keys::constants::Shift_L,false,true),
+                            (gtk::gdk::keys::constants::Shift_R,false,false),
+                        ] {
+                            let mut key=gtk::gdk::Event::new(if pressed {gtk::gdk::EventType::KeyPress}else{gtk::gdk::EventType::KeyRelease}).downcast::<gtk::gdk::EventKey>().unwrap();
+                            key.as_mut().keyval=keyval.into_glib();
+                            target.emit_by_name::<bool>(if pressed {"key-press-event"}else{"key-release-event"}, &[&*key]);
+                            assert!(target.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).any(|i|i.label().as_deref()==Some(if expected{kill}else{close})));
                         }
                     }
                     menu.popdown();settle();
@@ -691,5 +749,116 @@ mod action_tests {
                 }
             }
         }
+        // XTest changes the actual keymap, while the initiating pointer event
+        // deliberately carries no Shift bit (the Wayland focus handoff case).
+        let window=gtk::Window::new(gtk::WindowType::Toplevel);
+        let state=State::new(serde_json::from_value(serde_json::json!({"termination_mode":"shift"})).unwrap());
+        let button=Button::create(&state,Some("adws-test".into()),101,"Test window".into());
+        window.add(button.widget());window.show_all();settle();
+        assert!(std::process::Command::new("xdotool").args(["keydown","Shift_L"]).status().unwrap().success());
+        settle();
+        assert!(shift_down(&window.display()));
+        let mut event=gtk::gdk::Event::new(gtk::gdk::EventType::ButtonPress).downcast::<gtk::gdk::EventButton>().unwrap();
+        event.as_mut().window=button.widget().window().unwrap().to_glib_full();
+        event.as_mut().button=3;
+        event.as_mut().state=0;
+        event.set_device(window.display().default_seat().unwrap().pointer().as_ref());
+        button.widget().emit_by_name::<bool>("button-press-event", &[&*event]);settle();
+        let menu=ACTIVE_CONTEXT_MENU.with(|m|m.borrow().clone()).unwrap();
+        let kill=crate::i18n::text("结束进程","End process");
+        assert!(menu.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).any(|i|i.label().as_deref()==Some(kill)));
+        assert!(std::process::Command::new("xdotool").args(["keyup","Shift_L"]).status().unwrap().success());
+        settle();
+        assert!(menu.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).any(|i|i.label().as_deref()==Some(crate::i18n::text("关闭窗口","Close window"))));
+        let weak=menu.downgrade();
+        menu.popdown();menu.emit_by_name::<()>("deactivate", &[]);drop(menu);settle();
+        assert!(weak.upgrade().is_none(),"popup and modifier handlers must be released");
+        unsafe{window.destroy();}
+
     }
+    #[test]
+    #[ignore = "requires an isolated GTK display and fixture IPC socket"]
+    fn termination_action_matches_displayed_label() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::{net::UnixListener, process::ExitStatusExt};
+        use std::time::{Duration, Instant};
+        struct FixtureChild(std::process::Child);
+        impl Drop for FixtureChild {
+            fn drop(&mut self) { let _=self.0.kill(); let _=self.0.wait(); }
+        }
+        struct SocketEnv(Option<std::ffi::OsString>);
+        impl Drop for SocketEnv {
+            fn drop(&mut self) { unsafe {
+                if let Some(old)=self.0.take() {std::env::set_var("NIRI_SOCKET",old);}
+                else {std::env::remove_var("NIRI_SOCKET");}
+            } }
+        }
+        gtk::init().unwrap();
+        for grouped in [false,true] {
+            // Only this disposable test child can be terminated by the fixture.
+            let mut child=FixtureChild(std::process::Command::new("sleep").arg("20").spawn().unwrap());
+            let pid=child.0.id();
+            let path=std::env::temp_dir().join(format!("adws-shift-actions-{}-{grouped}.sock",std::process::id()));
+            let listener=UnixListener::bind(&path).unwrap();listener.set_nonblocking(true).unwrap();
+            let _env=SocketEnv(std::env::var_os("NIRI_SOCKET"));
+            unsafe{std::env::set_var("NIRI_SOCKET",&path);}
+            let (tx,rx)=std::sync::mpsc::channel();
+            let server=std::thread::spawn(move || {
+                let deadline=Instant::now()+Duration::from_secs(5);
+                let mut requests=0;
+                while requests<2 && Instant::now()<deadline {
+                    let (mut stream,_)=match listener.accept() {
+                        Ok(pair)=>pair,
+                        Err(e) if e.kind()==std::io::ErrorKind::WouldBlock=>{std::thread::sleep(Duration::from_millis(5));continue;}
+                        Err(e)=>panic!("{e}"),
+                    };
+                    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                    let mut line=String::new();
+                    BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+                    let request:serde_json::Value=serde_json::from_str(&line).unwrap();
+                    let reply=if request==serde_json::json!("Windows") {
+                        serde_json::json!({"Ok":{"Windows":[{
+                            "id":101,"pid":pid,"title":"Fixture","app_id":"adws-test",
+                            "workspace_id":1,"is_focused":true,"is_floating":false,"is_urgent":false,"focus_timestamp":null,
+                            "layout":{"pos_in_scrolling_layout":[1,1],"tile_size":[100,100],"window_size":[100,100],"tile_pos_in_workspace_view":[0,0],"window_offset_in_tile":[0,0]}
+                        }]}})
+                    } else {serde_json::json!({"Ok":"Handled"})};
+                    writeln!(stream,"{reply}").unwrap();tx.send(request).unwrap();requests+=1;
+                }
+                assert_eq!(requests,2,"close and terminate should each request IPC once");
+            });
+            let state=State::new(serde_json::from_value(serde_json::json!({"termination_mode":"shift"})).unwrap());
+            let button=Button::create(&state,Some("adws-test".into()),101,"Fixture".into());
+            if grouped {button.set_group(vec![(101,"One".into()),(102,"Two".into())],101);}
+            let window=gtk::Window::new(gtk::WindowType::Toplevel);
+            window.add(button.widget());window.show_all();settle();
+            let mut event=gtk::gdk::Event::new(gtk::gdk::EventType::ButtonPress).downcast::<gtk::gdk::EventButton>().unwrap();
+            event.as_mut().window=button.widget().window().unwrap().to_glib_full();event.as_mut().button=3;
+            event.set_device(window.display().default_seat().unwrap().pointer().as_ref());
+            button.widget().emit_by_name::<bool>("button-press-event", &[&*event]);settle();
+            let menu=ACTIVE_CONTEXT_MENU.with(|m|m.borrow().clone()).unwrap();
+            let target=if grouped {menu.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).find_map(|i|i.submenu()).unwrap().downcast::<gtk::Menu>().unwrap()} else {menu.clone()};
+            let close=target.children().into_iter().filter_map(|w|w.downcast::<gtk::MenuItem>().ok()).find(|i|i.label().as_deref()==Some(crate::i18n::text("关闭窗口","Close window"))).unwrap();
+            close.activate();
+            assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(),serde_json::json!({"Action":{"CloseWindow":{"id":101}}}));
+            assert!(child.0.try_wait().unwrap().is_none(),"normal close must not kill the process");
+            let mut key=gtk::gdk::Event::new(gtk::gdk::EventType::KeyPress).downcast::<gtk::gdk::EventKey>().unwrap();
+            key.as_mut().keyval=gtk::gdk::keys::constants::Shift_R.into_glib();
+            target.emit_by_name::<bool>("key-press-event", &[&*key]);
+            assert_eq!(close.label().as_deref(),Some(crate::i18n::text("结束进程","End process")));
+            close.activate();
+            assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(),serde_json::json!("Windows"));
+            let deadline=Instant::now()+Duration::from_secs(2);
+            let status=loop {
+                if let Some(status)=child.0.try_wait().unwrap(){break status;}
+                assert!(Instant::now()<deadline,"termination did not reach the fixture child");
+                std::thread::sleep(Duration::from_millis(5));
+            };
+            assert_eq!(status.signal(),Some(9));
+            server.join().unwrap();std::fs::remove_file(path).unwrap();
+            menu.popdown();menu.emit_by_name::<()>("deactivate", &[]);
+            unsafe{window.destroy();}settle();
+        }
+    }
+
 }

@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from unittest.mock import patch
 import select
 import signal
 import subprocess
@@ -24,6 +25,7 @@ class NativeRunnerTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.source = self.root / 'source'; self.source.mkdir()
+        self.runtime = self.root / 'runtime'; self.runtime.mkdir()
         self.manifest = {'id': 'org.Example.Native', 'version': '1.0.0', 'name': 'Native test',
                          'entry': 'main.py', 'renderer': 'panel.text-v1'}
 
@@ -35,7 +37,8 @@ class NativeRunnerTests(unittest.TestCase):
                    [sys.executable, str(ROOT / 'tools/adws_plugin_runner.py')])
         command += [str(archive), '--timeout', str(timeout)]
         env = {**os.environ, 'ADWS_PLUGIN_RUNNER': backend, 'ADWS_CACHE_DIR': str(self.root / 'cache'),
-               'LC_ALL': 'C.UTF-8', 'LANGUAGE': ''}
+               'LC_ALL': 'C.UTF-8', 'LANGUAGE': '', 'XDG_RUNTIME_DIR':str(self.runtime),
+               'ADWS_PLUGIN_INSTANCE':'org.Example.Native-二'}
         if backend is None: env.pop('ADWS_PLUGIN_RUNNER', None)
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         def cleanup():
@@ -82,6 +85,28 @@ class NativeRunnerTests(unittest.TestCase):
         for code in cases:
             with self.subTest(code=code[:80]):
                 self.assertEqual(self.result(code, 'rust'), self.result(code, 'python'))
+
+    def test_live_preview_matches_both_supervisors_and_excludes_stale_processes(self):
+        import adws_plugin_preview as preview
+        manifest={**self.manifest,'renderer':'panel.rows-v1'}
+        payload={'primary':'🦊'*5000,'secondary':'translation','text':'line','tooltip':'secret','class':'active'}
+        code='import time,json\npayload='+repr(payload)+'\nfor i in range(30):\n print(json.dumps(payload),flush=True)\n time.sleep(.05)\n'
+        for backend in ('rust','python'):
+            with self.subTest(backend=backend):
+                process=self.start(code,backend=backend,manifest=manifest,timeout=3)
+                self.ready(process)
+                with patch.dict(os.environ,{'XDG_RUNTIME_DIR':str(self.runtime)}):
+                    data=preview.read()['org.Example.Native-二']
+                    self.assertEqual(data['primary'],'🦊'*4096)
+                    self.assertEqual(data['secondary'],'translation')
+                    self.assertEqual(data['pid'],process.pid)
+                    path=self.runtime/'adws/plugin-preview'/preview.filename(data['instance'])
+                    self.assertNotIn('secret',path.read_text())
+                    initial=path.stat().st_mtime_ns
+                    time.sleep(.2)
+                    self.assertEqual(path.stat().st_mtime_ns,initial,'Repeated heartbeat rewrote snapshot')
+                    process.terminate();process.wait(timeout=3)
+                    self.assertEqual(preview.read(),{})
 
     def test_rows_settings_and_literal_arguments(self):
         manifest = {**self.manifest, 'renderer': 'panel.rows-v1',

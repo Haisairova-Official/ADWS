@@ -10,6 +10,8 @@ from __future__ import annotations
 from adws_i18n import tr as _tr
 
 import argparse
+import copy
+import uuid
 import json
 import os
 import re
@@ -40,6 +42,9 @@ BUILTIN_INFO = {
     "start": {"name": _tr('开始按钮'), "module": "custom/applauncher", "slot": "left"},
     "workspaces": {"name": _tr('工作区'), "module": "niri/workspaces", "slot": "left"},
     "windows": {"name": _tr('窗口图标（任务栏）'), "module": "cffi/niri-taskbar", "slot": "left"},
+    "tray": {"name": _tr("系统托盘"), "module":"cffi/system-tray", "slot":"right"},
+    "brightness": {"name": _tr("亮度"), "module":"cffi/system-brightness", "slot":"right"},
+    "sound": {"name": _tr("声音"), "module":"cffi/system-sound", "slot":"right"},
     "clock": {"name": _tr('时钟'), "module": "clock", "slot": "right"},
 }
 
@@ -70,12 +75,41 @@ def layout_path() -> Path:
     return PROJECT_LAYOUT_PATH
 
 
+def default_layout() -> dict:
+    """Clean first-install/reset layout; existing v2 layouts remain authoritative."""
+    return {"apiVersion": 2, "builtins": [
+        {"id": key, "instance": key, "enabled": True, "slot": slot, "order": order}
+        for slot, keys in (("left", ("start", "windows")),
+                           ("right", ("sound", "brightness", "tray", "clock")))
+        for order, key in enumerate(keys)
+    ], "plugins": [], "options": {}}
+
+
+def move_component(rows, identity, slot, anchor=None, after=False):
+    """Reorder a single stable instance, including moves between regions."""
+    if slot not in SLOT_NAMES:
+        return False
+    item = next((r for r in rows if r.get('instance', r.get('key')) == identity), None)
+    if item is None or anchor == identity:
+        return False
+    target = next((r for r in rows if r.get('instance', r.get('key')) == anchor and r['slot'] == slot), None)
+    rows.remove(item)
+    item['slot'] = slot
+    if target is not None:
+        index = rows.index(target) + bool(after)
+    else:
+        rank = list(SLOT_NAMES).index(slot)
+        index = next((i for i,r in enumerate(rows) if list(SLOT_NAMES).index(r['slot']) > rank), len(rows))
+    rows.insert(index, item)
+    return True
+
+
 def load_layout(path: Path | None = None) -> dict:
     target = path or layout_path()
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        data = {}
+        data = default_layout()
     if not isinstance(data, dict):
         data = {}
     if not isinstance(data.get("builtins"), list):
@@ -87,22 +121,18 @@ def load_layout(path: Path | None = None) -> dict:
             item["package"] = mplg.api1.canonical_id(item["package"])
     data.setdefault("apiVersion", 1)
     data.setdefault("options", {})
-    return data
+    return normalize_layout(data)
 
 
 def save_layout(data: dict, path: Path | None = None) -> Path:
+    data = normalize_layout(data)
     target = path or USER_LAYOUT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     temp = target.with_suffix(target.suffix + ".tmp")
     temp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(temp, target)
-    if target.resolve() != PROJECT_LAYOUT_PATH.resolve():
-        try:
-            PROJECT_LAYOUT_PATH.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-            )
-        except OSError:
-            pass
+    # User saves must not rewrite shipped defaults (or leak personal plugin
+    # settings into the next source/release package).
     return target
 
 
@@ -266,7 +296,7 @@ def _plugin_module_id(package_id: str) -> str:
 
 def module_css_id(module: str) -> str:
     name = module.split("/", 1)[-1]
-    return "custom-" + name.replace(".", "-")
+    return "custom-" + name.replace(".", "-").replace("#", "-")
 
 
 def normalize_plugin_defaults(manifest: dict) -> dict:
@@ -278,26 +308,144 @@ def normalize_plugin_defaults(manifest: dict) -> dict:
     }
 
 
+def normalize_layout(data: dict) -> dict:
+    """Migrate legacy singleton layouts to stable, independently configured instances.
+
+    Version 2 lists are authoritative: a missing optional component stays absent.
+    Window icons are the sole mandatory component, even in imported/edited JSON.
+    """
+    data = copy.deepcopy(data)
+    legacy = data.get("apiVersion", 1) == 1
+    raw = data.get("builtins", [])
+    raw = raw if isinstance(raw, list) else []
+    if legacy:
+        known = {item.get("id") for item in raw if isinstance(item, dict)}
+        raw = raw + [{"id": key, "enabled": key in ("start", "windows", "clock"),
+                      "slot": info["slot"], "order": 0}
+                     for key, info in BUILTIN_INFO.items() if key not in known]
+    rows, used, singletons = [], set(), set()
+    for value in raw:
+        if not isinstance(value, dict) or value.get("id") not in BUILTIN_INFO:
+            continue
+        item = copy.deepcopy(value)
+        key = item["id"]
+        if key in ("windows", "workspaces", "tray", "brightness", "sound"):
+            if key in singletons:
+                continue
+            singletons.add(key)
+        instance = item.get("instance", key)
+        if not isinstance(instance, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", instance):
+            raise ValueError(_tr('组件实例标识无效。'))
+        if instance in BUILTIN_INFO and instance != key:
+            raise ValueError(_tr("组件实例标识无效。"))
+        if key in ("windows", "workspaces", "tray", "brightness", "sound"):
+            instance = key
+        if instance in used:
+            # Deterministic migration of hand-edited legacy duplicate records.
+            index = 2
+            while f"{key}-{index}" in used:
+                index += 1
+            instance = f"{key}-{index}"
+        used.add(instance)
+        item["instance"] = instance
+        item["enabled"] = True if key == "windows" else item.get("enabled", True) is True
+        item["slot"] = item.get("slot") if item.get("slot") in SLOT_NAMES else BUILTIN_INFO[key]["slot"]
+        item["order"] = int(item.get("order", 0) or 0)
+        if not isinstance(item.get("options", {}), dict):
+            raise ValueError(_tr('组件设置格式无效。'))
+        rows.append(item)
+    if "windows" not in singletons:
+        rows.append({"id": "windows", "instance": "windows", "enabled": True,
+                     "slot": "left", "order": 1})
+    data["builtins"] = rows
+    plugins, used_plugins = [], set()
+    for value in data.get("plugins", []):
+        if not isinstance(value, dict) or not isinstance(value.get("package"), str):
+            continue
+        package = mplg.api1.canonical_id(value["package"])
+        instance = value.get("instance", package)
+        if not isinstance(instance,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,256}',instance):
+            raise ValueError(_tr('组件实例标识无效。'))
+        if instance in used_plugins:
+            # Preserve formerly hand-edited duplicates as separate instances.
+            index=2
+            while f"plugin-{index}-{package}" in used_plugins:index+=1
+            instance=f"plugin-{index}-{package}"
+        used_plugins.add(instance)
+        plugins.append({**copy.deepcopy(value), "package":package, "instance":instance})
+    data["plugins"] = plugins
+    data["apiVersion"] = 2
+    if not isinstance(data.get("options"), dict):
+        data["options"] = {}
+    return data
+
+
+def component_catalog(available: list[dict]) -> list[dict]:
+    """Capabilities belong to the component type, never to editable instances."""
+    catalog = [{"kind": "builtin", "key": key, **info,
+                "repeatable": key in ("start", "clock"), "required": key == "windows",
+                "icon": {"start": "view-app-grid-symbolic", "windows": "view-grid-symbolic",
+                         "clock": "preferences-system-time-symbolic", "workspaces": "view-dual-symbolic", "tray":"view-more-symbolic", "brightness":"display-brightness-symbolic", "sound":"audio-volume-high-symbolic"}[key]}
+               for key, info in BUILTIN_INFO.items()]
+    catalog.extend({"kind": "plugin", "key": entry["manifest"]["id"],
+                    "name": _tr(entry["manifest"].get("name", entry["manifest"]["id"])),
+                    "repeatable": entry["manifest"].get("isSingleOnly") is not True, "required": False, "icon": "application-x-addon-symbolic",
+                    "file": entry["file"], "manifest": entry["manifest"]}
+                   for entry in available if entry.get("ok"))
+    return catalog
+
+
+def new_builtin(key: str, rows: list[dict], options: dict) -> dict:
+    if key not in BUILTIN_INFO:
+        raise ValueError(_tr('未知组件。'))
+    existing = [row for row in rows if row.get("id") == key]
+    if existing and key in ("windows", "workspaces", "tray", "brightness", "sound"):
+        raise ValueError(_tr('此组件只能添加一个。'))
+    used = {row.get("instance", row.get("id")) for row in rows}
+    instance = key if key not in used else f"{key}-{uuid.uuid4().hex[:12]}"
+    overrides = {k: copy.deepcopy(v) for k,v in options.items()
+                 if (key == "start" and k.startswith("start_")) or (key == "clock" and k == "clock")}
+    return {"id": key, "instance": instance, "enabled": True,
+            "slot": BUILTIN_INFO[key]["slot"], "order": len(rows), "options": overrides}
+
+
+def new_plugin(manifest: dict, rows: list[dict]) -> dict:
+    package=mplg.api1.canonical_id(manifest['id'])
+    same=[row for row in rows if row.get('package')==package]
+    if manifest.get('isSingleOnly') is True and any(row.get('enabled',False) for row in same):
+        raise ValueError(_tr('此组件只能添加一个。'))
+    inactive=next((row for row in same if not row.get('enabled',False)),None)
+    if inactive is not None:
+        inactive['enabled']=True
+        return inactive
+    defaults=normalize_plugin_defaults(manifest)
+    used={row.get('instance',row['package']) for row in rows}
+    instance=package if package not in used else 'plugin-'+uuid.uuid4().hex
+    value={'package':package,'instance':instance,'enabled':True,'slot':defaults['slot'],
+           'order':len(rows),'width':defaults['width'],'settings':{},'animations':False}
+    rows.append(value)
+    return value
+
+
+def instance_options(layout: dict, item: dict) -> dict:
+    return {**layout.get("options", {}), **item.get("options", {})}
+
+
 def enabled_builtins(layout: dict) -> list[dict]:
-    known = {item["id"]: item for item in layout["builtins"] if isinstance(item, dict)}
     result = []
-    for builtin_id, info in BUILTIN_INFO.items():
-        item = known.get(builtin_id, {})
-        result.append({
-            "id": builtin_id,
-            "name": info["name"],
-            "module": info["module"],
-            "enabled": bool(item.get("enabled", builtin_id in ("start", "windows", "clock"))),
-            "slot": item.get("slot", info["slot"]) or info["slot"],
-            "order": int(item.get("order", 0) or 0),
-            "width": 0,
-        })
+    for item in normalize_layout(layout)["builtins"]:
+        key = item["id"]
+        info = BUILTIN_INFO[key]
+        suffix = "" if item["instance"] == key else "#" + item["instance"]
+        result.append({**item, "name": info["name"], "module": info["module"] + suffix,
+                       "width": 0, "kind": "builtin"})
     return result
 
 
 def enabled_plugins(layout: dict, available: list[dict]) -> list[dict]:
     rows = []
-    for item in layout.get("plugins", []):
+    singles=set()
+    for item in normalize_layout(layout).get("plugins", []):
         if not isinstance(item, dict) or not item.get("package"):
             continue
         package_id = item["package"]
@@ -306,17 +454,22 @@ def enabled_plugins(layout: dict, available: list[dict]) -> list[dict]:
         if found is None:
             continue
         manifest = found["manifest"]
+        if manifest.get('isSingleOnly') is True and item.get('enabled',False):
+            if package_id in singles: raise ValueError(_tr('此组件只能添加一个。'))
+            singles.add(package_id)
+        suffix='' if item['instance']==package_id else '#'+item['instance']
         defaults = normalize_plugin_defaults(manifest)
         width = item.get("width", defaults["width"])
         if width is None:
             width = defaults["width"]
         rows.append({
             "package": package_id,
+            "instance":item["instance"],
             "name": manifest.get("name", package_id),
             "kind": "plugin",
-            "module": _plugin_module_id(package_id).replace("custom/", "cffi/", 1)
-                      if "panel.rows-v1" in manifest.get("interfaces", [])
-                      else _plugin_module_id(package_id),
+            "module": (_plugin_module_id(package_id).replace("custom/", "cffi/", 1)
+                       if "panel.rows-v1" in manifest.get("interfaces", [])
+                       else _plugin_module_id(package_id))+suffix,
             "entry": manifest["entry"],
             "language": manifest["language"],
             "enabled": bool(item.get("enabled", False)),
@@ -396,11 +549,31 @@ def launcher_definition(base=None, config_path=None):
     return definition
 
 
+def start_right_command(options, instance, launcher):
+    mode = options.get('start_right_mode', 'settings')
+    if mode == 'settings':
+        return shlex.join([sys.executable, str(PROJECT_ROOT/'tools/adws-config.py'),
+                           '--tab', 'start', '--start-instance', instance])
+    if mode == 'menu':
+        return launcher
+    if mode == 'terminal':
+        return shlex.join([sys.executable, str(PROJECT_ROOT/'tools/adws_launcher.py'), '--terminal'])
+    if mode == 'none':
+        return ''
+    if mode == 'custom':
+        command = options.get('start_right_custom', '')
+        if isinstance(command, str) and command.strip() and '\x00' not in command:
+            return command.strip()
+        raise ValueError(_tr('请输入右键自定义命令。'))
+    raise ValueError(_tr('无效的开始按钮右键操作。'))
+
+
 def render_waybar_config(layout: dict, available: list[dict] | None = None,
                          base: dict | None = None,
                          base_from_live: bool = True,
                          config_path: Path | None = None) -> dict:
     """按布局渲染底部任务栏 waybar 配置对象。"""
+    layout = normalize_layout(layout)
     available = available if available is not None else scan_available_plugins()
     if base is None and base_from_live:
         base = read_live_config()
@@ -435,32 +608,51 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             definition["on-click"] = command.strip()
         cfg["custom/applauncher"] = definition
 
+    for key in list(cfg):
+        if ('#' in key and key.split('#', 1)[0] in ('custom/applauncher', 'cffi/start-button', 'clock')) or key.startswith(PLUGIN_PREFIXES):
+            cfg.pop(key)
+    cfg.pop('cffi/start-button', None)
     items = enabled_builtins(layout) + enabled_plugins(layout, available)
     from adws_launcher import native_menu_command
-    image_start = options.get("start_icon_mode") == "image"
-    start_enabled = any(item.get("id") == "start" and item.get("enabled") for item in items)
-    if start_enabled and (image_start or launcher_definition(cfg, config_path).get("on-click") == native_menu_command()):
-        if image_start:
-            validate_start_images(options)
+    for item in items:
+        if item.get("id") != "start" or not item.get("enabled"):
+            continue
+        own = instance_options(layout, item)
+        import html
         definition = launcher_definition(cfg, config_path)
-        cfg["cffi/start-button"] = {
-            "module_path": str(Path.home() / ".local/lib/waybar/libadws_panel.so"),
-            "start_image": str(Path(options["start_image"]).expanduser().resolve()) if image_start else "",
-            "start_hover_image": str(Path(options["start_hover_image"]).expanduser().resolve()) if image_start and options.get("start_hover_image") else "",
-            "exec": definition.get("on-click", "fuzzel"),
-            "start_animations": panel["window_animations"],
-            "start_position": panel["position"],
-            "animation_duration": panel["animation_duration"],
-            "start_right_command": definition.get("on-click-right", ""),
-            "start_middle_command": definition.get("on-click-middle", ""),
-            "start_tooltip": definition.get("tooltip-format", definition.get("format", "")) if definition.get("tooltip", True) else "",
-            "start_label": definition.get("format", _tr('开始')).replace("{{", "{").replace("}}", "}"),
-            "vertical": vertical,
-            "thickness": panel["thickness"],
-        }
-        for item in items:
-            if item.get("id") == "start":
-                item["module"] = "cffi/start-button"
+        if "start_label" in own or own.get("start_icon_mode") == "distro":
+            label = distro_logo()[1] if own.get("start_icon_mode") == "distro" else str(own.get("start_label") or _tr('开始'))
+            definition["format"] = html.escape(label).replace("{", "{{").replace("}", "}}")
+        if "start_launcher_command" in own or own.get("start_launcher_mode") == "adws":
+            command = native_menu_command() if own.get("start_launcher_mode") == "adws" else own["start_launcher_command"]
+            if not isinstance(command, str) or not command.strip() or "\x00" in command:
+                raise ValueError(_tr('请输入启动器命令。'))
+            definition["on-click"] = command.strip()
+        definition['on-click-right'] = start_right_command(own, item['instance'], definition.get('on-click', 'fuzzel'))
+        definition['tooltip'] = True
+        definition['tooltip-format'] = _tr('开始')
+        image_start = own.get("start_icon_mode") == "image"
+        if image_start or definition.get("on-click") == native_menu_command():
+            if image_start:
+                validate_start_images(own)
+            suffix = "" if item["instance"] == "start" else "#" + item["instance"]
+            item["module"] = "cffi/start-button" + suffix
+            cfg[item["module"]] = {
+                "module_path": str(Path.home() / ".local/lib/waybar/libadws_panel.so"),
+                "start_image": str(Path(own["start_image"]).expanduser().resolve()) if image_start else "",
+                "start_hover_image": str(Path(own["start_hover_image"]).expanduser().resolve()) if image_start and own.get("start_hover_image") else "",
+                "exec": definition.get("on-click", "fuzzel"),
+                "start_animations": panel["window_animations"],
+                "start_position": panel["position"], "animation_duration": panel["animation_duration"],
+                "start_right_command": definition.get("on-click-right", ""),
+                "start_middle_command": definition.get("on-click-middle", ""),
+                "start_tooltip": _tr('开始'),
+                "start_label": definition.get("format", _tr('开始')).replace("{{", "{").replace("}}", "}"),
+                "vertical": vertical, "thickness": panel["thickness"],
+            }
+        else:
+            definition['rotate'] = 90 if vertical else 0
+            cfg[item["module"]] = definition
     slots = {"left": [], "center": [], "right": []}
     generated_modules: list[tuple[str, int]] = []
 
@@ -473,6 +665,11 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
         slots[slot].append(item)
 
     def defs_for(module: str) -> dict | None:
+        if module in ("cffi/system-tray", "cffi/system-brightness", "cffi/system-sound"):
+            return {"module_path":str(taskbar_library_path(layout)),"component":module.removeprefix("cffi/system-"),
+                    "control_helper":str(PROJECT_ROOT / "tools/adws_quick_controls.py"),
+                    "control_output":cfg.get("output", "") if isinstance(cfg.get("output", ""),str) else "",
+                    "vertical":vertical,"position":panel['position'],"thickness":panel['thickness']}
         if module == "cffi/niri-taskbar":
             base_def = cfg.get(module)
             if not isinstance(base_def, dict):
@@ -529,17 +726,17 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             except ValueError:
                 # Let the isolated runner report invalid saved settings, not abort the whole layout.
                 settings = item.get('settings', {})
-            command = shlex.join([sys.executable, str(mplg.project_root() / 'tools/adws_plugin_runner.py'), str(item['file']), '--settings-json', json.dumps(settings, ensure_ascii=False)])
+            command = shlex.join(['env', 'ADWS_PLUGIN_INSTANCE='+item['instance'], sys.executable, str(mplg.project_root() / 'tools/adws_plugin_runner.py'), str(item['file']), '--settings-json', json.dumps(settings, ensure_ascii=False)])
             settings_command = shlex.join([
                 sys.executable, str(PROJECT_ROOT / "tools/adws_layout.py"),
-                "gui", "--plugin", item["package"],
+                "gui", "--plugin", item["package"]+"#"+item["instance"],
             ])
             controls = set(item["manifest"].get("controls", []))
             def control_command(action):
                 if action not in controls:
                     return ""
                 return shlex.join([
-                    sys.executable, str(entry_path), "--control", action,
+                    'env', 'ADWS_PLUGIN_INSTANCE='+item['instance'], sys.executable, str(entry_path), "--control", action,
                     "--settings-json", json.dumps(settings, ensure_ascii=False),
                 ])
             if "panel.rows-v1" in item["manifest"].get("interfaces", []):
@@ -584,7 +781,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             if module_cfg is None:
                 continue
             cfg[module] = module_cfg
-        elif module in ("cffi/niri-taskbar",):
+        elif module in ("cffi/niri-taskbar", "cffi/system-tray", "cffi/system-brightness", "cffi/system-sound"):
             cfg[module] = defs_for(module)
         left_names.append(module)
 
@@ -598,7 +795,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             if module_cfg is None:
                 continue
             cfg[module] = module_cfg
-        elif module == "cffi/niri-taskbar":
+        elif module in ("cffi/niri-taskbar", "cffi/system-tray", "cffi/system-brightness", "cffi/system-sound"):
             cfg[module] = defs_for(module)
         center_names.append(module)
 
@@ -610,7 +807,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             if module_cfg is None:
                 continue
             cfg[module] = module_cfg
-        elif module == "cffi/niri-taskbar":
+        elif module in ("cffi/niri-taskbar", "cffi/system-tray", "cffi/system-brightness", "cffi/system-sound"):
             cfg[module] = defs_for(module)
         right_names.append(module)
 
@@ -628,15 +825,16 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
 
     # Waybar labels support rotation; retain included formats/click actions.
     for module in [name for name in left_names+center_names+right_names
-                   if name == 'clock' or name.startswith('custom/')]:
+                   if name.split('#',1)[0] == 'clock' or name.startswith('custom/')]:
         definition = module_definition(module, cfg, config_path)
-        if module == 'clock':
+        if module.split('#',1)[0] == 'clock':
             from adws_clock import definition as clock_definition
-            definition = clock_definition(options, definition, PROJECT_ROOT)
+            item = next(entry for entry in items if entry.get('module') == module)
+            definition = clock_definition(instance_options(layout, item), definition, PROJECT_ROOT, item.get('instance'))
         if module == 'custom/applauncher' and not definition:
             definition = launcher_definition(cfg, config_path)
         if vertical or 'position' in options:
-            definition['rotate'] = 90 if vertical and module != 'clock' else 0
+            definition['rotate'] = 90 if vertical and module.split('#',1)[0] != 'clock' else 0
         cfg[module] = definition
     cfg["modules-left"] = left_names or []
     cfg["modules-center"] = center_names
@@ -815,6 +1013,7 @@ def arguments(argv=None):
     p = sub.add_parser("gui", help=_tr('打开任务栏组件与插件管理窗口'))
     p.add_argument("--layout", help=_tr('布局文件'))
     p.add_argument("--plugin", help=_tr('直接打开指定插件的设置'))
+    p.add_argument("--start-instance", help=_tr("开始按钮实例"))
     p.set_defaults(func=cli_gui)
 
     return parser.parse_args(argv)
@@ -822,7 +1021,7 @@ def arguments(argv=None):
 
 def cli_gui(args) -> int:
     import adws_layout_gui
-    return adws_layout_gui.run(args.layout, args.plugin)
+    return adws_layout_gui.run(args.layout, args.plugin, args.start_instance)
 
 
 def main(argv=None) -> int:

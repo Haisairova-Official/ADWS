@@ -89,6 +89,19 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual((self.home / 'Desktop/important.txt').read_text(), 'user document')
         self.assertTrue(self.root.exists())
 
+    def test_purge_retains_system_settings_and_shared_user_configuration(self):
+        import adws_power_policy as power
+        system=self.base/'system';system.mkdir()
+        files=[system/'logind.conf',system/'locale.conf',system/'NetworkManager.conf',self.config/'mimeapps.list',self.config/'fcitx5/conf/classicui.conf']
+        for path in files:
+            path.parent.mkdir(parents=True,exist_ok=True);path.write_text('user settings')
+        self.niri.write_text('input { keyboard { repeat-rate 30; } }\n'+self.niri.read_text())
+        with patch.object(power,'logind_write',side_effect=AssertionError('System settings must be retained')) as reset:
+            result,_,_=self.run_answers(['y','n'])
+        self.assertEqual(result,0);reset.assert_not_called()
+        self.assertTrue(all(path.read_text()=='user settings' for path in files))
+        self.assertIn('repeat-rate 30',self.niri.read_text())
+
     def test_changed_library_and_foreign_link_survive(self):
         self.lib.write_bytes(b'other installation')
         command = self.home / '.local/bin/adws'

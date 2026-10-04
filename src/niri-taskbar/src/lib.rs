@@ -28,6 +28,8 @@ use waybar_cffi::{
 };
 
 mod button;
+mod controls;
+mod tray;
 mod grouping;
 mod pins;
 mod config;
@@ -58,7 +60,7 @@ static TRACING: LazyLock<()> = LazyLock::new(|| {
     }
 });
 
-struct TaskbarModule { _tasks: tasks::Tasks }
+struct TaskbarModule { _tasks: tasks::Tasks, _controls: Option<std::rc::Rc<controls::Controls>>, _tray: Option<std::rc::Rc<tray::Tray>> }
 
 impl Module for TaskbarModule {
     type Config = Config;
@@ -67,7 +69,13 @@ impl Module for TaskbarModule {
         // Ensure tracing-subscriber is initialised.
         *TRACING;
 
-        let mut module = Self { _tasks: tasks::Tasks::default() };
+        let mut module = Self { _tasks: tasks::Tasks::default(), _controls:None, _tray:None };
+        if config.component()=="tray" {
+            module._tray=Some(tray::Tray::new(&info.get_root_widget(),&config)); return module;
+        }
+        if matches!(config.component(),"sound"|"brightness") {
+            module._controls=Some(controls::Controls::new(&info.get_root_widget(),&config)); return module;
+        }
         let state = State::new(config);
 
         let context = MainContext::default();

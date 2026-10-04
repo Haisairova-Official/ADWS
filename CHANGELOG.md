@@ -1,5 +1,67 @@
 # Changelog / 更新记录
 
+## 1.33-F — 2026-10-05
+
+开发分支 / Development branch: `Pre-1.35` · 待发布 / Pending publication.
+
+### 1.30 之后累计更新 / Changes since 1.30
+
+- 开始 Rust 化，插件运行器优先使用 Rust，保留 Python 回退；插件新增语言标签，SSH／TTY 安装增加确认。（A）
+- Prefer Rust plugin supervision with Python fallback, plugin language badges and SSH/TTY installation confirmation. (A)
+
+- 新增原生开始菜单，提供 KDE、Vista Aero、Windows XP、AkiACG 主题，支持自定义 CSS、系统配色与动效。（B／D）
+- Add a native Start menu with KDE, Vista Aero, Windows XP and AkiACG themes, custom CSS, system colors and animations. (B/D)
+
+- 开始菜单支持搜索、回车执行命令、电源与会话操作；头像和昵称按登录缓存，按钮与快捷键定位统一。（B）
+- Add Start search, Enter-to-run commands and power/session actions; cache account details per login and unify button/shortcut positioning. (B)
+
+- 开始按钮独立设置，支持多个实例、自定义图标和图片、启动器及右键动作。（D）
+- Give Start independent settings, multiple instances, custom icons/images, launchers and context actions. (D)
+
+- 新增三套快捷键方案，并提供可选的标准 Niri 单修饰键兼容补丁。（B）
+- Add three keyboard profiles and an optional modifier-tap patch for upstream Niri. (B)
+
+- 新增分体任务栏、吸附与悬浮模式、四种材质；完善圆角、尖角和内容留白。（B／1.33）
+- Add split taskbars, docking/floating modes and four materials; refine corners, pointed ends and content clearance. (B/1.33)
+
+- Peek 增加关闭按钮；项目卡支持 Shift 切换“结束进程”，危险操作使用红色动效。（B／1.33）
+- Add Peek close buttons and Shift-activated End process with red destructive transitions. (B/1.33)
+
+- 新增独立系统设置，整合默认应用、网络、蓝牙、声音、电源、账户、地区、输入法与快捷键等功能，不依赖其他桌面的设置套件。（C）
+- Add independent system settings for default apps, networking, Bluetooth, audio, power, accounts, regional settings and input, without other desktop control centers. (C)
+
+- 显示设置适配 Niri／Hyprland，支持多屏拖动排布；壁纸平铺展示，添加时自动复制。（C）
+- Provide Niri/Hyprland display arrangement and a wallpaper gallery with copied imports. (C)
+
+- 重构组件布局，支持横向拖动、跨区排序和实时预览；可选组件可移除或重复添加，窗口图标栏始终保留。插件支持 isSingleOnly 单例声明。（D／E）
+- Rebuild layout editing with horizontal drag ordering, movement across regions and live preview; retain mandatory window icons and support repeatable components with isSingleOnly plugin declarations. (D/E)
+
+- 默认布局：左侧开始与窗口图标，中间留空，右侧声音、亮度、托盘与时钟；已有布局保留。（E）
+- Default to Start and window icons at the front, an empty center, and sound, brightness, tray and clock at the back, preserving existing layouts. (E)
+
+- 新增内置托盘，超过三个图标折叠；声音与亮度支持点击、滚轮和详细面板，外观跟随任务栏。（E）
+- Add a tray with overflow after three icons, plus audio/brightness click, wheel and detailed controls following taskbar appearance. (E)
+
+- 优化启动、事件队列、歌词渲染与资源清理，新增无响应诊断和自动恢复；修复托盘图标、重复菜单、下拉错位及开关拉伸等问题。（1.32／1.33）
+- Improve startup, event queues, lyric rendering and resource cleanup; add stall diagnostics/recovery and fix tray icons, duplicate menus, misplaced selectors and stretched switches. (1.32/1.33)
+
+- 卸载保留系统设置，个人布局不再覆盖默认配置；登录启动项支持右键删除并确认名称。（1.33／F）
+- Preserve system settings on uninstall, keep personal layouts separate from shipped defaults, and confirm named login-entry deletions. (1.33/F)
+
+### 开发阶段 / Development stages
+
+以下中间编号按改动类别补记为开发阶段，未单独发布。已发布的 1.31 A／B 记录保留。
+These intermediate numbers identify development stages, not separate published releases; published 1.31 A/B history is retained.
+
+| 版本 / Version | 改动 / Changes |
+| --- | --- |
+| 1.32-B | 任务栏稳定性、队列与缓存优化、退出清理及无响应诊断。 / Taskbar reliability, queue/cache optimization, teardown and stall diagnostics. |
+| 1.32-C | 独立系统设置、多屏排布、壁纸库及系统服务管理。 / Independent system settings, monitor arrangement, wallpaper library and service management. |
+| 1.32-D | AkiACG 主题、开始按钮独立配置、组件实例与拖动布局。 / AkiACG theme, independent Start preferences, component instances and drag layout. |
+| 1.32-E | 系统托盘、声音、亮度、插件单例声明与新默认布局。 / Tray, sound, brightness, singleton declarations and new defaults. |
+| 1.33-E | 托盘与弹窗外观、Shift 终止、实际预览及配置保护等修复。 / Tray/popup appearance, Shift termination, live preview and configuration preservation fixes. |
+| 1.33-F | 登录启动项右键删除、名称确认与本次累计更新整理。 / Confirmed login-entry removal and consolidated update notes. |
+
 ## 1.31 B — 2026-10-04
 
 开发分支 / Development branch: `Pre-1.35`.

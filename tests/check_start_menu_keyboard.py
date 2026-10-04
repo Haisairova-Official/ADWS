@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory(prefix='adws-menu-keyboard-') as tmp:
             if p.poll() is not None:raise AssertionError('Menu quit before mapping')
             time.sleep(.05)
         p.kill();raise AssertionError('No mapped menu')
-    for theme in ('kde','aero','xp'):
+    for theme in ('kde','aero','xp','akiacg'):
         command=[str(root/'src/adws-start-menu/target/release/adws-start-menu'),'--root',str(root),'--theme',theme]
         marker.unlink(missing_ok=True)
         p=launch()

@@ -19,8 +19,9 @@ class LauncherTests(unittest.TestCase):
                 result = layout.render_waybar_config(
                     {'builtins': [], 'plugins': [], 'options': {'start_launcher_command': command}}, available=[],
                     base={'include': ['apps.jsonc']}, config_path=root / 'bar.jsonc')
-                self.assertEqual(result['custom/applauncher'], {
-                    'format': 'My Apps', 'on-click': command, 'tooltip': False})
+                self.assertEqual({key: result['custom/applauncher'][key] for key in ('format','on-click','tooltip')}, {
+                    'format': 'My Apps', 'on-click': command, 'tooltip': True})
+                self.assertIn('--start-instance start', result['custom/applauncher']['on-click-right'])
 
     def test_layout_without_launcher_setting_keeps_existing_command(self):
         result = layout.render_waybar_config({'builtins': [], 'plugins': []}, available=[], base={

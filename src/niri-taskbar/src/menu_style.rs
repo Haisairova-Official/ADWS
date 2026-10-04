@@ -86,7 +86,10 @@ fn refresh_menu_palette() {
     };
 
     let css = format!(
-        "menu.adws-menu {{\n\
+        ".adws-tray-item, .adws-quick-button {{ background: transparent; border: none; padding: 3px; border-radius: {radius}; box-shadow: none; min-width: 0; min-height: 0; color: {foreground}; }}\n\
+         .adws-tray-item:hover, .adws-quick-button:hover {{ background: {hover}; }}\n\
+         popover.adws-tray-overflow {{ background: {background}; color: {foreground}; border: 1px solid {outline}; border-radius: {radius}; }}\n\
+         menu.adws-menu {{\n\
              background-color: {background};\n\
              color: {foreground};\n\
              {font_css}\n\

@@ -109,7 +109,7 @@ def display_pattern(prefs):
     return time + ('\n' if prefs['two_lines'] else ' ') + ' '.join(pieces)
 
 
-def definition(options, base, project_root):
+def definition(options, base, project_root, instance=None):
     result = dict(base)
     prefs = preferences(options)
     result.pop('adws-icon-prefix', None)
@@ -121,7 +121,7 @@ def definition(options, base, project_root):
                    'on-click-release': '', 'on-click-right-release': '',
                    'interval': 1 if '%S' in pattern.replace('%%', '') else 60,
                    'on-click': '',
-                   'on-click-right': shlex.join([sys.executable, str(Path(project_root) / 'tools/adws_clock.py'), '--launch']),
+                   'on-click-right': shlex.join([sys.executable, str(Path(project_root) / 'tools/adws_clock.py'), '--launch', *(['--instance', instance] if instance else [])]),
                    'actions': None, 'max-length': None, 'rotate': 0, 'justify': 'center',
                    'tooltip-format': '{:' + date_pattern(prefs) + ' %A}\n' + _tr('右键：时钟设置')})
     return result
@@ -235,7 +235,7 @@ class ClockDialog:
         return self.values() if self.dialog.run() == self.Gtk.ResponseType.OK else None
 
 
-def main():
+def main(instance=None):
     from gi.repository import GLib
     GLib.set_prgname('adws-clock')
     import locale
@@ -243,7 +243,11 @@ def main():
     except locale.Error: pass
     from adws_layout import load_layout, save_layout, apply_layout
     from adws_theme import start
-    ui = ClockDialog(load_layout().get('options', {}))
+    from adws_layout import instance_options
+    layout = load_layout()
+    item = next((row for row in layout['builtins'] if row.get('id') == 'clock' and row.get('instance') == instance), None) if instance else None
+    if instance and item is None: return 1
+    ui = ClockDialog(instance_options(layout, item or {}))
     start()
     try:
         while True:
@@ -253,7 +257,12 @@ def main():
                 # Reload just before saving to retain other settings changed
                 # while this dialog was open.
                 layout = load_layout()
-                layout.setdefault('options', {})['clock'] = values
+                if instance:
+                    item = next((row for row in layout['builtins'] if row.get('id') == 'clock' and row.get('instance') == instance), None)
+                    if item is None: return 1
+                    item.setdefault('options', {})['clock'] = values
+                else:
+                    layout.setdefault('options', {})['clock'] = values
                 save_layout(layout)
                 ok, message = apply_layout(layout, restart=True)
                 if ok: return 0
@@ -270,10 +279,14 @@ def main():
 
 
 if __name__ == '__main__':
-    if sys.argv[1:] == ['--launch']:
-        # Waybar owns command process groups; detach so applying settings can
-        # restart the bar without terminating its own settings dialog.
-        subprocess.Popen([sys.executable, str(Path(__file__).resolve())],
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--launch', action='store_true')
+    parser.add_argument('--instance')
+    args = parser.parse_args()
+    if args.launch:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()),
+                          *(['--instance', args.instance] if args.instance else [])],
                          start_new_session=True, stdin=subprocess.DEVNULL)
     else:
-        raise SystemExit(main())
+        raise SystemExit(main(args.instance))

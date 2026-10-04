@@ -60,6 +60,14 @@ def geometry(config, options):
     return values, vertical
 
 
+def material_css(options, base='@surface_container_high'):
+    return {
+        'solid': f'background-color: {base}; background-image: none;',
+        'mica': f'background-color: alpha({base}, 0.90); background-image: linear-gradient(135deg, alpha(@primary, 0.13), alpha({base}, 0.04));',
+        'acrylic': f'background-color: alpha({base}, 0.66); background-image: repeating-linear-gradient(120deg, alpha(@on_surface, 0.018) 0px, alpha(@on_surface, 0.018) 1px, transparent 1px, transparent 3px);',
+        'candy': f'background-color: alpha({base}, 0.82); background-image: linear-gradient(to bottom, alpha(@on_surface, 0.24), alpha(@primary, 0.18) 48%, alpha({base}, 0.12) 51%, alpha(@primary, 0.09));',
+    }[validate(options)['panel_material']]
+
 def styles(options):
     values = validate(options)
     lines = []
@@ -88,12 +96,7 @@ def styles(options):
     # A single root surface or content-sized occupied segments share the material.
     base=values['surface_color'] or options.get('_surface_background') or '@surface_container_high'
     radius=options.get('_surface_radius','12px')
-    material={
-        'solid': f'background-color: {base}; background-image: none;',
-        'mica': f'background-color: alpha({base}, 0.90); background-image: linear-gradient(135deg, alpha(@primary, 0.13), alpha({base}, 0.04));',
-        'acrylic': f'background-color: alpha({base}, 0.66); background-image: repeating-linear-gradient(120deg, alpha(@on_surface, 0.018) 0px, alpha(@on_surface, 0.018) 1px, transparent 1px, transparent 3px);',
-        'candy': f'background-color: alpha({base}, 0.82); background-image: linear-gradient(to bottom, alpha(@on_surface, 0.24), alpha(@primary, 0.18) 48%, alpha({base}, 0.12) 51%, alpha(@primary, 0.09));',
-    }[values['panel_material']]
+    material=material_css(values, base)
     selector='window#waybar.adws-panel > box'
     # Specificity exceeds appearance overrides; explicit colors remain the base.
     lines.append(f'{selector} {{ {material} }}')

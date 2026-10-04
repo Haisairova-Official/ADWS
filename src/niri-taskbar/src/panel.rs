@@ -2,14 +2,14 @@ use std::{cell::RefCell, path::PathBuf, process::Command};
 
 use waybar_cffi::gtk::{
     self as gtk,
-    prelude::{GtkMenuExt, GtkMenuItemExt, MenuShellExt, WidgetExt},
+    prelude::{BoxExt, ContainerExt, GtkMenuExt, GtkMenuItemExt, MenuShellExt, WidgetExt},
 };
 
 thread_local! {
     static ACTIVE_MENU: RefCell<Option<gtk::Menu>> = RefCell::new(None);
 }
 
-/// 在底栏空白处提供右键菜单，提供桌面设置与统一任务栏设置入口。
+/// 在底栏空白处提供右键菜单，提供桌面配置、任务栏设置与 ADWS 系统设置入口。
 ///
 /// 菜单挂在 waybar 顶层窗口上，因此只会在不属于任何子组件
 /// （开始按钮、窗口图标、时钟等）的背景区域收到事件时弹出。
@@ -30,18 +30,21 @@ pub fn connect_panel_menu(toplevel: &gtk::Widget) {
         }
 
         let menu = gtk::Menu::new();
-        let desktop_item = gtk::MenuItem::with_label(crate::i18n::text("桌面设置", "Desktop settings"));
+        let desktop_item = settings_menu_item(crate::i18n::text("桌面配置", "Desktop configuration"), "video-display-symbolic");
         desktop_item.connect_activate(|_| {
-            tracing::info!("{}", crate::i18n::text("打开桌面设置", "Open desktop settings"));
+            tracing::info!("{}", crate::i18n::text("打开桌面配置", "Open desktop configuration"));
             open_adws_config("desktop");
         });
         menu.append(&desktop_item);
-        let taskbar_item = gtk::MenuItem::with_label(crate::i18n::text("任务栏设置", "Taskbar settings"));
+        let taskbar_item = settings_menu_item(crate::i18n::text("任务栏设置", "Taskbar settings"), "view-grid-symbolic");
         taskbar_item.connect_activate(|_| {
             tracing::info!("{}", crate::i18n::text("打开任务栏设置", "Open taskbar settings"));
             open_adws_config("taskbar");
         });
         menu.append(&taskbar_item);
+        let system_item = settings_menu_item(crate::i18n::text("ADWS设置", "ADWS settings"), "preferences-system-symbolic");
+        system_item.connect_activate(|_| open_adws_config(""));
+        menu.append(&system_item);
         crate::menu_style::apply(&menu);
         menu.show_all();
         menu.connect_deactivate(|_| {
@@ -59,6 +62,15 @@ pub fn connect_panel_menu(toplevel: &gtk::Widget) {
         menu.popup_at_pointer(Some(event));
         gtk::glib::Propagation::Stop
     });
+}
+
+fn settings_menu_item(title: &str, icon: &str) -> gtk::MenuItem {
+    let item = gtk::MenuItem::new();
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    row.pack_start(&gtk::Image::from_icon_name(Some(icon), gtk::IconSize::Menu), false, false, 0);
+    row.pack_start(&gtk::Label::new(Some(title)), false, false, 0);
+    item.add(&row);
+    item
 }
 
 // Filter at GtkWidget's generic event stage, before configure-event is
@@ -150,12 +162,10 @@ fn open_adws_config(tab: &str) {
         return;
     };
 
-    let result = Command::new("python3")
-        .arg(&tool)
-        .arg("--tab")
-        .arg(tab)
-        .env_remove("GDK_BACKEND")
-        .spawn();
+    let mut command = Command::new("python3");
+    command.arg(&tool).env_remove("GDK_BACKEND");
+    if !tab.is_empty() { command.arg("--tab").arg(tab); }
+    let result = command.spawn();
     if let Err(e) = result {
         tracing::warn!(%e, "cannot launch ADWS-Config");
     }

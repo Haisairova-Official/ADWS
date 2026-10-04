@@ -20,3 +20,5 @@ src/panel-rows/test-vertical
 
 /libexec/adws-plugin-runner
 /libexec/adws-start-menu
+
+src/panel-rows/test-start-instances

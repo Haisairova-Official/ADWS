@@ -169,6 +169,10 @@ def uninstall():
             for component in ('desktop', 'taskbar'):
                 if control([component, '--stop'], quiet=True) != 0:
                     return 1
+            from adws_power_policy import stop_all
+            stop_all()
+            # Uninstall only ADWS-owned components and app configuration.
+            # System settings chosen by the user remain effective.
             remove_autostart()
             remove_owned_files(keep_config)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:

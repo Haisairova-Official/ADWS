@@ -149,6 +149,41 @@ fn flush(fd: i32, queue: &mut VecDeque<u8>) -> Result<(), Failure> {
     queue.drain(..count as usize);
     Ok(())
 }
+fn cache_preview(payload: &serde_json::Value, plugin: &str) {
+    // Runs in the plugin supervisor, never the GTK thread. Retain only display
+    // strings, not settings, commands, tooltips or media credentials.
+    let Some(runtime)=std::env::var_os("XDG_RUNTIME_DIR") else {return;};
+    let runtime=std::path::PathBuf::from(runtime);
+    if !runtime.is_dir() {return;}
+    let instance=std::env::var("ADWS_PLUGIN_INSTANCE").unwrap_or_else(|_|plugin.into());
+    let mut minimal=serde_json::Map::new();
+    for key in ["primary","secondary","text","class"] {
+        if let Some(value)=payload.get(key).and_then(|v|v.as_str()) {
+            minimal.insert(key.into(),value.chars().take(4096).collect::<String>().into());
+        }
+    }
+    if minimal.is_empty(){return;}
+    thread_local! {static LAST:std::cell::RefCell<Option<serde_json::Map<String,serde_json::Value>>>=const{std::cell::RefCell::new(None)};}
+    if LAST.with(|last| last.borrow().as_ref()==Some(&minimal)){return;}
+    let display=minimal.clone();
+    let pid=std::process::id();
+    let Ok(stat)=std::fs::read_to_string(format!("/proc/{pid}/stat")) else{return;};
+    let Some(start)=stat.rsplit(')').next().and_then(|s|s.split_whitespace().nth(19)) else{return;};
+    minimal.insert("instance".into(),instance.clone().into());minimal.insert("pid".into(),pid.into());minimal.insert("start".into(),start.into());
+    let key=instance.as_bytes().iter().fold(14695981039346656037u64,|hash,byte|(hash^u64::from(*byte)).wrapping_mul(1099511628211));
+    let folder=runtime.join("adws/plugin-preview");
+    let result=(||->std::io::Result<()> {
+        use std::os::unix::fs::{DirBuilderExt,OpenOptionsExt};
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&folder)?;
+        let staged=folder.join(format!("{key:016x}.{pid}.tmp"));
+        let mut file=std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&staged)?;
+        std::io::Write::write_all(&mut file,&serde_json::to_vec(&minimal)?)?;
+        std::fs::rename(staged,folder.join(format!("{key:016x}.json")))
+    })();
+    // Preview is optional: a read-only/full runtime directory must never stop a plugin.
+    if result.is_ok(){LAST.with(|last| *last.borrow_mut()=Some(display));}
+}
+
 fn line(data: &[u8], stderr: bool, spec: &Spec, queue: &mut VecDeque<u8>) -> Result<(), Failure> {
     if stderr {
         enqueue(
@@ -157,6 +192,7 @@ fn line(data: &[u8], stderr: bool, spec: &Spec, queue: &mut VecDeque<u8>) -> Res
         )
     } else {
         let payload = validate(data, spec.rows)?;
+        cache_preview(&payload,&spec.id);
         enqueue(
             queue,
             &serde_json::to_vec(&payload).map_err(|e| invalid(e.to_string()))?,

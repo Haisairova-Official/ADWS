@@ -53,8 +53,28 @@ fn save_cache(path: &Path, key: &str, account: &Account) -> std::io::Result<()> 
     atomic_write(path, &serde_json::to_vec(&data)?)
 }
 
-pub fn populate(avatar: &gtk::Image, name: &gtk::Label) {
+fn circular_avatar(pixbuf: &gtk::gdk_pixbuf::Pixbuf, size: i32, scale: i32) -> Result<gtk::cairo::ImageSurface, gtk::cairo::Error> {
+    use gtk::gdk::prelude::GdkContextExt;
+    let pixels = size * scale;
+    let surface = gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32, pixels, pixels)?;
+    let cr = gtk::cairo::Context::new(&surface)?;
+    let radius = pixels as f64 / 2.;
+    cr.arc(radius, radius, radius, 0., std::f64::consts::TAU);
+    cr.clip();
+    // Cover the circle using a centered crop, preserving the source aspect ratio.
+    let factor = pixels as f64 / pixbuf.width().min(pixbuf.height()) as f64;
+    cr.translate((pixels as f64 - pixbuf.width() as f64 * factor) / 2.,
+                 (pixels as f64 - pixbuf.height() as f64 * factor) / 2.);
+    cr.scale(factor, factor);
+    cr.set_source_pixbuf(pixbuf, 0., 0.);
+    cr.paint()?;
+    surface.set_device_scale(scale as f64, scale as f64);
+    Ok(surface)
+}
+
+pub fn populate(avatar: &gtk::Image, name: &gtk::Label, round: bool) {
     let size = avatar.pixel_size();
+    let scale = if round { avatar.scale_factor().max(1) } else { 1 };
     let avatar = avatar.downgrade(); let name = name.downgrade();
     glib::MainContext::default().spawn_local(async move {
         let Ok((key, cached, mut account, login)) = gio::spawn_blocking(|| {
@@ -90,8 +110,14 @@ pub fn populate(avatar: &gtk::Image, name: &gtk::Label) {
         if let Some(path) = account.avatar {
             let file = gio::File::for_path(path);
             if let Ok(stream) = file.read_future(glib::Priority::DEFAULT).await {
-                if let Ok(pixbuf) = gtk::gdk_pixbuf::Pixbuf::from_stream_at_scale_future(&stream, size, size, true).await {
-                    if let Some(image) = avatar.upgrade() { image.set_from_pixbuf(Some(&pixbuf)); }
+                if let Ok(pixbuf) = gtk::gdk_pixbuf::Pixbuf::from_stream_at_scale_future(&stream, size * scale, size * scale, true).await {
+                    if let Some(image) = avatar.upgrade() {
+                        if round {
+                            if let Ok(surface) = circular_avatar(&pixbuf, size, scale) {
+                                image.set_from_surface(Some(&surface));
+                            }
+                        } else { image.set_from_pixbuf(Some(&pixbuf)); }
+                    }
                 }
             }
         }
@@ -114,6 +140,25 @@ async fn account_properties(login: &str) -> Option<std::collections::HashMap<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires an isolated GTK display"]
+    fn round_avatar_crops_rectangular_source_and_preserves_hidpi_size() {
+        gtk::init().unwrap();
+        let image = gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, true, 8, 96, 48).unwrap();
+        image.fill(0xbc8cffff);
+        for scale in [1, 2] {
+            let surface = circular_avatar(&image, 48, scale).unwrap();
+            assert_eq!(surface.width(), 48 * scale);
+            assert_eq!(surface.device_scale(), (scale as f64, scale as f64));
+            let result = gtk::gdk::pixbuf_get_from_surface(&surface, 0, 0, 48 * scale, 48 * scale).unwrap();
+            let pixels = result.read_pixel_bytes();
+            let stride = result.rowstride() as usize;
+            let radius = 24 * scale as usize;
+            assert_eq!(pixels[3], 0, "square corner must be transparent");
+            assert_eq!(pixels[radius * stride + radius * 4 + 3], 255, "center must remain visible");
+            assert!(pixels[radius * stride + 4 * scale as usize * 4 + 3] > 240, "cover crop must fill circle");
+        }
+    }
     #[test]
     fn cached_avatar_survives_source_removal_and_new_login_invalidates() {
         let dir = std::env::temp_dir().join(format!("adws-account-test-{}", std::process::id()));

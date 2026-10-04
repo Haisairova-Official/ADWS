@@ -48,6 +48,12 @@ adws mplg install ./org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
 
 缓存位于 `$XDG_CACHE_HOME/adws/netease-lyrics-v2`，未设置 XDG_CACHE_HOME 时使用 `~/.cache`。不同歌词来源分别缓存，双屏共用缓存和请求锁。
 
+## 多实例（ADWS 1.31 B）
+
+本插件未声明 `isSingleOnly`，因此允许在任务栏重复添加。每份歌词组件单独保存位置、宽度、颜色、歌词来源及动效设置，右键进入相应实例的设置；歌曲缓存和请求锁继续共享。移除某一份不会影响其他歌词组件。
+
+插件开发者可在 `plugin.json` 顶层声明 `"isSingleOnly": true` 限制单例，`false` 或省略则允许重复；只接受 JSON 布尔值。详情见 [Plugin API](../../docs/mplg-spec.md)。
+
 ## 构建与排查
 
 在 ADWS 源码根目录执行：
@@ -106,3 +112,9 @@ Custom GET API templates accept `{id}`, `{title}`, `{artist}`, `{album}` and `{d
 Cache: `$XDG_CACHE_HOME/adws/netease-lyrics-v2` (normally under `~/.cache`). Sources have separate cache keys; multiple displays share cache and request locks.
 
 Build, test and diagnose using the commands above from the ADWS source root. Keep `interval: 0` for continuous operation. Public lyrics APIs may require future compatibility updates.
+
+## Multiple instances (ADWS 1.31 B)
+
+This plugin omits `isSingleOnly`, allowing multiple taskbar instances. Placement, width, colors, lyric source and animations are configured separately; right-click opens the matching instance. Shared song caches and request locks remain shared. Removing one instance does not remove the others.
+
+Plugin authors can set top-level `"isSingleOnly": true` for one active instance, or use `false`/omit it to allow repeated instances. Only JSON Booleans are accepted. See [Plugin API](../../docs/mplg-spec.md).

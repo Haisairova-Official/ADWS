@@ -12,9 +12,9 @@ from adws_health import dependency_errors, check
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = {
- 'apt-get': {'python': ['python3-gi', 'python3-cairo', 'python3-pil', 'gir1.2-gtk-3.0', 'gir1.2-gtklayershell-0.1'], 'build': ['cargo', 'rustc', 'build-essential', 'pkg-config', 'libgtk-3-dev', 'libgtk-layer-shell-dev', 'libjson-glib-dev']},
- 'pacman': {'python': ['python-gobject', 'python-cairo', 'python-pillow', 'gtk3', 'gtk-layer-shell'], 'build': ['rust', 'base-devel', 'pkgconf', 'gtk3', 'gtk-layer-shell', 'json-glib']},
- 'dnf': {'python': ['python3-gobject', 'python3-cairo', 'python3-pillow', 'gtk3', 'gtk-layer-shell'], 'build': ['cargo', 'rust', 'gcc', 'make', 'pkgconf-pkg-config', 'gtk3-devel', 'gtk-layer-shell-devel', 'json-glib-devel']},
+ 'apt-get': {'python': ['python3-gi', 'python3-cairo', 'python3-pil', 'gir1.2-gtk-3.0', 'gir1.2-gtklayershell-0.1', 'gir1.2-polkit-1.0', 'policykit-1'], 'build': ['cargo', 'rustc', 'build-essential', 'pkg-config', 'libgtk-3-dev', 'libgtk-layer-shell-dev', 'libjson-glib-dev']},
+ 'pacman': {'python': ['python-gobject', 'python-cairo', 'python-pillow', 'gtk3', 'gtk-layer-shell', 'polkit'], 'build': ['rust', 'base-devel', 'pkgconf', 'gtk3', 'gtk-layer-shell', 'json-glib']},
+ 'dnf': {'python': ['python3-gobject', 'python3-cairo', 'python3-pillow', 'gtk3', 'gtk-layer-shell', 'polkit'], 'build': ['cargo', 'rust', 'gcc', 'make', 'pkgconf-pkg-config', 'gtk3-devel', 'gtk-layer-shell-devel', 'json-glib-devel']},
 }
 
 

@@ -6,41 +6,19 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development: **1.31 B** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.33-F** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
 
-## 1.31 B
+## 1.33-F
 
-新增原生 Rust 开始菜单：KDE、Vista Aero、Windows XP 三套风格，支持 CSS 定制并跟随系统配色。菜单跟随实际开始按钮，在设置或安装时选择 ADWS 开始菜单、fuzzel、rofi。任务栏新增分体、吸附模式、四种材质和可配置的终止入口；Peek 增加关闭按钮，菜单圆角统一跟随任务栏。
+汇总 1.30 之后的更新：原生开始菜单与四套主题、独立系统设置、分体任务栏与四种材质、可拖动的组件布局及实时预览、托盘／声音／亮度组件。完善 Shift 终止、登录启动项删除和配置保护，并优化启动、歌词渲染与资源清理。[完整累计更新](docs/update-notes-1.33-F-2026-10-05.md)。
 
-The native Rust start menu offers three themed presets, custom CSS and positioning beside the Start button. Settings and installation offer ADWS Start, fuzzel and rofi. Taskbar options add split surfaces, docking modes, four materials and configurable process termination; Peek gains close controls and consistent corners.
+Changes since 1.30 include a native Start menu with four themes, independent system settings, split panels and four materials, draggable component layouts with live preview, and tray/audio/brightness controls. Improvements cover Shift termination, confirmed login-entry deletion, configuration preservation, startup, lyric rendering and cleanup. See the [consolidated update notes](docs/update-notes-1.33-F-2026-10-05.md).
 
-开始菜单设置独立成页，关闭任务栏开始按钮后仍可配置与预览。三套主题现在各有独立布局，并显示系统账户头像与昵称。应用后台加载，开始菜单和吸附切换支持动效；吸附时取消圆角，Shift 终止会跟随菜单收到的键盘状态更新。
+开发阶段：1.32-B 稳定性；1.32-C 系统设置；1.32-D 主题与布局；1.32-E 系统组件；1.33-E 修复；1.33-F 登录启动项删除。中间编号未单独发布，原有 1.31 A／B 记录保留在 [CHANGELOG](CHANGELOG.md)。透明材质的背景模糊由窗口管理器提供。
 
-The presets now have distinct layouts and show the system avatar and real name. App discovery runs off the UI thread; menu and docking transitions follow animation preferences. Docked corners are square, and termination menus track Shift after the popup grab.
-
-开始菜单增加电源与会话操作，支持直接回车执行命令；新增三种可选键位方案，检测 Niri 单修饰键支持后再允许应用，标准版仍可使用普通组合键，也可选择[独立构建兼容补丁版](patches/niri/README.md)。
-
-Start now includes power/session actions and direct Enter command execution. Three optional keyboard profiles require detected modifier-tap support; regular shortcuts remain available on upstream Niri, with an [optional separate compatibility build](patches/niri/README.md).
-
-开始按钮启动不再占用界面线程；首页快捷应用优先显示。任务栏新增有次数限制的无响应自动恢复与诊断记录；所有分体增加两端 5px 内容缓冲，各分体可选圆角或 < > 尖端；只有平铺窗口触发自动吸附。
-
-Start launches run off the UI thread and home shortcuts load first. Taskbar recovery records diagnostics and limits restart attempts; segments gain 5px content padding, with optional pointed ends; only tiled windows trigger auto-docking.
-
-优化任务栏启动：窗口数据连接与图标查找不再阻塞界面，首次吸附及时提交，不再等待组件刷新后才到位。
-
-Improve taskbar startup: keep window connections and icon lookup off the UI thread, and commit initial docking promptly without waiting for a component refresh.
-
-统一快捷键与按钮的开始菜单定位；头像和昵称按登录会话缓存，后台获取，同一次登录不再重复查询。
-
-Use the live Start button position for both keyboard and button launches; cache the avatar and name per login session, with account lookup in the background.
-
-本次维护更新（2026-10-04）修复更新队列堆积、歌词动效重复加载图标、字体重复测量和模块监听清理；尖角模式覆盖没有中区的分体布局。[验证记录](docs/taskbar-verification-2026-10-03.md)。
-
-The 2026-10-04 maintenance update bounds update queues, avoids redundant icon loading and font measurement, releases module listeners, and fixes pointed surfaces without a center segment. See the [verification record](docs/taskbar-verification-2026-10-03.md).
-
-使用与限制 / Usage and limits: [开始菜单与任务栏外观](docs/start-menu.md). 透明材质的背景模糊由窗口管理器提供 / Background blur depends on compositor support.
+Intermediate numbers identify development stages, not separate releases; published 1.31 A/B history is retained in the [changelog](CHANGELOG.md). Transparent-material background blur depends on the compositor.
 
 ## 1.31 A
 

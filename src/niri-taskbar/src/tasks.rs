@@ -22,7 +22,7 @@ mod tests {
         let retained = Rc::new(Cell::new(0));
         let weak = Rc::downgrade(&retained);
         let child = retained.clone();
-        let module = crate::TaskbarModule { _tasks: Tasks(vec![context.spawn_local(async move {
+        let module = crate::TaskbarModule { _controls: None, _tray: None, _tasks: Tasks(vec![context.spawn_local(async move {
             let _children = Tasks(vec![glib::spawn_future_local(async move {
                 let _retained = child;
                 std::future::pending::<()>().await;

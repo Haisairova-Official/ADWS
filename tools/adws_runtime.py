@@ -265,6 +265,7 @@ def main(argv=None, quiet=False):
     if args.start:
         from adws_oobe import launch
         from adws_wallpaper import launch_restore
+        from adws_power_policy import launch as launch_power
         if targets:
             return 0
         if args.component == 'desktop':
@@ -273,6 +274,7 @@ def main(argv=None, quiet=False):
             result = subprocess.call([str(ROOT / 'src/niri-desktop-layer/start-desktop-layer')], env=env, stdout=subprocess.DEVNULL)
             if result == 0:
                 launch_restore()
+                launch_power()
                 launch(automatic=True)
             return result
         folder = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'waybar'
@@ -283,6 +285,7 @@ def main(argv=None, quiet=False):
         if not ok:
             parser.exit(1, message + '\n')
         launch_restore()
+        launch_power()
         launch(automatic=True)
         return 0
     for pid in targets:

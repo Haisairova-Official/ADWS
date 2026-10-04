@@ -19,6 +19,27 @@ def native_menu_command():
     return shlex.join(['bash', str(Path(__file__).resolve().parents[1] / 'adws'), 'start-menu'])
 
 
+def terminal_argv():
+    # Resolve at click time, so changing the system default takes effect immediately.
+    preferred = shutil.which('xdg-terminal-exec')
+    if preferred:
+        return [preferred]
+    try:
+        custom = shlex.split(os.environ.get('TERMINAL', ''))
+    except ValueError:
+        custom = []
+    if custom and (executable := shutil.which(custom[0])):
+        return [executable, *custom[1:]]
+    for name in ('x-terminal-emulator', 'kitty', 'foot', 'alacritty', 'konsole', 'gnome-terminal', 'xterm'):
+        if executable := shutil.which(name):
+            return [executable]
+    raise RuntimeError(_tr('未找到可用的终端程序'))
+
+
+def launch_terminal():
+    subprocess.Popen(terminal_argv(), cwd=Path.home(), start_new_session=True)
+
+
 def ask(prompt):
     print(prompt, end=' ', file=sys.stderr, flush=True)
     if sys.stdin.isatty():
@@ -119,11 +140,14 @@ def configure(path, command):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--select', action='store_true')
+    parser.add_argument('--terminal', action='store_true')
     parser.add_argument('--save-selection')
     parser.add_argument('--apply', nargs=2, metavar=('PATH', 'COMMAND'))
     args = parser.parse_args()
     try:
-        if args.save_selection:
+        if args.terminal:
+            launch_terminal()
+        elif args.save_selection:
             save_selection(args.save_selection)
         elif args.select:
             print(select_launcher())

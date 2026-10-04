@@ -65,7 +65,7 @@ def open_adws_config(tab: str) -> bool:
         return False
     env = {key: value for key, value in os.environ.items() if key != "GDK_BACKEND"}
     try:
-        subprocess.Popen([sys.executable, script, "--tab", tab], env=env, start_new_session=True)
+        subprocess.Popen([sys.executable, script] + (["--tab", tab] if tab else []), env=env, start_new_session=True)
         return True
     except OSError:
         return False
@@ -874,8 +874,14 @@ def run_gui(args, cfg, directory):
 
         def make_menu(self, key):
             menu = Gtk.Menu()
-            def item(parent, label, callback=None):
+            def item(parent, label, callback=None, icon=None):
                 widget = Gtk.MenuItem(label=label)
+                if icon:
+                    widget.remove(widget.get_child())
+                    row = Gtk.Box(spacing=8)
+                    row.pack_start(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU), False, False, 0)
+                    row.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
+                    widget.add(row)
                 widget.set_sensitive(callback is not None)
                 if callback:
                     widget.connect("activate", lambda *_: (LOG.info(_tr('菜单操作：%s'), label), callback()))
@@ -907,6 +913,9 @@ def run_gui(args, cfg, directory):
                 separator(menu)
                 item(menu, _tr('打开终端'), self.owner.open_terminal)
                 item(menu, _tr('打开桌面文件夹'), self.owner.open_directory)
+                separator(menu)
+                item(menu, _tr('桌面配置…'), self.show_desktop_settings, 'video-display-symbolic')
+                item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
                 return menu
             if not key:
                 new_menu = submenu(_tr('新建'))
@@ -954,7 +963,8 @@ def run_gui(args, cfg, directory):
                 item(menu, _tr('上一页'), lambda: self.change_page(-1))
                 item(menu, _tr('下一页'), lambda: self.change_page(1))
             separator(menu)
-            item(menu, _tr('桌面设置…'), self.show_desktop_settings)
+            item(menu, _tr('桌面配置…'), self.show_desktop_settings, 'video-display-symbolic')
+            item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
             item(menu, _tr('隐藏桌面图标'), self.owner.toggle)
             exit_item = item(menu, _tr('退出桌面图标'), self.confirm_exit)
             exit_item.get_style_context().add_class("desktop-exit")
@@ -1319,11 +1329,11 @@ def run_gui(args, cfg, directory):
             dialog.run()
             dialog.destroy()
 
-        @logged_action(_tr('打开桌面设置'))
+        @logged_action(_tr('打开桌面配置'))
         def show_desktop_settings(self):
             if open_adws_config("desktop"):
                 return
-            dialog = Gtk.Dialog(title=_tr('桌面设置'), transient_for=self, modal=True, destroy_with_parent=True)
+            dialog = Gtk.Dialog(title=_tr('桌面配置'), transient_for=self, modal=True, destroy_with_parent=True)
             dialog.add_button(_tr('取消'), Gtk.ResponseType.CANCEL)
             dialog.add_button(_tr('应用'), Gtk.ResponseType.ACCEPT)
             dialog.set_default_size(400, -1)

@@ -2,9 +2,9 @@
 
 在“任务栏设置 → 开始菜单”独立页面中，选择开始按钮启动器：ADWS 开始菜单、fuzzel、rofi 或自定义命令。安装器默认选 ADWS，也保留其他选项；外部启动器未安装时会先询问。OOBE 可以保留当前选择或切换启动器。
 
-ADWS 开始菜单使用 Rust / GTK3，内置 KDE、Vista Aero、Windows XP 风格，跟随 Waybar 配色。文字和图片开始按钮都会传递位置与所在屏幕，菜单向屏幕内侧展开并限制在输出范围内。直接运行 `adws start-menu` 或设置中的预览没有按钮坐标时，使用当前任务栏边缘作为回退位置。输入框提示“请输入搜索内容或命令”。输入时过滤应用；直接 Enter 执行输入的 shell 命令。点击结果或按 Down 选择后 Enter 启动应用；空输入不执行，Esc 或点击外部关闭。
+ADWS 开始菜单使用 Rust / GTK3，内置 KDE、Vista Aero、Windows XP 和 AkiACG 星轨风格，跟随 Waybar 配色。文字和图片开始按钮都会传递位置与所在屏幕，菜单向屏幕内侧展开并限制在输出范围内。直接运行 `adws start-menu` 或设置中的预览没有按钮坐标时，使用当前任务栏边缘作为回退位置。输入框提示“请输入搜索内容或命令”。输入时过滤应用；直接 Enter 执行输入的 shell 命令。点击结果或按 Down 选择后 Enter 启动应用；空输入不执行，Esc 或点击外部关闭。
 
-三种预设使用不同布局：KDE 为搜索横栏、分类导航和快捷应用网格；Vista Aero 为玻璃边框、内嵌程序区、底部搜索和右侧账户栏；XP 为用户横幅、双色分栏与级联“全部应用”。快捷应用优先使用任务栏固定的应用，其余补充常见应用，不伪装成使用历史。XP 可点击“搜索”，或直接输入以显示搜索框。
+各预设使用不同布局：KDE 为搜索横栏、分类导航和快捷应用网格；Vista Aero 为玻璃边框、内嵌程序区、底部搜索和右侧账户栏；XP 为用户横幅、双色分栏与级联“全部应用”。快捷应用优先使用任务栏固定的应用，其余补充常见应用，不伪装成使用历史。XP 可点击“搜索”，或直接输入以显示搜索框。
 
 头像优先读取系统账户服务的 IconFile，兼容 `~/.face`、`~/.face.icon`；昵称读取系统账户 RealName，回退到系统用户全名及登录名。没有头像时显示默认图标。账户服务和应用目录读取不阻塞菜单显示；应用控件分批创建。
 
@@ -58,7 +58,7 @@ ADWS 开始菜单使用 Rust / GTK3，内置 KDE、Vista Aero、Windows XP 风�
 
 Choose ADWS Start, fuzzel, rofi or a custom command under **Taskbar settings → Start menu**. The installer defaults to ADWS and asks before installing a missing external launcher. OOBE can retain or change this selection.
 
-The Rust/GTK3 menu has three original presets and follows the Waybar palette. Both text and image buttons pass their logical coordinates and monitor; the menu opens inward and clamps to the output. CLI/settings previews without an anchor fall back to the configured panel edge. Typing filters applications. Direct Enter runs the typed shell command; clicking a result or selecting it with Down then Enter launches an application. Empty input does nothing. Escape/outside-click dismisses the menu.
+The Rust/GTK3 menu has KDE, Vista Aero, Windows XP and AkiACG Orbit presets and follows the Waybar palette. Both text and image buttons pass their logical coordinates and monitor; the menu opens inward and clamps to the output. CLI/settings previews without an anchor fall back to the configured panel edge. Typing filters applications. Direct Enter runs the typed shell command; clicking a result or selecting it with Down then Enter launches an application. Empty input does nothing. Escape/outside-click dismisses the menu.
 
 Select a custom CSS file to override the preset. Palette and stylesheet changes reload automatically; invalid edits retain the last valid style. Local imports are supported; use absolute image URLs. The example and class/color names above apply to every preset.
 
@@ -114,3 +114,25 @@ Pointed ends are clipped polygons with separate tip space and 5px content paddin
 matching ends retain the configured radius on inner ends and the center; docking squares only the outer corners. Pointed mode also applies to front/back segments, including when the center slot is empty.
 Only active-workspace tiled windows on this output trigger automatic docking.
 Empty center segments receive no padding or surface.
+
+## AkiACG 星轨 / AkiACG Orbit
+
+选择“开始菜单 → 开始菜单主题 → AkiACG 星轨”。主题参考 [AkiACG 论坛](https://forum.akiacg.com) 的淡紫（`#bc8cff`）、浅蓝（`#c7dfff`）、半透明圆角卡片和星轨背景，改编为账户横幅、完整搜索栏、分类导航与双列应用卡片。保留键盘搜索、命令执行、设置及电源入口。背景与文字仍跟随 ADWS 配色；星轨为原创本地 SVG，无网络请求或持续动画。默认主题不变。
+
+Select **Start menu → Theme → AkiACG Orbit**. Inspired by the forum’s lilac/ice-blue palette, glass-like rounded cards and orbital backdrop, it combines an account banner, full-width search, categories and two-column application cards. Search, commands, settings and power actions remain available. Surfaces and text follow ADWS colors; the original local SVG ornament needs no network access or continuous animation.
+
+Theme files: `config/start-menu/akiacg.css` and `config/start-menu/akiacg-orbit.svg`. The selector saves `start_menu_theme: "akiacg"`; preview with `adws start-menu --theme akiacg`.
+
+
+### AkiACG 组件调整
+
+头像按原比例居中裁切为圆形，支持高 DPI；CSS 圆形底框不会再包着方形图片。分类导航使用淡紫侧边标记，应用卡片采用浅蓝／淡紫渐变与不对称圆角；底栏将版本铭文、会话按钮、关闭按钮和设置入口分组，保留内边距。所有主题只保留一个“设置”入口，打开 ADWS 统一设置。
+
+Avatars use a centered circular crop with HiDPI support. Lilac navigation markers, asymmetrical shortcut cards and a grouped footer distinguish Orbit. The version badge has inset spacing. Every preset has a single **Settings** entry opening unified ADWS settings.
+
+
+### 开始按钮右键 / Start button right-click
+
+在“设置 → 开始菜单”选择右键操作：**设置**（默认，进入新版设置的对应按钮实例）、**菜单**（使用所选启动器）、**默认终端**、**自定义命令**或**留空**。每个开始按钮实例独立保存，文字、发行版 Logo 和图片按钮均适用。悬停提示固定为单行“开始”（英文为 Start）。默认终端优先通过 `xdg-terminal-exec` 使用系统配置；没有时依次使用 `$TERMINAL`、系统终端替代入口或已安装的常见终端。此操作不会安装终端。
+
+Choose **Settings** (the matching button instance in unified settings), **Menu** (the selected launcher), **Default terminal**, **Custom command**, or **None** under Start menu settings. Each instance keeps its own action, including image buttons. The tooltip is a single localized “Start”. Terminal selection is resolved on click and follows `xdg-terminal-exec`, `$TERMINAL`, the system alternative, then an installed terminal.

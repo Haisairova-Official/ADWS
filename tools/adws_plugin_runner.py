@@ -81,6 +81,7 @@ def dispatch(root, manifest, overrides, timeout=30):
 
 
 def execute(root, manifest, overrides, timeout=30):
+    previous_preview = None
     command = prepare_command(root, manifest, overrides, timeout)
     process = None
     class Stopped(Exception):
@@ -123,6 +124,15 @@ def execute(root, manifest, overrides, timeout=30):
                             raise ValueError('Invalid CSS class')
                         if 'percentage' in payload and (not finite(payload['percentage']) or not 0 <= payload['percentage'] <= 100):
                             raise ValueError('Invalid percentage')
+                        display = {key: value[:4096] for key, value in payload.items()
+                                   if key in ('primary','secondary','text','class') and isinstance(value,str)}
+                        if display != previous_preview:
+                            try:
+                                from adws_plugin_preview import publish
+                                publish(display,os.environ.get('ADWS_PLUGIN_INSTANCE') or manifest['id'])
+                                previous_preview = display
+                            except (OSError, ValueError):
+                                pass  # An optional preview must never stop a plugin.
                         write_line(json.dumps(payload, ensure_ascii=False), sys.stdout)
                         count += 1
                         # Legacy streams emit only changed data and have no heartbeat contract.
@@ -133,6 +143,15 @@ def execute(root, manifest, overrides, timeout=30):
             if code or not count: raise ValueError(f'Plugin exited with status {code}; records={count}')
         return 0
     except (BrokenPipeError, Stopped):
+        # A signal can interrupt TextIOWrapper's flush into a full consumer pipe.
+        # Its shutdown flush would then block again after the child is reaped.
+        # The consumer is closing; discard only the interrupted pending output.
+        try:
+            with open(os.devnull,'wb') as sink:
+                for stream in (sys.stdout,sys.stderr):
+                    os.dup2(sink.fileno(),stream.fileno())
+        except (OSError, ValueError):
+            pass
         return 0
     except (OSError, ValueError, RecursionError, OverflowError, subprocess.TimeoutExpired) as error:
         return report_failure(error, manifest['id'])

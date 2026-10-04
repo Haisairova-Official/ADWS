@@ -120,9 +120,12 @@ fn json_file(path: &Path) -> Value {
 }
 fn theme_name(value: &str) -> &str {
     match value {
-        "aero" | "xp" => value,
+        "aero" | "xp" | "akiacg" => value,
         _ => "kde",
     }
+}
+fn grid_theme(theme: &str) -> bool {
+    matches!(theme, "kde" | "akiacg")
 }
 fn add_class(widget: &impl IsA<gtk::Widget>, name: &str) {
     widget.style_context().add_class(name);
@@ -177,6 +180,11 @@ fn stylesheet(root: &Path, theme: &str, custom: Option<&Path>) -> Result<String,
             &root.join("config/start-menu").join(file),
             &mut HashSet::new(),
         )?);
+    }
+    if theme == "akiacg" {
+        let artwork = glib::filename_to_uri(root.join("config/start-menu/akiacg-orbit.svg"), None)
+            .map_err(|error| error.to_string())?;
+        css = css.replace("akiacg-orbit.svg", artwork.as_str());
     }
     if let Some(path) = custom {
         css.push_str(&css_tree(path, &mut HashSet::new())?);
@@ -534,7 +542,7 @@ fn main() {
     timing("process entry");
     let args: Vec<_> = std::env::args().collect();
     if args.iter().any(|s| s == "--help" || s == "-h") {
-        println!("adws-start-menu --root PATH [--theme kde|aero|xp] [--css PATH]");
+        println!("adws-start-menu --root PATH [--theme kde|aero|xp|akiacg] [--css PATH]");
         return;
     }
     let value = |name: &str| {
@@ -655,7 +663,9 @@ fn build(
         .map(|g| {
             (g.height() - 120).clamp(
                 180,
-                if theme == "kde" {
+                if theme == "akiacg" {
+                    620
+                } else if theme == "kde" {
                     550
                 } else if theme == "aero" {
                     570
@@ -667,7 +677,7 @@ fn build(
         .unwrap_or(520);
     let width = geometry
         .as_ref()
-        .map(|g| (g.width() - 40).clamp(300, if theme == "kde" { 680 } else { 500 }))
+        .map(|g| (g.width() - 40).clamp(300, if grid_theme(theme) { 680 } else { 500 }))
         .unwrap_or(600);
     if layered {
         // GtkOverlay excludes overlay children from its natural size. A zero-size
@@ -757,7 +767,7 @@ fn build(
         gtk::PositionType::Top,
         gtk::PositionType::Bottom,
     ] {
-        let pad = if theme == "aero" { 8 } else { 1 };
+        let pad = if theme == "akiacg" { 12 } else if theme == "aero" { 8 } else { 1 };
         match edge {
             gtk::PositionType::Left => content.set_margin_start(pad),
             gtk::PositionType::Right => content.set_margin_end(pad),
@@ -771,7 +781,7 @@ fn build(
     status.set_no_show_all(true);
     let user = std::env::var("USER").unwrap_or_default();
     let avatar = gtk::Image::from_icon_name(Some("avatar-default"), gtk::IconSize::Dialog);
-    avatar.set_pixel_size(if theme == "aero" { 52 } else { 40 });
+    avatar.set_pixel_size(if theme == "aero" { 52 } else if theme == "akiacg" { 48 } else { 40 });
     add_class(&avatar, "menu-avatar");
     let search = gtk::SearchEntry::new();
     search.set_placeholder_text(Some(&text.get("请输入搜索内容或命令")));
@@ -781,14 +791,31 @@ fn build(
     if theme != "aero" {
         header.pack_start(&avatar, false, false, 0);
         let name = gtk::Label::new(Some(&user));
-        account::populate(&avatar, &name);
+        account::populate(&avatar, &name, theme == "akiacg");
         name.set_xalign(0.);
+        name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        name.set_max_width_chars(24);
         add_class(&name, "menu-title");
-        header.pack_start(&name, theme == "xp", theme == "xp", 0);
+        header.pack_start(&name, theme == "xp" || theme == "akiacg", theme == "xp" || theme == "akiacg", 0);
+        if theme == "akiacg" {
+            let signature = gtk::Box::new(gtk::Orientation::Vertical, 3);
+            let title = gtk::Label::new(Some("AkiACG"));
+            title.set_xalign(1.);
+            add_class(&title, "aki-signature");
+            signature.pack_start(&title, false, false, 0);
+            let subtitle = gtk::Label::new(Some("Community Works"));
+            subtitle.set_xalign(1.);
+            add_class(&subtitle, "menu-subtitle");
+            signature.pack_start(&subtitle, false, false, 0);
+            header.pack_end(&signature, false, false, 0);
+        }
         if theme == "kde" {
             header.pack_end(&search, true, true, 0);
         }
         content.pack_start(&header, false, false, 0);
+    }
+    if theme == "akiacg" {
+        content.pack_start(&search, false, false, 0);
     }
     let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     add_class(&body, "menu-body");
@@ -815,9 +842,9 @@ fn build(
     home.pack_start(&heading, false, false, 0);
     let favorites = gtk::FlowBox::new();
     favorites.set_selection_mode(gtk::SelectionMode::None);
-    favorites.set_homogeneous(theme == "kde");
-    favorites.set_max_children_per_line(if theme == "kde" { 3 } else { 1 });
-    favorites.set_min_children_per_line(if theme == "kde" { 3 } else { 1 });
+    favorites.set_homogeneous(grid_theme(theme));
+    favorites.set_max_children_per_line(if theme == "akiacg" { 2 } else if theme == "kde" { 3 } else { 1 });
+    favorites.set_min_children_per_line(if theme == "akiacg" { 2 } else if theme == "kde" { 3 } else { 1 });
     favorites.set_valign(gtk::Align::Start);
     home.pack_start(&favorites, false, false, 0);
     let home_scroll = scrolled(&home);
@@ -843,14 +870,14 @@ fn build(
     stack.set_visible_child_name("home");
     let side_scroll = scrolled(&sidebar);
     side_scroll.set_size_request(if theme == "kde" { 156 } else { 160 }, -1);
-    if theme == "kde" {
+    if grid_theme(theme) {
         body.pack_start(&side_scroll, false, false, 0);
         body.pack_start(&pane, true, true, 0);
     } else {
         body.pack_start(&pane, true, true, 0);
         body.pack_start(&side_scroll, false, false, 0);
     }
-    if theme == "kde" {
+    if grid_theme(theme) {
         let shortcuts = icon_button(&text.get("快捷应用"), "starred-symbolic");
         let s = stack.clone();
         let side = sidebar.clone();
@@ -877,13 +904,13 @@ fn build(
     } else if theme == "aero" {
         sidebar.pack_start(&avatar, false, false, 4);
         let name = gtk::Label::new(Some(&user));
-        account::populate(&avatar, &name);
+        account::populate(&avatar, &name, theme == "akiacg");
         add_class(&name, "menu-title");
         name.set_ellipsize(gtk::pango::EllipsizeMode::End);
         name.set_max_width_chars(18);
         sidebar.pack_start(&name, false, false, 6);
     }
-    if theme == "kde" {
+    if grid_theme(theme) {
         sidebar.pack_start(
             &gtk::Separator::new(gtk::Orientation::Horizontal),
             false,
@@ -915,7 +942,7 @@ fn build(
             "folder-download",
         ),
     ] {
-        if theme == "kde" && !matches!(caption, "主目录" | "下载") {
+        if grid_theme(theme) && !matches!(caption, "主目录" | "下载") {
             continue;
         }
         let Some(path) = path else { continue };
@@ -1023,7 +1050,7 @@ fn build(
             }
         });
     }
-    if theme != "kde" {
+    if !grid_theme(theme) {
         pane.pack_start(&all, false, false, 0);
     }
     if theme == "aero" {
@@ -1042,20 +1069,20 @@ fn build(
         sidebar.pack_start(&find, false, false, 0);
         // Typing anywhere still reaches search, without a permanent modern search strip.
     }
-    let settings = icon_button(&text.get("桌面设置"), "preferences-system");
+    let settings = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let settings_button = icon_button(&text.get("设置"), "preferences-system-symbolic");
+    add_class(&settings_button, "settings-entry");
     let script = root.join("adws");
     let a = application.clone();
     let error = status.clone();
-    settings.connect_clicked(move |_| {
+    settings_button.connect_clicked(move |_| {
         match std::process::Command::new(&script).arg("config").spawn() {
             Ok(_) => dismiss(&a),
-            Err(e) => {
-                error.set_text(&e.to_string());
-                error.show();
-            }
+            Err(e) => { error.set_text(&e.to_string()); error.show(); }
         }
     });
-    if theme != "kde" {
+    settings.pack_start(&settings_button, false, false, 0);
+    if !grid_theme(theme) {
         sidebar.pack_start(
             &gtk::Separator::new(gtk::Orientation::Horizontal),
             false,
@@ -1079,11 +1106,31 @@ fn build(
     brand.set_ellipsize(gtk::pango::EllipsizeMode::End);
     brand.set_max_width_chars(28);
     add_class(&brand, "menu-subtitle");
-    footer.pack_start(&brand, false, false, 0);
-    if theme == "kde" {
+    if theme == "akiacg" {
+        let badge = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        add_class(&badge, "aki-version");
+        let mark = gtk::Label::new(Some("ADWS"));
+        mark.set_xalign(0.);
+        add_class(&mark, "aki-version-mark");
+        brand.set_text(version);
+        brand.set_xalign(0.);
+        badge.pack_start(&mark, false, false, 0);
+        badge.pack_start(&brand, false, false, 0);
+        footer.pack_start(&badge, false, false, 0);
+    } else {
+        footer.pack_start(&brand, false, false, 0);
+    }
+    if grid_theme(theme) {
         footer.pack_end(&settings, false, false, 0);
     }
     let close = icon_button(&text.get("关闭菜单"), "window-close-symbolic");
+    add_class(&close, "close-entry");
+    if theme == "akiacg" {
+        if let Some(child) = close.child() { close.remove(&child); }
+        close.add(&gtk::Image::from_icon_name(Some("window-close-symbolic"), gtk::IconSize::Button));
+        close.set_tooltip_text(Some(&text.get("关闭菜单")));
+        if let Some(accessible) = close.accessible() { accessible.set_name(&text.get("关闭菜单")); }
+    }
     let a = application.clone();
     close.connect_clicked(move |_| dismiss(&a));
     footer.pack_end(&close, false, false, 0);
@@ -1437,5 +1484,8 @@ mod tests {
     fn known_theme_only() {
         assert_eq!(theme_name("../../x"), "kde");
         assert_eq!(theme_name("xp"), "xp");
+        assert_eq!(theme_name("akiacg"), "akiacg");
+        assert!(grid_theme("akiacg"));
+        assert!(!grid_theme("aero"));
     }
 }

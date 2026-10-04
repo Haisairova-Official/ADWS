@@ -102,7 +102,7 @@ def dependency_errors():
             errors.append(''.join([_tr('缺少运行依赖：'), f'{program}']))
     probe = """import gi, cairo, yaml
 from PIL import ImageFilter
-for name, version in [('Gtk','3.0'),('Gdk','3.0'),('GtkLayerShell','0.1'),('PangoCairo','1.0'),('Gio','2.0')]:
+for name, version in [('Gtk','3.0'),('Gdk','3.0'),('GtkLayerShell','0.1'),('PangoCairo','1.0'),('Gio','2.0'),('Polkit','1.0'),('PolkitAgent','1.0')]:
  gi.require_version(name, version)
  __import__('gi.repository', fromlist=[name])
 """
