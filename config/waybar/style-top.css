@@ -1,0 +1,71 @@
+/* ADWS top bar — independently authored Powerline layout. */
+@import "colors.css";
+* {
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+window#waybar { background: transparent; color: @on_surface; box-shadow: none; }
+window#waybar decoration { background: transparent; border: none; box-shadow: none; }
+label.module { padding: 0 9px; font-family: "JetBrainsMono Nerd Font Propo"; font-size: 16.6px; }
+#window, #clock, tooltip label { font-family: inherit; font-size: inherit; }
+#custom-actions, #custom-settings, #custom-screenshot, #custom-clipboard,
+#custom-cava { background: @surface_container_high; color: @secondary; }
+#workspaces { background: @surface; color: @secondary; }
+#workspaces button {
+  font-family: "JetBrainsMono Nerd Font Propo"; font-size: 16.6px;
+  padding: 0 9px; background: transparent; color: @secondary;
+  box-shadow: none; text-shadow: none;
+}
+#workspaces button.active { color: @primary; }
+#workspaces button:hover { background: alpha(@on_surface, .12); }
+#window { background: @surface_container_high; color: @on_surface; padding: 0 14px; }
+#idle_inhibitor, #custom-colorpicker, #power-profiles-daemon {
+  background: @tertiary; color: @on_tertiary;
+}
+#idle_inhibitor.deactivated { color: alpha(@on_tertiary, .65); }
+#custom-applauncher { font-size: 1.39em; background: @primary; color: @on_primary; padding: 0 11px; }
+#clock { background: @secondary; color: @on_secondary; }
+#custom-cava { color: @primary; padding: 0 10px; }
+#custom-updates, #tray { background: @surface_bright; color: @primary; }
+#tray { padding: 0 8px; }
+#custom-adws-brightness, #custom-adws-brightness-low, #custom-adws-brightness-medium,
+#custom-adws-brightness-high, #custom-adws-night, #backlight-slider,
+#pulseaudio, #wireplumber, #pulseaudio-slider, #privacy {
+  background: @surface_container_high; color: @tertiary;
+}
+#privacy { color: @error; padding: 0 8px; }
+#bluetooth, #network, #battery { background: @surface_container; color: @secondary; }
+#battery.critical { color: @error; }
+#custom-taskbar-toggle, #custom-wlogout, #custom-reboot, #custom-logout,
+#custom-lockscreen, #custom-adws-preview-close { background: @surface; color: @on_surface; }
+#custom-wlogout { color: @error; }
+tooltip {
+  background: @surface_container_high; color: @on_surface;
+  border: 1px solid alpha(@on_surface, .2); border-radius: 10px;
+}
+tooltip label { padding: 7px 10px; }
+/* Small arrow junctions: each foreground points into the next section. */
+#custom-left_div, #custom-right_div { padding: 0; font-size: 0; min-width: 15px; background-size: 100% 100%; background-repeat: no-repeat; }
+#custom-left_div { background-image: -gtk-recolor(url("arrow-left-symbolic.svg")); }
+#custom-right_div { background-image: -gtk-recolor(url("arrow-right-symbolic.svg")); }
+#custom-right_div.5 { background-color: @surface_container_high; color: @surface; }
+#custom-right_div.6 { background-color: transparent; color: @surface_container_high; }
+#custom-left_div.3 { background-color: transparent; color: @surface_container_high; }
+#custom-left_div.2 { background-color: @surface_container_high; color: @tertiary; }
+#custom-left_div.11 { background-color: @tertiary; color: @surface_container; }
+#custom-left_div.1, #custom-right_div.1 { background-color: @surface_container; color: @primary; }
+#custom-right_div.11 { background-color: @secondary; color: @surface_container; }
+#custom-right_div.2 { background-color: @surface_container_high; color: @secondary; }
+#custom-right_div.3 { background-color: transparent; color: @surface_container_high; }
+#custom-left_div.7 { background-color: transparent; color: @surface_bright; }
+#custom-left_div.4 { background-color: @surface_bright; color: @surface_container_high; }
+#custom-left_div.8 { background-color: @surface_container_high; color: @surface_container; }
+#custom-left_div.5 { background-color: @surface_container; color: @surface; }
+scale { padding: 0 8px; }
+scale trough { min-width: 74px; min-height: 5px; background: alpha(@on_surface, .22); border-radius: 3px; }
+scale highlight { background: @tertiary; border-radius: 3px; }
+scale slider { min-width: 9px; min-height: 9px; background: @on_surface; border-radius: 50%; }
+/* Keep drawer contents at full color throughout the slide. */
+.adws-drawer-child { opacity: 1; transition: none; }

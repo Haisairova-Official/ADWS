@@ -43,6 +43,12 @@ def mainland_china():
 
 def version_key(text):
     # ADWS's Major is a decimal (1.20 -> 1.30), followed by letter-based Minor.
+    # Development builds may carry both a letter and a preview channel.
+    compound = re.fullmatch(r'(v?\d+\.\d+(?:\.\d+)?)[\s_-]*([A-Za-z])[\s_-]+(Pre-release|Released?)',text.strip(),re.I)
+    if compound:
+        base, letter, channel=compound.groups()
+        major,patch,rank=version_key(base+'-'+letter)
+        return major,patch,rank-(0.25 if channel.lower()=='pre-release' else 0)
     match = re.fullmatch(r'v?(\d+\.\d+)(?:\.(\d+))?(?:[\s_-]*(Development|Pre-release|Released?|[A-Za-z]))?', text.strip(), re.I)
     if not match:
         raise ValueError(_tr('无法识别版本号：%s') % text)

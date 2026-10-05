@@ -20,6 +20,8 @@ pub(crate) struct Tray {
     grid: gtk::Grid,
     arrow: gtk::MenuButton,
     popup: gtk::Popover,
+    _arrow_tip: Rc<TrayTip>,
+    edge: String,
     items: RefCell<HashMap<String, Rc<Item>>>,
     order: RefCell<Vec<String>>,
     size: i32,
@@ -32,6 +34,7 @@ pub(crate) struct Tray {
 }
 struct Item {
     button: gtk::Button,
+    _tip: Rc<TrayTip>,
     image: gtk::Image,
     proxy: gio::DBusProxy,
     active: Cell<bool>,
@@ -42,6 +45,65 @@ struct Item {
     icon_theme: RefCell<Option<(String, gtk::IconTheme)>>,
     icon_properties: RefCell<HashMap<String,glib::Variant>>,
     icon_signature: RefCell<Option<(Vec<Option<glib::Variant>>,i32,gtk::gdk::RGBA)>>,
+}
+// Native GTK tooltips can use the layer origin for overflow-popup icons.
+// Anchor each description to its actual button, including nested popups.
+struct TrayTip {
+    popup: gtk::Popover,
+    label: gtk::Label,
+    button: glib::WeakRef<gtk::Button>,
+    pending: RefCell<Option<glib::SourceId>>,
+}
+impl TrayTip {
+    fn new(button: &gtk::Button, edge: &str) -> Rc<Self> {
+        button.set_has_tooltip(false);
+        let popup=gtk::Popover::new(Some(button));popup.set_modal(false);
+        popup.set_constrain_to(gtk::PopoverConstraint::None);
+        popup.set_position(match edge {
+            "top"=>gtk::PositionType::Bottom,"left"=>gtk::PositionType::Right,
+            "right"=>gtk::PositionType::Left,_=>gtk::PositionType::Top,
+        });
+        popup.style_context().add_class("adws-tray-overflow");
+        let label=gtk::Label::new(None);label.set_max_width_chars(48);label.set_line_wrap(true);
+        label.set_margin_top(8);label.set_margin_bottom(8);label.set_margin_start(12);label.set_margin_end(12);popup.add(&label);
+        let tip=Rc::new(Self {popup,label,button:button.downgrade(),pending:RefCell::new(None)});
+        let weak=Rc::downgrade(&tip);
+        button.connect_enter_notify_event(move |_,_| {
+            if let Some(tip)=weak.upgrade() {
+                tip.hide();let weak=Rc::downgrade(&tip);
+                *tip.pending.borrow_mut()=Some(glib::timeout_add_local_once(std::time::Duration::from_millis(350),move || {
+                    if let Some(tip)=weak.upgrade() {
+                        tip.pending.borrow_mut().take();
+                        if let Some(button)=tip.button.upgrade() {
+                            if button.is_mapped() {
+                                if let Some(text)=button.tooltip_text().filter(|s|!s.is_empty()) {
+                                    tip.label.set_text(&text);tip.popup.show_all();tip.popup.popup();
+                                }
+                            }
+                        }
+                    }
+                }));
+            }
+            glib::Propagation::Proceed
+        });
+        let weak=Rc::downgrade(&tip);
+        button.connect_leave_notify_event(move |_,_| {if let Some(tip)=weak.upgrade(){tip.hide();} glib::Propagation::Proceed});
+        let weak=Rc::downgrade(&tip);
+        button.connect_button_press_event(move |_,_| {if let Some(tip)=weak.upgrade(){tip.hide();} glib::Propagation::Proceed});
+        let weak=Rc::downgrade(&tip);
+        button.connect_unmap(move |_| {if let Some(tip)=weak.upgrade(){tip.hide();}});
+        tip
+    }
+    fn hide(&self) {
+        if let Some(id)=self.pending.borrow_mut().take(){id.remove();}
+        self.popup.popdown();
+    }
+}
+impl Drop for TrayTip {
+    fn drop(&mut self) {
+        if let Some(id)=self.pending.get_mut().take(){id.remove();}
+        self.popup.popdown();unsafe{self.popup.destroy();}
+    }
 }
 impl Drop for Item {
     fn drop(&mut self) {
@@ -127,11 +189,14 @@ impl Tray {
         bar.pack_end(&arrow, false, false, 0);
         bar.show_all();
         arrow.hide();
+        let arrow_tip=TrayTip::new(arrow.upcast_ref(),config.position());
         let tray = Rc::new(Self {
             bar,
             grid,
             arrow,
             popup,
+            _arrow_tip: arrow_tip,
+            edge: config.position().to_owned(),
             items: RefCell::new(HashMap::new()),
             order: RefCell::new(vec![]),
             size: (config.thickness() as i32 / 2).clamp(16, 32),
@@ -502,8 +567,10 @@ async fn add_item(weak: &std::rc::Weak<Tray>, address: &str) {
     let image = gtk::Image::new();
     image.set_pixel_size(tray.size);
     button.add(&image);
+    let tip=TrayTip::new(&button,&tray.edge);
     let item = Rc::new(Item {
         button,
+        _tip: tip,
         image,
         proxy,
         active: Cell::new(false),
@@ -621,6 +688,7 @@ fn refresh(wi: &std::rc::Weak<Item>, wt: &std::rc::Weak<Tray>) {
         let title = get("Title");
         item.button
             .set_tooltip_text(Some(if title.is_empty() { get("Id") } else { title }));
+        item.button.set_has_tooltip(false);
         item.icon_properties.replace(props.clone());
         render_icon(&item,&props);
         if item.menu.borrow().is_none()
@@ -881,6 +949,11 @@ mod gui_tests {
         assert_eq!(tray.bar.children().len(), 4);
         assert_eq!(tray.grid.children().len(), 4);
         assert!(tray.arrow.is_visible());
+        for item in tray.items.borrow().values() {
+            assert!(!item.button.has_tooltip(), "native layer tooltip must stay disabled");
+            assert_eq!(item._tip.popup.relative_to().unwrap(), item.button.clone().upcast::<gtk::Widget>(), "description must remain anchored after moving into overflow");
+            assert_eq!(item._tip.popup.position(), gtk::PositionType::Top);
+        }
         let weak = Rc::downgrade(&tray);
         let item_weak: Vec<_> = tray.items.borrow().values().map(Rc::downgrade).collect();
         for _ in 0..30 {

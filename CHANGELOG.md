@@ -1,6 +1,37 @@
 # Changelog / 更新记录
 
+## 1.35-L Pre-Release — 2026-10-05
+
+开发分支 / Development branch: `Pre-1.35`.
+
+- 汇总 1.30 之后的开始菜单、系统设置、组件布局、授权与安装保护更新。
+- 新增四套顶部 Waybar 预设，完善快捷组件、取色与配色、字体和折角。
+- 新增整套配置导入、备份恢复与 Niri 自启选项；刷新与应用使用所选栏的正常重启。
+- 修复隐藏托盘图标提示位置，窗口切换移至后台并限制积压，补充超时与卡顿警告。
+- 长时间运行后的卡顿仍待验证。 / Long-session stutter still requires verification.
+
+J：顶部栏预设与布局；K：快捷组件与配色；L：导入、自启和刷新兼容；1.35：窗口切换可靠性。这些编号用于整理开发进度，未分别发布。
+
+[完整累计更新 / Consolidated update notes](docs/update-notes-1.35-L-2026-10-05.md)
+
+## 1.34-I — 2026-10-05
+
+- 提供通用顶部 Waybar 默认配置，移除 Shorin 等专属脚本依赖；新安装保留已有顶部栏，支持独立临时预览。
+
+- 新增独立 Waybar 配置页，支持尺寸、边距、组件排列及 JSONC 编辑；保存前备份，保留注释，只刷新匹配的顶部栏。
+
+开发分支 / Development branch: `Pre-1.35`.
+
+- 开始菜单短时复用，配置与应用变化自动刷新，闲置三分钟后释放。（1.34）
+- Kitty／Alacritty 预设支持一键部署、备份与字体回退，补充默认终端。（H）
+- 壁纸增加 Matugen 安装／卸载和可选自动配色，卸载保留配色。（I）
+- Cache Start briefly with automatic refresh/expiry; add terminal presets/default selection and optional wallpaper colors.
+
+[完整更新 / Update notes](docs/update-notes-1.34-I-2026-10-05.md)
+
 ## 1.33-G — 2026-10-05
+
+- 修复管理员授权后崩溃、菜单动作丢失，使用紧凑授权与错误窗口。 / Fix authorization completion crashes and lost actions; use compact themed dialogs.
 
 开发分支 / Development branch: `Pre-1.35`.
 

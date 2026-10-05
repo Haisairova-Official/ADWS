@@ -372,9 +372,7 @@ impl HoverPreview {
             select.connect_clicked(move |_| {
                 if let Some(this) = weak.upgrade() {
                     this.dismiss();
-                    if let Err(error) = this.state.niri().activate_window(id) {
-                        tracing::warn!(%error, id, "preview activation failed");
-                    }
+                    this.state.niri().activate_window_background(id);
                 }
             });
             let close = gtk::Button::from_icon_name(Some("window-close-symbolic"), gtk::IconSize::Menu);

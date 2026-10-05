@@ -85,6 +85,9 @@ def remove_autostart():
     pattern = re.compile(r'(?ms)^[ \t]*// ==== ADWS 桌面图标层自启（自动生成）====[^\n]*\n.*?^[ \t]*// ==== ADWS 桌面图标层自启 END ====[^\n]*\n?')
     from adws_autostart import PATTERN
     cleaned = PATTERN.sub('', pattern.sub('', text))
+    from adws_topbar import BEGIN as TOP_BEGIN, END as TOP_END
+    top_pattern = re.compile(r'(?ms)^' + re.escape(TOP_BEGIN) + r'[^\n]*\n.*?^' + re.escape(TOP_END) + r'[^\n]*\n?')
+    cleaned = top_pattern.sub('', cleaned)
     from adws_windows import PATTERN as WINDOW_RULES
     cleaned = WINDOW_RULES.sub('', cleaned)
     from adws_keyboard import clean_block

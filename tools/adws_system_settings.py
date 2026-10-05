@@ -23,6 +23,7 @@ PAGES = (
     Page('home', '概览', '从常用设置开始，打造你的工作空间。', 'preferences-system-symbolic', '概览', 'overview home 常用 首页'),
     Page('desktop', '桌面与文字', '调整桌面图标、字体与网格。', 'video-display-symbolic', '工作空间', 'desktop appearance font icons 外观 字体 图标 网格'),
     Page('taskbar', '任务栏外观', '位置、分体、材质、配色与动效。', 'view-grid-symbolic', '工作空间', 'taskbar panel color animation radius split 颜色 动效 圆角 尖角 高度'),
+    Page('waybar', 'Waybar 配置', '管理独立 Waybar 的尺寸、间距与组件排列。', 'view-top-bar-symbolic', '工作空间', 'waybar top panel 顶部栏 配置'),
     Page('layout', '组件与插件', '排列组件，管理插件和时钟。', 'application-x-addon-symbolic', '工作空间', 'layout plugin component clock lyrics 布局 插件 组件 时钟 歌词'),
     Page('start', '开始菜单', '启动器、按钮图样、菜单主题与键位。', 'view-app-grid-symbolic', '工作空间', 'start launcher keyboard rofi fuzzel 开始 启动器 快捷键'),
     Page('wallpaper', '壁纸', '选择图片与壁纸管理工具。', 'preferences-desktop-wallpaper-symbolic', '个性化', 'wallpaper background awww swww swaybg 壁纸 背景'),
@@ -367,6 +368,10 @@ class SystemSettingsWindow(Gtk.Window):
             from adws_display_gui import DisplaySettingsPage
             self.display_page = DisplaySettingsPage(self)
             return self.scroll(self.display_page)
+        if key == 'waybar':
+            from adws_waybar_gui import WaybarPage
+            self.waybar_page = WaybarPage(self)
+            return self.scroll(self.waybar_page)
         if key == 'apps':
             return self.scroll(self.build_apps())
         if key == 'wallpaper':
@@ -569,7 +574,37 @@ class SystemSettingsWindow(Gtk.Window):
             box.pack_start(row, False, False, 0)
             chooser.connect('changed', lambda *_, mime=mime: self.app_changed(mime))
             self.app_choices[mime] = chooser
+        from desktop_layer.terminal import choices, current
+        self.terminal_choice = Gtk.ComboBoxText()
+        self.terminal_choice.append('__system__', tr('跟随系统默认终端'))
+        terminals = choices(applications)
+        for app in terminals: self.terminal_choice.append(app.get_id(), app.get_display_name())
+        self.terminal_choice.set_active_id(current() or '__system__')
+        if self.terminal_choice.get_active() < 0: self.terminal_choice.set_active(0)
+        box.pack_start(self.config.row_widget(tr('默认终端'), self.terminal_choice), False, False, 0)
+        self.terminal_choice.connect('changed', lambda *_: self.app_changed('terminal'))
+        section = card('终端外观预设', '保存当前 Kitty 的字体、透明度、内边距与配色，并提供 Alacritty 同款。部署前自动备份，缺少字体时使用等宽字体。')
+        line = Gtk.Box(spacing=12)
+        for terminal in ('kitty', 'alacritty'):
+            button = Gtk.Button(label=tr('部署 %s 预设') % ('Kitty' if terminal == 'kitty' else 'Alacritty'))
+            button.connect('clicked', lambda _, name=terminal: self.deploy_terminal_preset(name))
+            line.pack_start(button, False, False, 0)
+        section.pack_start(line, False, False, 0)
+        box.pack_start(section, False, False, 0)
         return box
+
+    def deploy_terminal_preset(self, name):
+        if not self.confirm('部署终端外观预设？', '将备份并替换所选终端配置；不会更改默认终端。'):
+            return
+        from adws_terminal_presets import deploy
+        result = {}
+        def job(): result.update(deploy(name))
+        def done():
+            dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.CLOSE, text=tr('终端预设已部署。'))
+            dialog.format_secondary_text(tr('重新打开终端即可使用。备份：%s') % result['backup'])
+            dialog.run();dialog.destroy()
+        self.run_worker(job, done)
 
     def build_wallpaper(self):
         from adws_wallpaper import config_path, installed, ENGINES
@@ -596,7 +631,49 @@ class SystemSettingsWindow(Gtk.Window):
             install.connect('clicked', self.install_wallpaper_engine)
             section.pack_start(install, False, False, 0)
         box.pack_start(section, False, False, 0)
+        colors = card('自动提取主体色', '使用 Matugen 从新壁纸提取配色，任务栏和设置实时跟随。卸载工具会保留当前配色。')
+        from adws_settings_widgets import compact_switch
+        self.wallpaper_extract = compact_switch(Gtk.Switch(active=bool(saved.get('extract_colors', False))))
+        self.wallpaper_extract.connect('notify::active', lambda *_: self.mark_dirty('wallpaper'))
+        line = self.config.row_widget(tr('更换壁纸时自动配色'), self.wallpaper_extract)
+        self.palette_button = Gtk.Button(label=tr('检测中…'))
+        self.palette_button.set_sensitive(False)
+        self.palette_button.connect('clicked', self.manage_wallpaper_colors)
+        line.pack_end(self.palette_button, False, False, 0)
+        colors.pack_start(line, False, False, 0)
+        self.palette_status = label('', 'dim-label')
+        colors.pack_start(self.palette_status, False, False, 0)
+        box.pack_start(colors, False, False, 0)
+        self.refresh_wallpaper_colors()
         return box
+
+    def refresh_wallpaper_colors(self):
+        from adws_wallpaper_colors import status
+        def worker():
+            result = status()
+            def done():
+                if self.closed: return False
+                self.palette_info = result
+                self.palette_button.set_label(tr('卸载 Matugen' if result['installed'] else '安装 Matugen'))
+                self.palette_button.set_sensitive(bool(result['package'] if result['installed'] else result['manager']))
+                self.wallpaper_extract.set_sensitive(result['installed'])
+                self.palette_status.set_text(tr('Matugen 已安装。' if result['installed'] else '安装后可启用自动配色。'))
+                if result['installed'] and not result['package']:
+                    self.palette_status.set_text(tr('Matugen 不是由系统软件包安装的，请通过原安装方式卸载。'))
+                return False
+            GLib.idle_add(done)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def manage_wallpaper_colors(self, *_):
+        from adws_wallpaper_colors import manage
+        remove = bool(self.palette_info['installed'])
+        if not self.confirm('卸载 Matugen？' if remove else '安装 Matugen？',
+                            '通过系统软件仓库操作；卸载只移除工具，保留当前配色与壁纸。'):
+            return
+        def done():
+            if remove: self.wallpaper_extract.set_active(False)
+            self.refresh_wallpaper_colors()
+        self.run_worker(lambda: manage(remove), done)
 
     def install_wallpaper_engine(self, *_):
         if not self.confirm('是否安装 awww？', '将通过系统软件仓库安装，并使用系统授权窗口。'):
@@ -640,6 +717,9 @@ class SystemSettingsWindow(Gtk.Window):
                 if not self.owners['taskbar'].apply_style():
                     return
                 self.dirty.discard('taskbar')
+            if 'waybar' in self.dirty:
+                self.waybar_page.apply()
+                return
             if 'apps' in self.dirty:
                 self.apply_apps()
                 self.dirty.discard('apps')
@@ -662,7 +742,7 @@ class SystemSettingsWindow(Gtk.Window):
             self.update_footer()
 
     def apply_apps(self):
-        selected = [(mime, self.app_choices[mime].get_app_info()) for mime in self.app_dirty]
+        selected = [(mime, self.app_choices[mime].get_app_info()) for mime in self.app_dirty if mime != 'terminal']
         rollback = []
         try:
             for mime, app in selected:
@@ -674,6 +754,10 @@ class SystemSettingsWindow(Gtk.Window):
                     rollback.append((content_type, old))
                     if not app.set_as_default_for_type(content_type):
                         raise RuntimeError(tr('无法设置默认应用。'))
+            if 'terminal' in self.app_dirty:
+                from desktop_layer.terminal import set_default
+                selected = self.terminal_choice.get_active_id()
+                if selected: set_default(None if selected == '__system__' else selected)
         except Exception:
             for content_type, app in reversed(rollback):
                 if app:
@@ -688,13 +772,20 @@ class SystemSettingsWindow(Gtk.Window):
         if not image:
             raise ValueError(tr('请先选择壁纸图片。'))
         prepared = {}
+        extract_colors = self.wallpaper_extract.get_active()
         def prepare():
             # Reading and verifying an image can be slow on external drives.
+            if extract_colors:
+                from adws_wallpaper_colors import status
+                if not status()['installed']: raise ValueError(tr('请先安装 Matugen，再启用自动提取主体色。'))
             prepared['image'] = validate(engine, image)
             prepared['approved'] = running()
         def job():
             apply(engine, prepared['image'], prepared['approved'])
-            self.config.save_json_atomic(config_path(), {'engine': engine, 'image': prepared['image']})
+            self.config.save_json_atomic(config_path(), {'engine': engine, 'image': prepared['image'], 'extract_colors': extract_colors})
+            if extract_colors:
+                from adws_wallpaper_colors import extract
+                extract(prepared['image'])
         def confirm_and_apply():
             from adws_wallpaper import PROCESSES
             conflicts = any(PROCESSES.get(name) != engine or engine == 'swaybg'

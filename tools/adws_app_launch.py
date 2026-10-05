@@ -9,6 +9,7 @@ import subprocess
 import json
 import fcntl
 import tempfile
+import threading
 from pathlib import Path
 
 from gi.repository import Gio, GLib
@@ -114,26 +115,94 @@ def admin_argv(info):
     pkexec = shutil.which('pkexec')
     if not pkexec:
         raise ValueError(_tr('未安装 pkexec，请安装 polkit 并启用系统认证代理。'))
-    # pkexec authenticates first; only display connection variables cross the boundary.
-    # Never carry the user's HOME, session bus or interpreter/library search paths.
-    display = [f'{key}={os.environ[key]}' for key in
-               ('DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR')
-               if os.environ.get(key)]
+    # The administrative process keeps pkexec's own HOME/runtime environment.
+    # A relative Wayland name depends on the user's runtime directory; make
+    # only the display socket absolute instead of exporting that directory.
+    display = []
+    for key in ('DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY'):
+        value = os.environ.get(key)
+        if not value:
+            continue
+        if key == 'WAYLAND_DISPLAY' and not os.path.isabs(value):
+            runtime = os.environ.get('XDG_RUNTIME_DIR')
+            if not runtime or not os.path.isabs(runtime):
+                raise ValueError(_tr('无法确定 Wayland 显示连接，请在图形会话中重试。'))
+            value = os.path.join(runtime, value)
+        display.append(f'{key}={value}')
     return [pkexec, '--disable-internal-agent', '/usr/bin/env', *display, *result]
+
+
+def administrator_error(info, stderr, code):
+    summary = _tr('无法以管理员权限启动“%s”。') % info.get_name()
+    details = (stderr or '').strip()[-4096:]
+    if code == 127:
+        summary += '\n' + _tr('系统未完成授权，请检查认证代理或重试。')
+    elif any(text in details.lower() for text in ('as root', 'with sudo', '--no-sandbox', 'not supported')):
+        summary += '\n' + _tr('此应用拒绝管理员运行，请使用普通方式启动。')
+    if details:
+        summary += '\n\n' + _tr('应用返回：') + '\n' + details
+    return summary
+
+
+def run_administrator(argv, cwd=None, app_name=None):
+    # This process owns the auth agent, never Waybar's GTK thread. Scope it to
+    # the pkexec caller so it cannot take over unrelated session requests.
+    from adws_i18n import prepare_gtk_language
+    prepare_gtk_language()
+    import gi
+    gi.require_version('Gtk', '3.0')
+    from gi.repository import Gtk
+    GLib.set_prgname('adws-config')
+    host = Gtk.Window()
+    host.authorization_app_name = app_name
+    agent = None
+    try:
+        try:
+            from adws_native_auth import start
+            agent = start(host, process_only=True)
+        except (ImportError, ValueError) as error:
+            LOG.warning('Native authorization agent unavailable: %s', error)
+        results = []
+        loop = GLib.MainLoop()
+        def completed(result):
+            results.append(result)
+            loop.quit()
+            return False
+        def work():
+            try:
+                # Long-running GUI apps can emit unlimited diagnostics. Keep
+                # them out of RAM and show only their final, bounded output.
+                with tempfile.TemporaryFile() as errors:
+                    result = subprocess.run(argv, cwd=cwd, stderr=errors)
+                    errors.seek(0, os.SEEK_END)
+                    size = errors.tell()
+                    errors.seek(max(0, size - 4096))
+                    result.stderr = errors.read().decode('utf-8', errors='replace')
+            except Exception as error:
+                result = error
+            GLib.idle_add(completed, result)
+        threading.Thread(target=work, daemon=True).start()
+        loop.run()
+        if isinstance(results[0], Exception):
+            raise results[0]
+        return results[0]
+    finally:
+        if agent is not None:
+            agent.close()
+        host.destroy()
 
 
 def launch(app_id, administrator=False):
     info = resolve_app(app_id)
     LOG.info('%s: %s', 'administrator' if administrator else 'new-window', info.get_id())
     if administrator:
-        # This helper waits, never Waybar's GTK thread. No password enters ADWS.
-        completed = subprocess.run(admin_argv(info), cwd=info.get_string('Path') or None,
-                                   stderr=subprocess.PIPE, text=True)
+        completed = run_administrator(admin_argv(info), cwd=info.get_string('Path') or None,
+                                      app_name=info.get_name())
         if completed.returncode == 126:  # Authentication dismissed.
             return
         if completed.returncode:
             LOG.error('Administrator launch exit=%s: %s', completed.returncode, completed.stderr)
-            raise RuntimeError(_tr('管理员启动失败。请检查系统认证代理，以及此应用是否支持管理员运行。'))
+            raise RuntimeError(administrator_error(info, completed.stderr, completed.returncode))
         return
     actions = info.list_actions()
     action = next((action for action in actions
@@ -166,13 +235,9 @@ def main():
         prepare_gtk_language()
         import gi
         gi.require_version('Gtk', '3.0')
-        from gi.repository import Gtk
-        dialog = Gtk.MessageDialog(message_type=Gtk.MessageType.ERROR,
-                                   buttons=Gtk.ButtonsType.CLOSE,
-                                   text=_tr('无法启动应用'))
-        dialog.format_secondary_text(str(exc))
-        dialog.run()
-        dialog.destroy()
+        GLib.set_prgname('adws-config')
+        from adws_launch_dialogs import show_launch_error
+        show_launch_error(str(exc))
         return 1
     return 0
 

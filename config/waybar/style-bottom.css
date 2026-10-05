@@ -60,10 +60,10 @@ tooltip label {
 #custom-applauncher {
     background: transparent;
     border-radius: 0.7em;
-    padding: 0.05em 0.7em 0.05em 0.8em;
-    font-size: 1.2em;
+    padding: 0.039em 0.542em 0.039em 0.619em;
+    font-size: 1.55em;
     color: @on_surface;
-    min-width: 2.2em;
+    min-width: 1.703em;
 }
 
 #custom-applauncher:hover {

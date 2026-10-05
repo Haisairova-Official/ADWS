@@ -1,0 +1,49 @@
+# ADWS: visual equivalent of Akizuki's Kitty preset (2026-10-05).
+# Alacritty has no Kitty cursor-trail equivalent.
+[window]
+opacity = 0.8
+decorations = "None"
+padding = { x = 5, y = 5 }
+
+[font]
+size = 13.5
+normal = { family = "JetBrains Maple Mono" }
+
+[cursor.style]
+shape = "Block"
+blinking = "Never"
+
+[terminal.shell]
+program = "/bin/zsh"
+
+[colors.primary]
+foreground = "#f9dcd5"
+background = "#1e100c"
+
+[colors.cursor]
+text = "#1e100c"
+cursor = "#f2bb98"
+
+[colors.selection]
+text = "#492810"
+background = "#f2bb98"
+
+[colors.normal]
+black = "#4c4c4c"
+red = "#ac8a8c"
+green = "#9ab38d"
+yellow = "#aca98a"
+blue = "#ffb5a0"
+magenta = "#f4bc7b"
+cyan = "#f2bb98"
+white = "#f0f0f0"
+
+[colors.bright]
+black = "#a38b85"
+red = "#c49ea0"
+green = "#b0c9a3"
+yellow = "#c4c19e"
+blue = "#a39ec4"
+magenta = "#ffddb9"
+cyan = "#f2bb98"
+white = "#e7e7e7"

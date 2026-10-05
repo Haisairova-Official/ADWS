@@ -38,7 +38,12 @@
 .akiacg button.shortcut:hover, .akiacg button.shortcut:focus { border-color: alpha(@aki_lilac,.65); background-color: alpha(@aki_lilac,.13); }
 .akiacg row { margin: 3px 4px; padding: 10px; border: 1px solid transparent; border-radius: 12px; }
 .akiacg row:hover { background: alpha(@aki_accent,.13); border-color: alpha(@aki_lilac,.35); }
-.akiacg row:selected { background: alpha(@aki_accent,.24); color: @adws_fg; border-color: alpha(@aki_lilac,.65); }
+.akiacg row:selected { background: alpha(@aki_accent,.24); color: white; border-color: alpha(@aki_lilac,.65); }
+/* Keep app labels legible even when the desktop theme overrides selected text. */
+.adws-start-menu.akiacg row:hover,
+.adws-start-menu.akiacg row:hover label,
+.adws-start-menu.akiacg row:selected,
+.adws-start-menu.akiacg row:selected label { color: white; }
 .akiacg button:hover { background-color: alpha(@aki_accent,.13); border-color: alpha(@aki_lilac,.35); }
 .akiacg .menu-footer { margin: 10px 0 0; padding: 12px; border: 1px solid alpha(@aki_blue,.16); border-radius: 15px; background: alpha(@aki_blue,.035); }
 .akiacg .menu-footer button { border-radius: 12px; padding: 9px 12px; border: 1px solid alpha(@aki_blue,.22); background: alpha(@adws_fg,.04); }

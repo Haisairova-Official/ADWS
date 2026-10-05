@@ -96,7 +96,13 @@ class NativeRunnerTests(unittest.TestCase):
                 process=self.start(code,backend=backend,manifest=manifest,timeout=3)
                 self.ready(process)
                 with patch.dict(os.environ,{'XDG_RUNTIME_DIR':str(self.runtime)}):
-                    data=preview.read()['org.Example.Native-二']
+                    # stdout readiness and atomic snapshot publication are
+                    # independent; wait for publication rather than racing it.
+                    deadline=time.monotonic()+2
+                    while 'org.Example.Native-二' not in (snapshots:=preview.read()):
+                        self.assertLess(time.monotonic(),deadline,'Preview snapshot was not published')
+                        time.sleep(.01)
+                    data=snapshots['org.Example.Native-二']
                     self.assertEqual(data['primary'],'🦊'*4096)
                     self.assertEqual(data['secondary'],'translation')
                     self.assertEqual(data['pid'],process.pid)

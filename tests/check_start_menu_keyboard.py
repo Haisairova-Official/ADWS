@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='adws-menu-keyboard-') as tmp:
             time.sleep(.05)
         p.kill();raise AssertionError('No mapped menu')
     for theme in ('kde','aero','xp','akiacg'):
-        command=[str(root/'src/adws-start-menu/target/release/adws-start-menu'),'--root',str(root),'--theme',theme]
+        command=[str(root/'src/adws-start-menu/target/release/adws-start-menu'),'--root',str(root),'--theme',theme,'--one-shot']
         marker.unlink(missing_ok=True)
         p=launch()
         subprocess.run(['xdotool','type','--clearmodifiers','Keyboard Fixture'],check=True);time.sleep(.4)

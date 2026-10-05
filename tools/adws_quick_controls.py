@@ -263,8 +263,12 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('kind',choices=('sound','brightness'))
     parser.add_argument('--status',action='store_true');parser.add_argument('--panel',action='store_true');parser.add_argument('--step',type=float)
     parser.add_argument('--output');parser.add_argument('--anchor')
+    parser.add_argument('--brightness-worker-fd',type=int,help=argparse.SUPPRESS)
     args=parser.parse_args()
     try:
+        if args.brightness_worker_fd is not None:
+            if args.kind!='brightness':raise ValueError('Invalid brightness worker')
+            backend.brightness_step_worker(args.brightness_worker_fd);return 0
         if args.status:print(json.dumps(status(args.kind,args.output)));return 0
         if args.step is not None:backend.step(args.kind,args.step,args.output);return 0
         return run(args.kind,args.panel,json.loads(args.anchor) if args.anchor else None,args.output)

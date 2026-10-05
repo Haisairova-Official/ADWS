@@ -21,6 +21,9 @@ def native_menu_command():
 
 def terminal_argv():
     # Resolve at click time, so changing the system default takes effect immediately.
+    from desktop_layer.terminal import configured_argv
+    configured = configured_argv()
+    if configured: return configured
     preferred = shutil.which('xdg-terminal-exec')
     if preferred:
         return [preferred]

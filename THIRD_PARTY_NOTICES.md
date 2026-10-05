@@ -31,3 +31,11 @@ GPL-3.0-or-later). The modifier-name parser adaptation is derived from
 also GPL-3.0-or-later. ADWS supplies the standalone tap state machine, integration,
 tests and optional build tooling under GPL-3.0-or-later. The build retains upstream
 LICENSE and source; this is an optional downstream patch, not an upstream release.
+
+## Top-bar runtime dependencies
+
+ADWS top-bar defaults, CSS, action helpers and color-picker UI are independently
+implemented. They do not bundle or invoke Shorin / ML4W top-bar scripts or styles.
+Waybar, GTK, CAVA, grim, hyprpicker, fuzzel and wl-clipboard are external runtime dependencies and
+retain their own licenses. This does not change the separately licensed Niri
+components and optional compatibility patch documented above.

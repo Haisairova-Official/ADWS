@@ -545,7 +545,7 @@ def write_taskbar_font(font_family: str, font_size: float) -> Path:
 
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description=_tr('ADWS 统一设置'))
-    parser.add_argument("--tab", choices=("desktop", "taskbar", "components", "about", "start", "layout", "wallpaper", "apps", "displays", "input", "network", "bluetooth", "sound", "power", "region"), default=None)
+    parser.add_argument("--tab", choices=("desktop", "taskbar", "components", "about", "start", "layout", "wallpaper", "apps", "waybar", "displays", "input", "network", "bluetooth", "sound", "power", "region"), default=None)
     parser.add_argument("--start-instance", help=_tr("开始按钮实例"))
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--restart-desktop", action="store_true", help=_tr('重启桌面图标层（不打开界面）'))

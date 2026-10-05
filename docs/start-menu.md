@@ -136,3 +136,16 @@ Avatars use a centered circular crop with HiDPI support. Lilac navigation marker
 在“设置 → 开始菜单”选择右键操作：**设置**（默认，进入新版设置的对应按钮实例）、**菜单**（使用所选启动器）、**默认终端**、**自定义命令**或**留空**。每个开始按钮实例独立保存，文字、发行版 Logo 和图片按钮均适用。悬停提示固定为单行“开始”（英文为 Start）。默认终端优先通过 `xdg-terminal-exec` 使用系统配置；没有时依次使用 `$TERMINAL`、系统终端替代入口或已安装的常见终端。此操作不会安装终端。
 
 Choose **Settings** (the matching button instance in unified settings), **Menu** (the selected launcher), **Default terminal**, **Custom command**, or **None** under Start menu settings. Each instance keeps its own action, including image buttons. The tooltip is a single localized “Start”. Terminal selection is resolved on click and follows `xdg-terminal-exec`, `$TERMINAL`, the system alternative, then an installed terminal.
+
+## 1.34 menu reuse / 菜单复用
+
+The menu retains its hidden UI for up to three idle minutes. Reopening reuses
+widgets, icons and the application catalog; it receives the current button
+anchor from each invocation. Layout/theme, pinned-app and installed-app changes
+invalidate the cached UI. Palette updates are checked immediately on reopen;
+hidden windows skip periodic palette scans. Escape, outside clicks and launching
+an app unmap the menu and release keyboard input. `--one-shot` disables reuse for
+isolated tests; `--exit` stops the cached process.
+
+开始菜单关闭后短时保留界面，闲置三分钟后退出。重复打开使用当前按钮的位置；
+配置、固定应用或应用列表变化会刷新。隐藏时停止配色扫描，重新打开立即读取新配色。

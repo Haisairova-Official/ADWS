@@ -29,6 +29,13 @@ with patch('adws_display.outputs',return_value=monitors), patch('adws_display.de
    chooser=w.app_choices['x-scheme-handler/https']
    identities=[app.get_id() or app.get_commandline() for app in chooser.apps.values()]
    assert len(identities)==len(set(identities)),identities
+   assert hasattr(w,'terminal_choice')
+   if w.terminal_choice.get_active_id():
+    selected=w.terminal_choice.get_active_id()
+    w.app_changed('terminal')
+    with patch('desktop_layer.terminal.set_default') as terminal_save:
+     w.apply_apps();terminal_save.assert_called_once_with(None if selected == '__system__' else selected)
+    w.app_dirty.clear();w.dirty.discard('apps')
    selector=chooser._adws_choice_button
    selector.set_active(True);pump();shot(w,'app-choices');selector.set_active(False)
   if page.key=='displays':

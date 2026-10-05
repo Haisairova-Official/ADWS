@@ -49,6 +49,8 @@ for file in config-bottom.jsonc style-bottom.css modules.jsonc colors.css; do
     fi
 done
 
+python3 "$ROOT/tools/adws_topbar.py" --install-defaults
+
 python3 "$ROOT/tools/adws_include.py" "$CONFIG_DIR/config-bottom.jsonc"
 python3 "$ROOT/tools/adws_launcher.py" --apply "$CONFIG_DIR/modules.jsonc" "$LAUNCHER"
 python3 "$ROOT/tools/adws_launcher.py" --save-selection "$LAUNCHER"
@@ -63,6 +65,7 @@ fi
 "$ROOT/adws" -v
 adws_message "安装完成。运行 adws-config 打开统一设置；运行 adws desktop --start（或 -s）启动桌面。" "Installation complete. Run adws-config for settings or adws -s to start desktop and taskbar."
 python3 "$ROOT/tools/adws_autostart.py"
+python3 "$ROOT/tools/adws_topbar.py" --offer-autostart
 
 # Optional compositor compatibility never blocks the main installation.
 python3 "$ROOT/tools/adws_niri_compat.py" offer

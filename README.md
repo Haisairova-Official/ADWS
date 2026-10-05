@@ -6,9 +6,32 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development: **1.33-G** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.35-L Pre-Release** (`Pre-1.35`) · 稳定版本 / Stable: **1.30 Released** · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
+
+## 1.35-L Pre-Release
+
+汇总 1.30 之后的原生开始菜单、系统设置、组件布局与顶部 Waybar 更新。新增四套顶部栏预设、完整快捷组件、整套配置导入、备份恢复与自启选项；优化折角、字体、托盘提示和窗口切换。长期卡顿仍待验证。
+
+Consolidated changes since 1.30: native Start menus, system settings, component layouts and standalone Waybar presets/controls. Add bundle import/backup restore/autostart, refine corners/fonts/tray tips and move window activation off the UI thread. Long-session stutter remains under investigation.
+
+[完整更新记录 / Update notes](docs/update-notes-1.35-L-2026-10-05.md)
+
+## 1.34-I
+
+- 提供不依赖 Shorin 的通用顶部 Waybar，支持新安装与临时预览；已有本机配置保留。[说明 / Guide](docs/top-waybar.md)
+
+- 新增独立 Waybar 配置页，可调整尺寸、间距和组件排列，保留现有主题与注释。
+
+- 开始菜单重复打开更快，闲置三分钟后释放缓存；配置和应用变化会刷新。
+- 默认应用补充默认终端；提供当前 Kitty 和同款 Alacritty 外观预设，一键部署前自动备份。
+- 壁纸新增 Matugen 安装／卸载与可选自动配色，卸载保留配色与壁纸。
+- 修复管理员授权后的崩溃，授权框改为紧凑布局。（G）
+
+Standalone Waybar configuration with backups and targeted refresh. Faster cached Start opens, default terminal selection, Kitty/Alacritty presets with backups, optional wallpaper colors and Matugen package controls, plus compact administrator authorization dialogs.
+
+[更新记录 / Update notes](docs/update-notes-1.34-I-2026-10-05.md)
 
 ## 1.33-G
 

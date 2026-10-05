@@ -73,7 +73,7 @@ def integration_paths(root):
     cache = Path(os.environ.get('XDG_CACHE_HOME') or home/'.cache')
     paths = [folder/name for folder in (config, state, data, cache) for name in ('adws', 'mnws')]
     paths += [config/'niri-desktop-layer', state/'niri-desktop-layer', root/'src/niri-desktop-layer/state']
-    paths += [config/'waybar'/name for name in ('config-bottom.jsonc', 'style-bottom.css', 'modules.jsonc', 'colors.css')]
+    paths += [config/'waybar'/name for name in ('config-bottom.jsonc', 'style-bottom.css', 'modules.jsonc', 'colors.css', 'config.jsonc', 'style.css')]
     from adws_windows import config_path
     paths += [config_path(), config/'niri/config.kdl']
     paths += [home/name for name in ('.profile', '.bash_profile', '.bash_login')]

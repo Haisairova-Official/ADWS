@@ -311,6 +311,9 @@ fn dismiss(application: &gtk::Application) {
 }
 struct Motion {
     menu: gtk::EventBox,
+    window: gtk::ApplicationWindow,
+    one_shot: bool,
+    hidden_at: std::cell::Cell<std::time::Instant>,
     application: gtk::Application,
     edge: String,
     duration: f64,
@@ -319,6 +322,14 @@ struct Motion {
     closing: std::cell::Cell<bool>,
 }
 impl Motion {
+    fn finish_close(&self) {
+        if self.one_shot { self.application.quit(); }
+        else {
+            unsafe { if gtk_layer_is_supported() != 0 { gtk_layer_set_keyboard_mode(self.window.upcast_ref::<gtk::Window>().to_glib_none().0, 0); } }
+            self.hidden_at.set(std::time::Instant::now());
+            self.window.hide();
+        }
+    }
     fn set(&self, value: f64) {
         if self.progress.get() == 0. && value > 0. { timing("animation visible"); }
         self.progress.set(value);
@@ -342,7 +353,7 @@ impl Motion {
         if self.duration <= 0. {
             self.set(target);
             if target == 0. {
-                self.application.quit();
+                self.finish_close();
             }
             return;
         }
@@ -362,7 +373,7 @@ impl Motion {
             if t >= 1. {
                 this.tick.borrow_mut().take();
                 if target == 0. {
-                    this.application.quit();
+                    this.finish_close();
                 }
                 glib::ControlFlow::Break
             } else {
@@ -537,82 +548,138 @@ async fn taskbar_anchor() -> Option<Value> {
         .find(|a| a["monitor"].as_i64() == Some(index as i64))
 }
 
+struct CachedMenu {
+    window: gtk::ApplicationWindow,
+    motion: Rc<Motion>,
+    stage: gtk::Box,
+    search: gtk::SearchEntry,
+    pages: gtk::Stack,
+    power: Rc<power::PowerMenu>,
+    width: i32,
+    height: i32,
+    layered: bool,
+    xp: bool,
+    reload: Rc<dyn Fn()>,
+    home: gtk::Stack,
+    category: Rc<RefCell<String>>,
+    list: gtk::ListBox,
+}
+impl CachedMenu {
+    fn reopen(&self, anchor: Option<&Value>) {
+        if self.layered {
+            if let Some(anchor) = anchor {
+                if let Some(display) = gdk::Display::default() {
+                    if let Some(monitor) = anchor["monitor"].as_i64().and_then(|i| display.monitor(i as i32)) {
+                        let area = monitor.geometry();
+                        let (x, y) = menu_origin(anchor, self.width, self.height, area.width(), area.height());
+                        self.stage.set_margin_start(x); self.stage.set_margin_top(y);
+                        self.stage.set_margin_end(0); self.stage.set_margin_bottom(0);
+                        self.stage.set_halign(gtk::Align::Start); self.stage.set_valign(gtk::Align::Start);
+                    }
+                }
+            }
+            unsafe { gtk_layer_set_keyboard_mode(self.window.upcast_ref::<gtk::Window>().to_glib_none().0, 1); }
+        }
+        (self.reload)();
+        self.category.borrow_mut().clear();
+        self.list.invalidate_filter();
+        self.list.unselect_all();
+        self.home.set_visible_child_name("home");
+        self.power.back();
+        self.pages.set_visible_child_name("launcher");
+        self.search.set_text("");
+        self.motion.closing.set(false);
+        self.motion.menu.set_sensitive(true);
+        self.window.show();
+        self.motion.animate(1.);
+        if !self.xp { self.search.grab_focus(); }
+        timing("cached menu reopened");
+    }
+}
+
 fn main() {
     let _ = MENU_STARTED.set(std::time::Instant::now());
     timing("process entry");
     let args: Vec<_> = std::env::args().collect();
     if args.iter().any(|s| s == "--help" || s == "-h") {
-        println!("adws-start-menu --root PATH [--theme kde|aero|xp|akiacg] [--css PATH]");
+        println!("adws-start-menu --root PATH [--theme kde|aero|xp|akiacg] [--css PATH] [--one-shot]");
         return;
     }
-    let value = |name: &str| {
-        args.iter()
-            .position(|s| s == name)
-            .and_then(|i| args.get(i + 1))
-            .cloned()
-    };
-    let Some(root) = value("--root").map(PathBuf::from) else {
-        eprintln!("Missing --root");
-        std::process::exit(2);
-    };
-    let layout = json_file(&config_home().join("adws/taskbar-layout.json"));
-    let options = &layout["options"];
-    let chosen = value("--theme")
-        .unwrap_or_else(|| options["start_menu_theme"].as_str().unwrap_or("kde").into());
-    let theme = theme_name(&chosen).to_string();
-    let custom = match value("--css") {
-        Some(path) => (!path.is_empty()).then(|| PathBuf::from(path)),
-        None => options["start_menu_css"]
-            .as_str()
-            .filter(|s| !s.is_empty())
-            .map(PathBuf::from),
-    };
-    let smoke = value("--smoke-test").map(PathBuf::from);
-    if !chinese() {
-        std::env::set_var("LANGUAGE", "en");
+    if !args.iter().any(|s| s == "--root") {
+        eprintln!("Missing --root"); std::process::exit(2);
     }
-    let layer_probe = args.iter().any(|s| s == "--check-wayland");
-    let flags = if smoke.is_some() {
-        gio::ApplicationFlags::NON_UNIQUE
-    } else {
-        gio::ApplicationFlags::empty()
-    };
+    if !chinese() { std::env::set_var("LANGUAGE", "en"); }
+    let isolated = args.iter().any(|s| s == "--smoke-test" || s == "--one-shot");
+    let mut flags = gio::ApplicationFlags::HANDLES_COMMAND_LINE | gio::ApplicationFlags::SEND_ENVIRONMENT;
+    if isolated { flags |= gio::ApplicationFlags::NON_UNIQUE; }
     let app = gtk::Application::new(Some("org.ADWS.StartMenu"), flags);
     app.connect_startup(|_| timing("GTK startup"));
+    let cache = Rc::new(RefCell::new(None::<(Value, CachedMenu)>));
     let opening = Rc::new(std::cell::Cell::new(false));
-    app.connect_activate(move |application| {
-        if !application.windows().is_empty() {
-            if !application.windows().iter().any(|w| w.is_visible()) {
-                return;
-            }
-            dismiss(application);
-            return;
+    let catalog_dirty = Rc::new(std::cell::Cell::new(false));
+    let dirty = catalog_dirty.clone();
+    let monitor = gio::AppInfoMonitor::get();
+    monitor.connect_changed(move |_| dirty.set(true));
+    let last_used = Rc::new(std::cell::Cell::new(std::time::Instant::now()));
+    let state = cache.clone(); let application = app.downgrade();
+    glib::timeout_add_seconds_local(5, move || {
+        if state.borrow().as_ref().is_some_and(|(_, menu)| !menu.window.is_visible()
+            && menu.motion.hidden_at.get().elapsed() > Duration::from_secs(180)) {
+            if let Some(application) = application.upgrade() { application.quit(); }
+            return glib::ControlFlow::Break;
         }
-        if opening.replace(true) { return; }
-        let opening = opening.clone();
-        let application = application.clone();
-        let hold = application.hold();
-        let root = root.clone(); let theme = theme.clone(); let custom = custom.clone();
-        let options = options_owned(&layout); let smoke = smoke.clone();
-        glib::MainContext::default().spawn_local(async move {
-            let mut anchor = std::env::var("ADWS_START_ANCHOR").ok()
-                .and_then(|s| serde_json::from_str::<Value>(&s).ok());
-            if anchor.is_none() && (smoke.is_none() || layer_probe) {
-                anchor = taskbar_anchor().await;
-                timing(if anchor.is_some() { "live Start anchor" } else { "fallback Start anchor" });
-            }
-            build(&application, &root, &theme, custom.as_deref(), &options,
-                smoke.as_deref(), MenuPlacement { layer_probe, anchor });
-            opening.set(false);
-            drop(hold);
-        });
+        glib::ControlFlow::Continue
     });
-    app.run_with_args(&["adws-start-menu"]);
+    app.connect_command_line(move |application, command| {
+        last_used.set(std::time::Instant::now());
+        let args: Vec<String> = command.arguments().iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        if args.iter().any(|s| s == "--exit") { application.quit(); return 0; }
+        let value = |name: &str| args.iter().position(|s| s == name).and_then(|i| args.get(i + 1)).cloned();
+        let Some(root) = value("--root").map(PathBuf::from) else { return 2; };
+        let layout = json_file(&config_home().join("adws/taskbar-layout.json"));
+        let options = options_owned(&layout);
+        let chosen = value("--theme").unwrap_or_else(|| options["start_menu_theme"].as_str().unwrap_or("kde").into());
+        let theme = theme_name(&chosen).to_string();
+        let custom = value("--css").or_else(|| options["start_menu_css"].as_str().map(str::to_owned))
+            .filter(|s| !s.is_empty()).map(PathBuf::from);
+        let smoke = value("--smoke-test").map(PathBuf::from);
+        let one_shot = smoke.is_some() || args.iter().any(|s| s == "--one-shot");
+        let layer_probe = args.iter().any(|s| s == "--check-wayland");
+        let anchor = command.getenv("ADWS_START_ANCHOR").and_then(|s| serde_json::from_str::<Value>(&s).ok());
+        if opening.replace(true) { return 0; }
+        let opening = opening.clone(); let application = application.clone();
+        let cache = cache.clone(); let dirty = catalog_dirty.clone();
+        let hold = application.hold();
+        glib::MainContext::default().spawn_local(async move {
+            let anchor = if anchor.is_some() || (smoke.is_some() && !layer_probe) { anchor } else { taskbar_anchor().await };
+            let signature = serde_json::json!([root, theme, custom, options,
+                json_file(&config_home().join("adws/taskbar-pins.json")),
+                anchor.as_ref().and_then(|v| v["monitor"].as_i64()),
+                anchor.as_ref().and_then(|v| v["edge"].as_str())]);
+            let refresh = dirty.replace(false);
+            let reusable = cache.borrow().as_ref().is_some_and(|(key, _)| *key == signature) && !refresh;
+            if reusable {
+                if let Some((_, menu)) = cache.borrow().as_ref() {
+                    if menu.window.is_visible() && !menu.motion.closing.get() { dismiss(&application); }
+                    else { menu.reopen(anchor.as_ref()); }
+                }
+            } else {
+                if let Some((_, old)) = cache.borrow_mut().take() { unsafe { old.window.destroy(); } }
+                CLOSE.with(|slot| { slot.borrow_mut().take(); });
+                let menu = build(&application, &root, &theme, custom.as_deref(), &options,
+                    smoke.as_deref(), MenuPlacement { layer_probe, anchor, one_shot });
+                cache.replace(Some((signature, menu)));
+            }
+            opening.set(false); drop(hold);
+        });
+        0
+    });
+    app.run_with_args(&args);
 }
 fn options_owned(layout: &Value) -> Value {
     layout["options"].clone()
 }
-struct MenuPlacement { layer_probe: bool, anchor: Option<Value> }
+struct MenuPlacement { layer_probe: bool, anchor: Option<Value>, one_shot: bool }
 
 fn build(
     application: &gtk::Application,
@@ -622,8 +689,8 @@ fn build(
     options: &Value,
     smoke: Option<&Path>,
     placement: MenuPlacement,
-) {
-    let MenuPlacement { layer_probe, anchor } = placement;
+) -> CachedMenu {
+    let MenuPlacement { layer_probe, anchor, one_shot } = placement;
     timing("activation");
     let started = std::time::Instant::now();
     let text = Text::new(root);
@@ -1239,7 +1306,8 @@ fn build(
     let custom = custom.map(Path::to_path_buf);
     let seen_palette = RefCell::new(config_home().join("waybar/colors.css").exists());
     let last_error = RefCell::new(String::new());
-    let reload = move || {
+    let cleanup_providers = providers.clone();
+    let reload = Rc::new(move || {
         let palette_exists = config_home().join("waybar/colors.css").exists();
         if *seen_palette.borrow() && !palette_exists {
             return;
@@ -1291,16 +1359,28 @@ fn build(
             gtk::StyleContext::remove_provider_for_screen(&screen, &old);
         }
         *last.borrow_mut() = source;
-    };
+    });
     timing("widgets constructed");
     reload();
     timing("styles loaded");
-    glib::timeout_add_local(Duration::from_millis(750), move || {
-        reload();
-        glib::ControlFlow::Continue
+    let palette_window = window.downgrade();
+    let reload_tick = reload.clone();
+    let palette_source = Rc::new(RefCell::new(Some(glib::timeout_add_local(Duration::from_millis(750), move || {
+        if let Some(window) = palette_window.upgrade() {
+            if window.is_visible() { reload_tick(); }
+            glib::ControlFlow::Continue
+        } else { glib::ControlFlow::Break }
+    }))));
+    let cleanup = palette_source.clone();
+    window.connect_destroy(move |window| {
+        if let Some(source) = cleanup.borrow_mut().take() { source.remove(); }
+        if let Some(provider) = cleanup_providers.borrow_mut().take() {
+            if let Some(screen) = gtk::prelude::GtkWindowExt::screen(window) { gtk::StyleContext::remove_provider_for_screen(&screen, &provider); }
+        }
     });
     if !layered && smoke.is_none() {
         let a = application.clone();
+        let power = power.clone();
         window.connect_focus_out_event(move |_, _| {
             if !power.busy() {
                 dismiss(&a);
@@ -1310,6 +1390,9 @@ fn build(
     }
     let motion = Rc::new(Motion {
         menu: menu.clone(),
+        window: window.clone(),
+        one_shot,
+        hidden_at: std::cell::Cell::new(std::time::Instant::now()),
         application: application.clone(),
         edge: options["position"].as_str().unwrap_or("bottom").into(),
         duration: if options["window_animations"].as_bool().unwrap_or(false)
@@ -1400,6 +1483,8 @@ fn build(
             });
         });
     }
+    CachedMenu { window, motion, stage, search, pages: menu_pages, power,
+                 width, height, layered, xp: xp_theme, reload, home: stack, category, list }
 }
 
 #[cfg(test)]
@@ -1410,7 +1495,7 @@ mod tests {
     fn motion_reverses_without_resizing_the_input_surface() {
         gtk::init().unwrap();
         let app = gtk::Application::new(None, gio::ApplicationFlags::NON_UNIQUE);
-        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        let window = gtk::ApplicationWindow::new(&app);
         window.set_default_size(400, 300);
         let stage = gtk::Box::new(gtk::Orientation::Vertical, 0);
         window.add(&stage);
@@ -1419,6 +1504,9 @@ mod tests {
         stage.pack_start(&menu, true, true, 0);
         let motion = Rc::new(Motion {
             menu,
+            window: window.clone(),
+            one_shot: true,
+            hidden_at: std::cell::Cell::new(std::time::Instant::now()),
             application: app,
             edge: "bottom".into(),
             duration: 200_000.,

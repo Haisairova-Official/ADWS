@@ -7,6 +7,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -168,7 +169,9 @@ def brightness(force=False):
         except (ValueError, OSError, RuntimeError, subprocess.SubprocessError):
             if gamma: entry.update(provider='gamma',value=gamma['brightness'])
         return entry
-    with ThreadPoolExecutor(max_workers=3) as pool: return list(pool.map(inspect, displays))
+    with ThreadPoolExecutor(max_workers=3) as pool: result=list(pool.map(inspect, displays))
+    write_json(cache_root()/"brightness-snapshot.json", {"time":time.time(), "items":result})
+    return result
 
 
 def brightness_write(entry, action, value):
@@ -189,6 +192,11 @@ def brightness_write(entry, action, value):
             from gi.repository import GLib
             gamma_call('/outputs/'+re.sub('[^A-Za-z0-9_]','_',output),'Set',GLib.Variant('(ssv)',('rs.wl.gammarelay','Brightness',GLib.Variant('d',value/100))))
         else: raise RuntimeError(tr('无可用配置'))
+        snapshot=read_json(cache_root()/'brightness-snapshot.json',{})
+        if isinstance(snapshot.get('items'),list):
+            for item in snapshot['items']:
+                if item.get('name')==output:item['value']=value
+            snapshot['time']=time.time();write_json(cache_root()/'brightness-snapshot.json',snapshot)
         return
     if action not in ('temperature','night'): raise ValueError('Invalid brightness action')
     temperature=int(number(value, 1000, 10000)) if action=='temperature' else (4500 if value is True else 6500)
@@ -217,13 +225,80 @@ def brightness_write(entry, action, value):
 
 def step(kind, delta, output=None):
     delta=number(delta,-100,100)
+    if kind=='brightness':
+        enqueue_brightness_step(delta,output);return
     import fcntl
     with (cache_root()/('step-'+kind+'.lock')).open('w') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
         if kind=='sound':
             data=audio(); item=next((d for d in data['sinks'] if d.get('default')),None)
             if item: audio_write('sink',item['index'],'volume',min(100,max(0,item['volume']+delta)))
-        elif kind=='brightness':
-            items=brightness(); item=next((d for d in items if d['name']==output),None) if output else next((d for d in items if d.get('provider')),None)
-            if item and item.get('provider'): brightness_write(item,'brightness',min(100,max(5,item['value']+delta)))
         else: raise ValueError('Invalid control kind')
+
+
+def compose_brightness(pending,delta):
+    """Compose clamped relative steps, including reversals at 5/100% boundaries."""
+    low=min(100,max(5,pending.get('low',5)+delta))
+    high=min(100,max(5,pending.get('high',100)+delta))
+    return {'shift':0 if low==high else pending.get('shift',0)+delta,'low':low,'high':high}
+
+
+def enqueue_brightness_step(delta,output=None):
+    import fcntl
+    if output is not None and not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}',output):raise ValueError('Invalid output')
+    root=cache_root();queue=root/'brightness-pending.json'
+    with (root/'brightness-queue.lock').open('w') as guard:
+        fcntl.flock(guard,fcntl.LOCK_EX)
+        pending=read_json(queue,{})
+        # Do not replay forgotten actions from a previous session or crashed worker.
+        if time.time()-pending.get('time',0)>10:pending={}
+        jobs=pending.setdefault('jobs',{});key=output or ''
+        jobs[key]=compose_brightness(jobs.get(key,{}),delta);pending['time']=time.time();write_json(queue,pending)
+        worker=(root/'brightness-worker.lock').open('w')
+        try:
+            try:fcntl.flock(worker,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError:return
+            log=root/'brightness-worker.log'
+            if log.exists() and log.stat().st_size>256*1024:log.write_text('')
+            with log.open('ab') as errors:
+                subprocess.Popen([sys.executable,str(Path(__file__).with_name('adws_quick_controls.py')),'brightness','--brightness-worker-fd',str(worker.fileno())],pass_fds=(worker.fileno(),),stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=errors,start_new_session=True)
+        finally:worker.close()
+
+
+def brightness_step_worker(fd):
+    """One idle-expiring worker; device reads once, writes coalesced at hardware pace."""
+    import fcntl
+    root=cache_root();queue=root/'brightness-pending.json'
+    owned=os.fdopen(fd,'w');items=None;idle_since=time.monotonic()
+    try:
+        while True:
+            with (root/'brightness-queue.lock').open('w') as guard:
+                fcntl.flock(guard,fcntl.LOCK_EX)
+                pending=read_json(queue,{})
+                jobs=pending.get('jobs',{}) if time.time()-pending.get('time',0)<10 else {}
+                if jobs:write_json(queue,{'time':time.time(),'jobs':{}})
+                elif time.monotonic()-idle_since>=1.2:
+                    # Release under the queue lock so a last-moment enqueue cannot
+                    # miss both this worker and the election for the next one.
+                    owned.close();return
+            if not jobs:time.sleep(.06);continue
+            idle_since=time.monotonic()
+            if items is None:
+                cached=read_json(root/'brightness-snapshot.json',{})
+                items=cached.get('items') if time.time()-cached.get('time',0)<3 else None
+                if not isinstance(items,list):items=brightness()
+            for key,job in jobs.items():
+                item=next((i for i in items if i.get('name')==key and i.get('provider')),None) if key else next((i for i in items if i.get('provider')),None)
+                if not item or item.get('value') is None:continue
+                target=min(job['high'],max(job['low'],item['value']+job['shift']))
+                if abs(target-item['value'])<.001:continue
+                try:
+                    brightness_write(item,'brightness',target);item['value']=target
+                    write_json(root/'brightness-snapshot.json',{'time':time.time(),'items':items})
+                except (ValueError,OSError,RuntimeError,subprocess.SubprocessError) as error:
+                    print('Brightness scroll failed:',error,file=sys.stderr);items=None;break
+            # Hardware writes can themselves take hundreds of milliseconds. Merge
+            # events received during each write instead of queuing every notch.
+            time.sleep(.12)
+    finally:
+        if not owned.closed:owned.close()

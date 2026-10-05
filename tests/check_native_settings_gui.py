@@ -105,10 +105,12 @@ try:
     session.connect.side_effect=lambda name,callback:signals.__setitem__(name,callback)
     agent=auth.AuthenticationAgent(host)
     with patch.object(auth.PolkitAgent.Session,'new',return_value=session):
-        agent.do_initiate_authentication('fixture.action','Fixture authorization','',None,'fixture-cookie',[Polkit.UnixUser.new(os.getuid())],None,None,None)
+        invocation=Mock()
+        agent.begin('Fixture authorization','fixture-cookie',[Polkit.UnixUser.new(os.getuid())],invocation)
         assert len(agent.pending)==1
         signals['request'](session,'Password:',False)
         agent.close();pump();assert not agent.pending;session.cancel.assert_called_once()
+        invocation.return_value.assert_called_once_with(None)
     host.closed=True;host.destroy();pump()
     print('PASS cancel, errors, discovery cleanup and native authentication',flush=True)
 finally:

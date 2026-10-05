@@ -52,7 +52,7 @@ mod panel_tests;
 
 static TRACING: LazyLock<()> = LazyLock::new(|| {
     if let Err(e) = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")))
         .with_span_events(FmtSpan::CLOSE)
         .try_init()
     {

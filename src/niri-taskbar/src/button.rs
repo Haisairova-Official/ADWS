@@ -241,8 +241,8 @@ impl Button {
         let activate: Rc<dyn Fn(u64)> = Rc::new(move |id| {
             if id == 0 {
                 if let Some(app) = &app_id { crate::panel::launch_application(app, false); }
-            } else if let Err(error) = state.niri().activate_window(id) {
-                tracing::warn!(%error, id, "window activation failed");
+            } else {
+                state.niri().activate_window_background(id);
             }
         });
         let pressed = Rc::new(std::cell::Cell::new(None::<u64>));
@@ -737,9 +737,11 @@ fn show_menu(menu: gtk::Menu, event: &gtk::gdk::EventButton, button: &gtk::Butto
     menu.show_all();
     menu.connect_deactivate(|menu| {
         ACTIVE_CONTEXT_MENU.with(|slot| {slot.borrow_mut().take();});
-        // Popups are rebuilt on demand; release their children and modifier
-        // handlers when dismissed instead of retaining an inactive menu.
-        unsafe { menu.destroy(); }
+        // GTK deactivates the shell BEFORE activating the chosen item.
+        // Destroying its children here disconnects the action, including pkexec.
+        // Release this popup after activation has completed, not during it.
+        let menu=menu.clone();
+        gtk::glib::idle_add_local_once(move || unsafe { menu.destroy(); });
     });
     ACTIVE_CONTEXT_MENU.with(|slot| {
         let old = slot.borrow_mut().take();
@@ -825,6 +827,44 @@ mod action_tests {
             std::fs::write(folder.join("phase"),phase).unwrap();
         }
         unsafe {window.destroy();}
+    }
+
+    #[test]
+    #[ignore = "requires an isolated GTK display"]
+    fn context_menu_shell_preserves_selected_action() {
+        gtk::init().unwrap();
+        let window=gtk::Window::new(gtk::WindowType::Toplevel);
+        let button=gtk::Button::with_label("Fixture");
+        window.add(&button);window.show_all();settle();
+        let mut event=gtk::gdk::Event::new(gtk::gdk::EventType::ButtonPress).downcast::<gtk::gdk::EventButton>().unwrap();
+        event.as_mut().window=button.window().unwrap().to_glib_full();event.as_mut().button=3;
+        event.set_device(window.display().default_seat().unwrap().pointer().as_ref());
+        for grouped in [false,true] {
+            let menu=gtk::Menu::new();
+            let target=if grouped {
+                let submenu=gtk::Menu::new();
+                let parent=gtk::MenuItem::with_label("Group");
+                parent.set_submenu(Some(&submenu));menu.append(&parent);submenu
+            } else {menu.clone()};
+            let item=gtk::MenuItem::with_label("Administrator fixture");
+            let calls=Rc::new(std::cell::Cell::new(0));let count=calls.clone();
+            item.connect_activate(move |_|count.set(count.get()+1));target.append(&item);
+            show_menu(menu.clone(),&event,&button);settle();
+            if grouped {
+                let parent=menu.children()[0].clone().downcast::<gtk::MenuItem>().unwrap();
+                menu.select_item(&parent);
+                for _ in 0..6 {settle();}
+                assert!(target.is_mapped(),"submenu must be open before shell activation");
+            }
+            let weak=menu.downgrade();
+            // This is GTK's actual click/Enter path, not MenuItem::activate().
+            target.activate_item(&item,true);
+            assert_eq!(calls.get(),1,"deactivation must not disconnect the action");
+            assert!(ACTIVE_CONTEXT_MENU.with(|slot|slot.borrow().is_none()));
+            drop(item);drop(target);drop(menu);settle();
+            assert!(weak.upgrade().is_none(),"dismissed menu must still be released");
+        }
+        unsafe{window.destroy();}
     }
 
     #[test]

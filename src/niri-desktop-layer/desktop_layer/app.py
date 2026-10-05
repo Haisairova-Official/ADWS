@@ -1757,14 +1757,18 @@ def run_gui(args, cfg, directory):
         @logged_action(_tr('打开终端'))
         def open_terminal(self):
             import subprocess
-            executable = next((path for name in ("xdg-terminal-exec", "kitty", "foot", "alacritty", "konsole", "gnome-terminal", "xterm")
-                               if (path := shutil.which(name))), None)
-            if executable is None:
-                LOG.warning(_tr('未找到可用的终端程序'))
-                return
+            from .terminal import configured_argv
+            argv = configured_argv()
+            if not argv:
+                executable = next((path for name in ("xdg-terminal-exec", "kitty", "foot", "alacritty", "konsole", "gnome-terminal", "xterm")
+                                   if (path := shutil.which(name))), None)
+                if executable is None:
+                    LOG.warning(_tr('未找到可用的终端程序'))
+                    return
+                argv = [executable]
             try:
-                process = subprocess.Popen([executable], cwd=directory, start_new_session=True)
-                LOG.info(_tr('终端启动请求已提交：%s，PID=%s'), executable, process.pid)
+                process = subprocess.Popen(argv, cwd=directory, start_new_session=True)
+                LOG.info(_tr('终端启动请求已提交：%s，PID=%s'), argv[0], process.pid)
             except OSError as exc:
                 LOG.warning(_tr('打开终端失败: %s'), exc)
 
