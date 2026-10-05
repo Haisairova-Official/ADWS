@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--offline', action='store_true', help='Use only cached Cargo dependencies')
-    parser.add_argument('--output', type=Path, default=ROOT.parent / 'ADWS1.31-B_for_arch.zip')
+    parser.add_argument('--output', type=Path, default=ROOT.parent / 'ADWS1.35-L_Pre-Release_for_arch.zip')
     args = parser.parse_args()
     if platform.machine() != 'x86_64' or platform.freedesktop_os_release().get('ID') != 'arch':
         parser.error('Build this package on Arch Linux x86_64')

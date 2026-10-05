@@ -12,9 +12,9 @@
 
 ## 1.35-L Pre-Release
 
-汇总 1.30 之后的原生开始菜单、系统设置、组件布局与顶部 Waybar 更新。新增四套顶部栏预设、完整快捷组件、整套配置导入、备份恢复与自启选项；优化折角、字体、托盘提示和窗口切换。长期卡顿仍待验证。
+汇总 1.30 之后的原生开始菜单、系统设置、组件布局与顶部 Waybar 更新。新增四套顶部栏预设、完整快捷组件、整套配置导入、备份恢复与自启选项；优化折角、字体、托盘提示和窗口切换。修复图标悬停引发的样式路径累积卡顿，新增插件独立 Watchdog 与歌词按钮配色修订。
 
-Consolidated changes since 1.30: native Start menus, system settings, component layouts and standalone Waybar presets/controls. Add bundle import/backup restore/autostart, refine corners/fonts/tray tips and move window activation off the UI thread. Long-session stutter remains under investigation.
+Consolidated changes since 1.30: native Start menus, system settings, component layouts and standalone Waybar presets/controls. Add bundle import/backup restore/autostart, refine corners/fonts/tray tips and move window activation off the UI thread. Fix GTK style-path accumulation during icon hover, add independent plugin watchdogs and theme-following lyric controls.
 
 [完整更新记录 / Update notes](docs/update-notes-1.35-L-2026-10-05.md)
 

@@ -328,6 +328,30 @@ class LayoutWindow:
             from gi.repository import GLib
             GLib.idle_add(self.open_plugin_settings, open_plugin)
 
+        from gi.repository import GLib
+        self.health_source = GLib.timeout_add(1000, self.refresh_plugin_health)
+
+    def refresh_plugin_health(self):
+        if self.closed:
+            self.health_source = 0
+            return False
+        from adws_plugin_watchdog import health
+        for entry in self.rows:
+            if entry['kind'] != 'plugin': continue
+            record = health(entry['instance'])
+            failed = bool(record and record['state'] == 'failed')
+            badge = entry.get('health_badge')
+            if badge is None: continue
+            badge.set_visible(failed)
+            style = entry['box'].get_style_context()
+            if failed:
+                style.add_class('plugin-failed')
+                entry['box'].set_tooltip_text(_tr('插件异常')+'：'+str(record.get('reason','')))
+            else:
+                style.remove_class('plugin-failed')
+                entry['box'].set_tooltip_text(None)
+        return True
+
     # ---------- 行构建 ----------
 
     def changed(self, *_):
@@ -385,6 +409,15 @@ class LayoutWindow:
             badge.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
             box.pack_end(badge, False, False, 0)
             entry['language_badge'] = badge
+            warning = Gtk.Label(label=_tr('异常'))
+            warning.get_style_context().add_class('plugin-health-warning')
+            warning.set_no_show_all(True)
+            labels.pack_start(warning, False, False, 0)
+            entry['health_badge'] = warning
+            provider = Gtk.CssProvider()
+            provider.load_from_data(b"button.plugin-failed {border:1px solid #d7ad38;} label.plugin-health-warning {color:#e9bc46;}")
+            button.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER+20)
+            warning.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER+20)
         elif entry['key'] == 'windows':
             box.pack_end(Gtk.Image.new_from_icon_name('changes-prevent-symbolic', Gtk.IconSize.BUTTON), False, False, 0)
         button.add(box)
@@ -454,6 +487,7 @@ class LayoutWindow:
                 hint.get_style_context().add_class('dim-label')
                 section.pack_start(hint, False, False, 0)
         self.list_box.show_all()
+        self.refresh_plugin_health()
         self.schedule_preview()
         self.summary.set_text(_tr('%s 个组件') % len(self.rows))
         self.refresh_catalog()
@@ -499,6 +533,10 @@ class LayoutWindow:
 
     def close_preview(self, *_):
         self.closed = True
+        if getattr(self, 'health_source', 0):
+            from gi.repository import GLib
+            GLib.source_remove(self.health_source)
+            self.health_source = 0
         for row in self.rows:
             for holder in row.get('control_boxes', {}).values(): holder.destroy()
         if self.preview_source:

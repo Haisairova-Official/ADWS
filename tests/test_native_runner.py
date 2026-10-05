@@ -105,7 +105,8 @@ class NativeRunnerTests(unittest.TestCase):
                     data=snapshots['org.Example.Native-二']
                     self.assertEqual(data['primary'],'🦊'*4096)
                     self.assertEqual(data['secondary'],'translation')
-                    self.assertEqual(data['pid'],process.pid)
+                    import adws_plugin_watchdog as watchdog
+                    self.assertEqual(data['pid'],watchdog.health(data['instance'])['runner_pid'])
                     path=self.runtime/'adws/plugin-preview'/preview.filename(data['instance'])
                     self.assertNotIn('secret',path.read_text())
                     initial=path.stat().st_mtime_ns
@@ -135,13 +136,19 @@ class NativeRunnerTests(unittest.TestCase):
         self.assertEqual(result[0], 1); self.assertEqual(result[1][-1]['class'], 'error')
         self.assertLess(time.monotonic() - start, 2)
 
-    def test_exec_replaces_python_and_cli_uses_native(self):
+    def test_watchdog_wraps_native_worker_and_cli_uses_native(self):
         for cli in (False, True):
             with self.subTest(cli=cli):
                 code, pid = self.tracked_code('time.sleep(10)')
                 process = self.start(code, timeout=10, cli=cli)
                 self.assertEqual(self.ready(process)['text'], 'ready')
-                self.assertEqual(Path(f'/proc/{process.pid}/exe').resolve(), BINARY.resolve())
+                import adws_plugin_watchdog as watchdog
+                with patch.dict(os.environ, {'XDG_RUNTIME_DIR':str(self.runtime)}):
+                    deadline=time.monotonic()+2
+                    while not (record:=watchdog.health('org.Example.Native-二')) or 'runner_pid' not in record:
+                        self.assertLess(time.monotonic(),deadline);time.sleep(.01)
+                self.assertNotEqual(record['runner_pid'],process.pid)
+                self.assertEqual(Path(f'/proc/{record["runner_pid"]}/exe').resolve(), BINARY.resolve())
                 process.terminate(); self.assertEqual(process.wait(timeout=2), 0)
                 self.assert_reaped(pid)
 
@@ -149,9 +156,28 @@ class NativeRunnerTests(unittest.TestCase):
         code, pid = self.tracked_code('time.sleep(10)')
         process = self.start(code, backend=None, timeout=10)
         self.ready(process)
-        self.assertEqual(Path(f'/proc/{process.pid}/exe').resolve(), BINARY.resolve())
+        children=Path(f'/proc/{process.pid}/task/{process.pid}/children').read_text().split()
+        self.assertEqual(len(children),1)
+        self.assertEqual(Path(f'/proc/{children[0]}/exe').resolve(), BINARY.resolve())
         process.terminate(); self.assertEqual(process.wait(timeout=2), 0)
         self.assert_reaped(pid)
+
+    def test_killed_interpreter_warns_and_reaps_plugin(self):
+        import adws_plugin_watchdog as watchdog
+        code, pid = self.tracked_code('time.sleep(30)')
+        process=self.start(code, timeout=30)
+        self.ready(process)
+        with patch.dict(os.environ, {'XDG_RUNTIME_DIR':str(self.runtime)}):
+            record=watchdog.health('org.Example.Native-二')
+            # The worker publishes the child's identity before initial output.
+            deadline=time.monotonic()+2
+            while not list(watchdog.folder().glob('.*.beat')):
+                self.assertLess(time.monotonic(),deadline);time.sleep(.01)
+            os.kill(record['runner_pid'],signal.SIGKILL)
+            process.communicate(timeout=4)
+            self.assertEqual(process.returncode,1)
+            self.assertEqual(watchdog.health('org.Example.Native-二')['state'],'failed')
+            self.assert_reaped(pid)
 
     def test_python_fallback_sigterm_is_prompt_and_reaps(self):
         code, pid = self.tracked_code('time.sleep(10)')

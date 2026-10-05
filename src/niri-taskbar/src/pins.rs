@@ -97,7 +97,10 @@ pub fn focus_color(
     use waybar_cffi::gtk::{self as gtk, prelude::*};
     let context = gtk::StyleContext::new();
     let parent = widget.parent().unwrap_or_else(|| widget.clone().upcast());
-    let path = parent.path();
+    // Widget::path() is a ref-counted view of GTK's cached path, not a copy.
+    // Mutating it on every draw grows the live ancestor selector chain forever.
+    // Work on a deep copy so focus-color probing cannot invalidate live styles.
+    let path = parent.path().copy().unwrap_or_else(gtk::WidgetPath::new);
     let index = path.append_type(gtk::Button::static_type());
     path.iter_set_object_name(index, Some("button"));
     path.iter_add_class(index, "focused");
@@ -134,4 +137,33 @@ pub fn separator(vertical: bool) -> waybar_cffi::gtk::DrawingArea {
         gtk::glib::Propagation::Stop
     });
     line
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use waybar_cffi::gtk::{self as gtk, prelude::*};
+
+    #[test]
+    #[ignore = "requires an isolated GTK display"]
+    fn repeated_focus_color_preserves_live_widget_path() {
+        gtk::init().unwrap();
+        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        bar.style_context().add_class("niri-taskbar");
+        let line = separator(false);
+        bar.add(&line);
+        window.add(&bar);
+        let path = bar.path();
+        let original = path.to_string();
+        let length = path.length();
+        for _ in 0..100 {
+            let _ = focus_color(&line);
+            assert_eq!(bar.path().length(), length,
+                "separator color lookup appended nodes to the live parent path");
+            assert_eq!(bar.path().to_string(), original,
+                "separator color lookup changed live parent selectors");
+        }
+        unsafe {window.destroy();}
+    }
 }

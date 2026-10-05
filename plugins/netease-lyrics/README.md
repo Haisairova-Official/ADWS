@@ -19,6 +19,11 @@ ADWS 任务栏同步歌词插件 · Plugin API v1.0
 · 支持竖向任务栏：中文竖排保持正向，英文旋转 90 度。
 · 保留 1.0.2 的暂停心跳与静默重连，后台重连时保留歌词，不显示重连提示。
 
+**1.1.0 配色修订　2026-10-05**
+
+· 上一首、下一首按钮默认透明，文字与任务栏前景色一致；悬停和按下背景跟随任务栏系统配色，换配色即时更新。
+· 此修订需要更新 ADWS 的原生歌词渲染组件，单独替换插件包不会更新宿主按钮样式。
+
 ## 安装
 
 建议配合 **ADWS 1.27-A / Pre-1.30** 使用，获得本页全部交互、配色、竖排和动效。插件 API 最低声明为 ADWS 1.25，但仅升级插件包不会升级宿主的原生渲染组件。
@@ -118,3 +123,7 @@ Build, test and diagnose using the commands above from the ADWS source root. Kee
 This plugin omits `isSingleOnly`, allowing multiple taskbar instances. Placement, width, colors, lyric source and animations are configured separately; right-click opens the matching instance. Shared song caches and request locks remain shared. Removing one instance does not remove the others.
 
 Plugin authors can set top-level `"isSingleOnly": true` for one active instance, or use `false`/omit it to allow repeated instances. Only JSON Booleans are accepted. See [Plugin API](../../docs/mplg-spec.md).
+
+### 1.1.0 palette revision — 2026-10-05
+
+Previous/Next controls use transparent idle backgrounds and follow the taskbar's foreground, hover and pressed palette, including live color changes. This revision requires the updated ADWS native rows renderer; replacing only the plugin archive does not update host button styling.

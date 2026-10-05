@@ -1990,5 +1990,13 @@
   "顶部栏补齐剪贴板、音频频谱、取色与配色菜单、保持唤醒、任务栏显隐、音量／亮度及电源展开；系统更新支持 yay／paru 或自定义命令。（K）": "Add top-bar clipboard, spectrum, color picking/palette menus, idle inhibition, taskbar visibility, audio/brightness and power drawers; support yay/paru or custom update commands. (K)",
   "Waybar 支持整套配置导入、备份恢复与 Niri 自启；应用与刷新改为重启所选栏，避免原地重载导致崩溃。（L）": "Add complete Waybar configuration import, backup restore and Niri autostart; Apply/Refresh restarts only the selected bar to avoid in-process reload crashes. (L)",
   "优化顶部栏折角随高度缩放、默认 30px 高度、标题间距和系统字体跟随；修复隐藏托盘图标的提示位置。（L）": "Scale top-bar pointed ends with height, default to 30px, refine title spacing/system fonts and correct overflow tray tooltips. (L)",
-  "窗口项目卡与 Peek 的点击切换改为后台请求，连续点击不再无限积压；补充请求超时与默认卡顿警告日志。（1.35）": "Move window-card and Peek activation requests to a bounded background worker; add request timeouts and default stall warning logs. (1.35)"
+  "窗口项目卡与 Peek 的点击切换改为后台请求，连续点击不再无限积压；补充请求超时与默认卡顿警告日志。（1.35）": "Move window-card and Peek activation requests to a bounded background worker; add request timeouts and default stall warning logs. (1.35)",
+  "异常": "Warning",
+  "插件异常": "Plugin warning",
+  "插件 %s 已停止运行，详情请查看组件与插件设置。": "Plugin %s has stopped. See Components and Plugins settings for details.",
+  "运行器异常退出（状态 %s）": "Runner exited unexpectedly (status %s)",
+  "插件解释器未响应": "Plugin interpreter is not responding",
+  "修复悬停窗口图标时样式路径持续累积造成的任务栏卡顿，补充重复悬停和 Peek 回归验证。": "Fix taskbar stalls caused by accumulating GTK style paths during window-icon hover; add repeated hover and Peek regression checks.",
+  "插件新增独立 Watchdog，崩溃或无响应时通知并在设置中标黄；异常退出不再反复自动重启。": "Add independent plugin watchdogs: notify on crashes or unresponsiveness and mark affected instances yellow in settings; stop repeated retries after abnormal exits.",
+  "NCMLyricsBar 1.1.0 配色修订：上一首、下一首按钮实时跟随任务栏主题。": "NCMLyricsBar 1.1.0 palette revision: previous and next controls follow the taskbar theme live."
 }

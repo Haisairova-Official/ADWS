@@ -55,6 +55,10 @@ def prepare_command(root, manifest, overrides, timeout):
 
 def dispatch(root, manifest, overrides, timeout=30):
     """Prefer the native supervisor; Python prepares its launch specification."""
+    if os.environ.get('ADWS_PLUGIN_WATCHDOG_WORKER') != '1':
+        prepare_command(root, manifest, overrides, timeout)
+        from adws_plugin_watchdog import run
+        return run(root, manifest, overrides, timeout)
     backend = os.environ.get('ADWS_PLUGIN_RUNNER', 'auto')
     if backend == 'python':
         return execute(root, manifest, overrides, timeout)
@@ -96,7 +100,12 @@ def execute(root, manifest, overrides, timeout=30):
             selector.register(process.stdout, selectors.EVENT_READ, 'stdout')
             selector.register(process.stderr, selectors.EVENT_READ, 'stderr')
             deadline = time.monotonic() + timeout
+            pulse_at = 0.
             while selector.get_map():
+                if time.monotonic() >= pulse_at:
+                    from adws_plugin_watchdog import pulse
+                    pulse(process.pid)
+                    pulse_at = time.monotonic()+1.
                 if time.monotonic() >= deadline: raise TimeoutError('Plugin output timed out')
                 for key, _ in selector.select(min(.2, max(0, deadline-time.monotonic()))):
                     data = os.read(key.fileobj.fileno(), 65536)
@@ -167,10 +176,15 @@ def execute(root, manifest, overrides, timeout=30):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('package')
+    parser.add_argument('package', nargs='?')
+    parser.add_argument('--worker-spec-json', help=argparse.SUPPRESS)
     parser.add_argument('--settings-json', default='{}')
     parser.add_argument('--timeout', type=float, default=30)
     args = parser.parse_args()
+    if args.worker_spec_json:
+        spec = json.loads(args.worker_spec_json)
+        return dispatch(Path(spec['root']), spec['manifest'], spec['overrides'], spec['timeout'])
+    if not args.package: parser.error('package is required')
     from adws_plugin import load_manifest, materialize
     path = Path(args.package)
     try:

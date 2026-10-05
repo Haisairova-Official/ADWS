@@ -462,6 +462,39 @@ mod tests {
     }
     #[test]
     #[ignore = "requires an isolated GTK display"]
+    fn repeated_peek_render_keeps_style_work_bounded() {
+        gtk::init().unwrap();
+        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        let button = gtk::Button::with_label("preview");
+        window.add(&button);
+        window.show_all();
+        let popup = gtk::Popover::new(Some(&button));
+        popup.set_modal(false);
+        let config = serde_json::from_value(serde_json::json!({"window_peek":true,"window_animations":true,"animation_duration":160,"preview_helper":"/nonexistent"})).unwrap();
+        let hover = HoverPreview::new(&button, &popup, State::new(config),
+            Rc::new(RefCell::new(vec![(1,"First".into()),(2,"Second".into())])));
+        let mut first = Duration::ZERO;
+        let mut last = Duration::ZERO;
+        for cycle in 0..200 {
+            let old = popup.child().map(|c| c.downgrade());
+            let start = std::time::Instant::now();
+            hover.show();
+            pump(20);
+            hover.dismiss();
+            pump(5);
+            let elapsed = start.elapsed();
+            if cycle < 20 { first += elapsed; }
+            if cycle >= 180 { last += elapsed; }
+            if let Some(old) = old { assert!(old.upgrade().is_none(), "old preview content retained"); }
+            if cycle % 25 == 0 { eprintln!("peek cycle {cycle}: {elapsed:?}"); }
+        }
+        eprintln!("first 20: {first:?}, last 20: {last:?}");
+        assert!(last < first * 3, "preview style work grows with repeated hovers");
+        drop(hover);
+        unsafe {window.destroy();}
+    }
+    #[test]
+    #[ignore = "requires an isolated GTK display"]
     fn floating_fade_preserves_popup_geometry_and_can_reverse() {
         gtk::init().unwrap();
         let settings = gtk::Settings::default().unwrap();

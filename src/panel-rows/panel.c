@@ -50,6 +50,9 @@ typedef struct {
     gboolean theme_dirty;
     gboolean palette_valid;
     GdkRGBA applied_colors[3];
+    GtkCssProvider *control_css;
+    GdkRGBA control_colors[4];
+    gboolean control_palette_valid;
     gchar *font_family;
     GdkRGBA colors[2];
     gboolean has_color[2];
@@ -222,9 +225,38 @@ static void fit_height(Panel *p, int height) {
     }
 }
 
+static void refresh_control_palette(Panel *p) {
+    if (!p->control_css) return;
+    GtkStyleContext *context = gtk_widget_get_style_context(p->event_box);
+    GdkRGBA colors[4];
+    colors[0] = theme_color(p, 0);
+    lookup_color(context, &colors[0], (const char *[]) {"on_surface", "theme_fg_color", NULL});
+    colors[1] = colors[0]; colors[1].alpha = .12;
+    lookup_color(context, &colors[1], (const char *[]) {"surface_container", "secondary_container", NULL});
+    colors[2] = colors[1];
+    lookup_color(context, &colors[2], (const char *[]) {"primary", "accent_color", "theme_selected_bg_color", NULL});
+    colors[3] = colors[0];
+    lookup_color(context, &colors[3], (const char *[]) {"on_primary", "theme_selected_fg_color", NULL});
+    gboolean changed = !p->control_palette_valid;
+    for (int i=0; i<4; i++) changed |= !gdk_rgba_equal(&colors[i], &p->control_colors[i]);
+    if (!changed) return;
+    gchar *values[4];
+    for (int i=0; i<4; i++) { values[i]=gdk_rgba_to_string(&colors[i]); p->control_colors[i]=colors[i]; }
+    gchar *css = g_strdup_printf(
+        "button.adws-lyric-control { background-image:none; background-color:transparent; color:%s; border:none; box-shadow:none; border-radius:.6em; }"
+        "button.adws-lyric-control:hover { background-image:none; background-color:%s; color:%s; }"
+        "button.adws-lyric-control:active { background-image:none; background-color:%s; color:%s; }",
+        values[0], values[1], values[0], values[2], values[3]);
+    gtk_css_provider_load_from_data(p->control_css, css, -1, NULL);
+    g_free(css);
+    for (int i=0; i<4; i++) g_free(values[i]);
+    p->control_palette_valid=TRUE;
+}
+
 static gboolean refresh_palette(gpointer data) {
     Panel *p = data;
     if (p->disposed) return G_SOURCE_REMOVE;
+    refresh_control_palette(p);
     if (!p->font_unit) return G_SOURCE_CONTINUE;
     for (int i = 0; i < 3; i++) {
         GdkRGBA color = i < 2 ? (p->has_color[i] ? p->colors[i] : theme_color(p, i))
@@ -321,6 +353,7 @@ static void panel_unref(gpointer data) {
     g_clear_object(&p->stream);
     g_clear_object(&p->process);
     g_clear_object(&p->cancel);
+    g_clear_object(&p->control_css);
     g_free(p->command);
     g_free(p->left_command);
     g_free(p->right_command);
@@ -401,6 +434,23 @@ static gboolean profile_rows(gpointer data) {
 static void read_next(Panel *p);
 static gboolean start(gpointer data);
 
+static void runner_exited(GObject *source, GAsyncResult *result, gpointer data) {
+    Panel *p=data;
+    GError *error=NULL;
+    gboolean waited=g_subprocess_wait_finish(G_SUBPROCESS(source),result,&error);
+    if (!p->disposed && p->process == G_SUBPROCESS(source)) {
+        if (waited && g_subprocess_get_successful(G_SUBPROCESS(source))) {
+            p->retry=g_timeout_add_seconds_full(G_PRIORITY_DEFAULT,5,start,panel_ref(p),panel_unref);
+        } else if (!g_error_matches(error,G_IO_ERROR,G_IO_ERROR_CANCELLED)) {
+            // Keep the watchdog's failed state visible. A broken plugin must
+            // not be relaunched every five seconds by the renderer.
+            g_warning("ADWS plugin stopped unexpectedly; automatic retry disabled");
+        }
+    }
+    g_clear_error(&error);
+    panel_unref(p);
+}
+
 static void read_done(GObject *source, GAsyncResult *result, gpointer data) {
     Panel *p = data;
     GError *error = NULL;
@@ -412,7 +462,7 @@ static void read_done(GObject *source, GAsyncResult *result, gpointer data) {
         } else {
             // Retry in the background while preserving the last rendered state.
             if (error) g_warning("ADWS panel stream interrupted: %s", error->message);
-            p->retry = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 5, start, panel_ref(p), panel_unref);
+            if (p->process) g_subprocess_wait_async(p->process,p->cancel,runner_exited,panel_ref(p));
         }
     }
     g_clear_error(&error);
@@ -688,6 +738,14 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
     gtk_style_context_add_class(gtk_widget_get_style_context(p->controls), "adws-controls");
     p->previous_button = gtk_button_new_from_icon_name("media-skip-backward-symbolic", GTK_ICON_SIZE_MENU);
     p->next_button = gtk_button_new_from_icon_name("media-skip-forward-symbolic", GTK_ICON_SIZE_MENU);
+    p->control_css=gtk_css_provider_new();
+    GtkWidget *buttons[] = {p->previous_button, p->next_button};
+    for (int i=0; i<2; i++) {
+        GtkStyleContext *context=gtk_widget_get_style_context(buttons[i]);
+        gtk_style_context_add_class(context, "adws-lyric-control");
+        gtk_style_context_add_provider(context, GTK_STYLE_PROVIDER(p->control_css), GTK_STYLE_PROVIDER_PRIORITY_USER+3);
+    }
+    refresh_control_palette(p);
     gtk_widget_set_no_show_all(p->previous_button, TRUE);
     gtk_widget_set_no_show_all(p->next_button, TRUE);
     atk_object_set_name(gtk_widget_get_accessible(p->previous_button), adws_text("上一首", "Previous"));

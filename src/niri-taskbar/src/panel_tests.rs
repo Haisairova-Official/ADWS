@@ -105,7 +105,7 @@ fn panel_geometry_groups_and_colors() {
                         widget.clone().downcast::<gtk::Container>().map(|c|c.children().iter().flat_map(choices).collect()).unwrap_or_default()
                     }
                     let choices=choices(&popup.child().unwrap());assert_eq!(choices.len(),2,"title-only cards must be clickable");
-                    choices[0].emit_clicked();
+                    choices[0].emit_clicked();settle();
                     assert!(!popup.is_visible());
                     let actions=requests.lock().unwrap();assert_eq!(actions.len(),2);
                     assert_eq!(actions[0]["Action"]["FocusWindow"]["id"],2);
@@ -259,6 +259,7 @@ fn pins_follow_workspaces_monitor_mru_and_live_colors() {
         assert_eq!(instance.pinned_buttons["firefox.desktop"].pin_test_state(),(vec![3,5,6],3,true));
         // One click on the three-dot pin focuses the most recently used remote window.
         instance.pinned_buttons["firefox.desktop"].widget().clone().downcast::<gtk::Button>().unwrap().emit_clicked();
+        settle(); // Focus requests run on the worker; wait for the fixture response.
         assert_eq!(requests.lock().unwrap().last().unwrap(),&json!({"Action":{"FocusWindow":{"id":3}}}));
         let unmaps=std::rc::Rc::new(std::cell::Cell::new(0));
         let count=unmaps.clone();
@@ -275,6 +276,7 @@ fn pins_follow_workspaces_monitor_mru_and_live_colors() {
         let active=instance.displayed[0];
         assert_eq!(instance.buttons[&active].pin_test_state(),(vec![3,5,6],3,false));
         instance.buttons[&active].widget().clone().downcast::<gtk::Button>().unwrap().emit_clicked();
+        settle(); // Focus requests run on the worker; wait for the fixture response.
         assert_eq!(requests.lock().unwrap().last().unwrap(),&json!({"Action":{"FocusWindow":{"id":3}}}));
         for id in [3,5,6] {
             let changed=stream.with_event(niri_ipc::Event::WindowClosed{id}).unwrap();

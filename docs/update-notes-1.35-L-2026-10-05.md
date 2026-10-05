@@ -21,6 +21,10 @@
 - 优化顶部栏折角随高度缩放、默认 30px 高度、标题间距和系统字体跟随；修复隐藏托盘图标的提示位置。（L）
 - 窗口项目卡与 Peek 的点击切换改为后台请求，连续点击不再无限积压；补充请求超时与默认卡顿警告日志。（1.35）
 
-运行一段时间后出现的任务栏卡顿仍待长期验证，本轮已修复明确的点击阻塞风险，补充诊断记录；暂不宣称彻底解决。
+- 修复悬停窗口图标时样式路径持续累积造成的任务栏卡顿，补充重复悬停和 Peek 回归验证。
+- 插件新增独立 Watchdog，崩溃或无响应时通知并在设置中标黄；异常退出不再反复自动重启。
+- NCMLyricsBar 1.1.0 配色修订：上一首、下一首按钮实时跟随任务栏主题。
 
-Development branch: `Pre-1.35`. This pre-release includes Rust plugin supervision, native Start themes, independent system settings, draggable layouts, tray/audio/brightness controls, authorization fixes, cached Start menus, terminal presets, wallpaper colors and four configurable Waybar presets. Top-bar controls are implemented independently of Shorin/ML4W scripts. Waybar configuration bundles (includes, CSS and local images) are staged before applying, with a backup restore action; refresh/application restarts only the selected profile. Window focus requests now run in a bounded background worker with timeouts. Long-session taskbar stutter still needs verification.
+已确认并修复 GTK 样式路径累积导致的卡顿，实机短时回归正常；更长时间的使用仍需持续验证。
+
+Development branch: `Pre-1.35`. This pre-release includes Rust plugin supervision, native Start themes, independent system settings, draggable layouts, tray/audio/brightness controls, authorization fixes, cached Start menus, terminal presets, wallpaper colors and four configurable Waybar presets. Top-bar controls are implemented independently of Shorin/ML4W scripts. Waybar configuration bundles (includes, CSS and local images) are staged before applying, with a backup restore action; refresh/application restarts only the selected profile. Window focus requests now run in a bounded background worker with timeouts. The confirmed GTK widget-path accumulation causing icon-hover stalls is fixed. Independent plugin watchdogs report failures and mark affected instances in settings; abnormal exits no longer trigger repeated automatic retries. NCMLyricsBar 1.1.0 controls now track the panel palette. Extended daily-use verification remains ongoing.

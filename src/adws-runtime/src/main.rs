@@ -234,7 +234,23 @@ fn supervise(spec: &Spec) -> Result<(), Failure> {
     let mut exit_deadline = None;
     let mut status = None;
     let mut records = 0;
+    let mut pulse_at = Instant::now();
+    let beat_path = std::env::var_os("ADWS_PLUGIN_WATCHDOG_BEAT").map(std::path::PathBuf::from);
     loop {
+        if Instant::now() >= pulse_at {
+            if let Some(path) = &beat_path {
+                let pid = child.0.id();
+                if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                    if let Some(start) = stat.rsplit_once(')').and_then(|(_, tail)| tail.split_whitespace().nth(19)) {
+                        let staged = std::path::PathBuf::from(format!("{}.tmp", path.display()));
+                        if std::fs::write(&staged, json!({"pid":pid,"start":start}).to_string()).is_ok() {
+                            let _ = std::fs::rename(staged, path);
+                        }
+                    }
+                }
+            }
+            pulse_at = Instant::now() + Duration::from_secs(1);
+        }
         if STOP.load(Ordering::Relaxed) != 0 {
             return Err(Failure::Cancelled);
         }
