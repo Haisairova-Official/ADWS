@@ -10,6 +10,19 @@ from adws_layout import _strip_jsonc, _drop_trailing_commas
 
 LIMIT = 2 * 1024 * 1024
 
+def css_string(value):
+    """Quote CSS strings without JSON's non-CSS Unicode escape syntax."""
+    result = []
+    for character in str(value):
+        if character in ('"', chr(92)):
+            result.append(chr(92) + character)
+        elif ord(character) < 32 or ord(character) == 127:
+            result.append(chr(92) + format(ord(character), 'x') + ' ')
+        else:
+            result.append(character)
+    return '"' + ''.join(result) + '"'
+
+
 def folder():
     return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'waybar'
 
@@ -151,8 +164,9 @@ def restart(config, style):
         raise ValueError(_tr('请使用任务栏外观设置修改 ADWS 底栏。'))
     decode(config.read_text())
     if not style.is_file():raise FileNotFoundError(style)
-    binary=shutil.which('waybar')
-    if not binary:raise RuntimeError(_tr('未找到 Waybar。'))
+    from adws_waybar_compat import resolve_waybar,compatibility_errors
+    binary=resolve_waybar()
+    if not binary:raise RuntimeError('\n'.join(compatibility_errors(shutil.which('waybar'))))
     logs=Path(os.environ.get('XDG_STATE_HOME') or Path.home()/'.local/state')/'adws/waybar-logs'
     logs.mkdir(parents=True,exist_ok=True)
     identity=hashlib.sha256(str(config).encode()).hexdigest()[:16]
@@ -166,7 +180,7 @@ def restart(config, style):
             previous=running[0]
             current=next((p for p in processes() if p['pid']==previous['pid'] and p['start']==previous['start'] and p['config'].resolve()==config),None)
             if current:
-                argv=current.get('argv',argv);cwd=current.get('cwd',cwd)
+                argv=list(current.get('argv',argv));argv[0]=binary;cwd=current.get('cwd',cwd)
                 os.kill(current['pid'],signal.SIGTERM)
                 until=time.monotonic()+3
                 while any(p['pid']==current['pid'] and p['start']==current['start'] for p in processes()):
@@ -321,7 +335,13 @@ def remote_reference(value):
 
 def reference(parent,value):
     path=Path(os.path.expandvars(value)).expanduser()
-    return path if path.is_absolute() else parent.parent/path
+    candidate=path if path.is_absolute() else parent.parent/path
+    if not candidate.exists() and re.search(r'\\u[0-9a-fA-F]{4}', value):
+        corrected=re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1),16)), value)
+        decoded=Path(os.path.expandvars(corrected)).expanduser()
+        fallback=decoded if decoded.is_absolute() else parent.parent/decoded
+        if fallback.exists():return fallback
+    return candidate
 
 def backup_current(config,style=None,destination=None):
     """Snapshot the complete local configuration graph, including CSS images."""
@@ -369,10 +389,10 @@ def import_bundle(source,config,style,source_style=None):
             text=raw.decode('utf-8-sig')
             def url(match):
                 ref=match.group(2).strip()
-                return match.group() if remote_reference(ref) else 'url('+json.dumps(str(targets[reference(parent,ref).resolve()]))+')'
+                return match.group() if remote_reference(ref) else 'url('+css_string(str(targets[reference(parent,ref).resolve()]))+')'
             def css_import(match):
                 ref=match.group(2)
-                return match.group() if remote_reference(ref) else '@import '+json.dumps(str(targets[reference(parent,ref).resolve()]))+';'
+                return match.group() if remote_reference(ref) else '@import '+css_string(str(targets[reference(parent,ref).resolve()]))+';'
             # Comments may contain example URLs which are not real assets.
             parts=re.split(r'(/\*.*?\*/)',text,flags=re.S)
             for i in range(0,len(parts),2):
@@ -472,7 +492,7 @@ def geometry_style(original,data,root=None):
         name=bar.get('name');selector='window#waybar'
         if name and re.fullmatch(r'[a-zA-Z_][\w-]*',name):selector+='.'+name
         for side in ('left','right'):
-            rules.append(selector+' #custom-'+side+'_div { padding: 0; font-size: 0; min-width: '+str(max(4,height/2))+'px; background-size: 100% 100%; background-repeat: no-repeat; background-image: -gtk-recolor(url('+json.dumps(str(root/'config/waybar'/('arrow-'+side+'-symbolic.svg')))+')); }')
+            rules.append(selector+' #custom-'+side+'_div { padding: 0; font-size: 0; min-width: '+str(max(4,height/2))+'px; background-size: 100% 100%; background-repeat: no-repeat; background-image: -gtk-recolor(url('+css_string(str(root/'config/waybar'/('arrow-'+side+'-symbolic.svg')))+')); }')
     if not rules:return clean+'\n'
     return clean+'\n\n'+GEOMETRY_BEGIN+'\n'+'\n'.join(rules)+'\n'+GEOMETRY_END+'\n'
 
@@ -505,12 +525,13 @@ def autostart_status(config, niri_path=None):
 
 def set_autostart(config, style, enabled, niri_path=None):
     from adws_autostart import write_config
+    from adws_waybar_compat import resolve_waybar
     state=autostart_status(config,niri_path)
     if not state['available']:raise ValueError(_tr('未找到 Niri 配置。'))
     if bool(enabled)==state['enabled']:return
     if enabled:
         root=state['root'];text=root.read_text()
-        line='spawn-at-startup '+' '.join(json.dumps(v,ensure_ascii=False) for v in ['waybar','-c',str(Path(config).resolve()),'-s',str(Path(style).resolve())])
+        line='spawn-at-startup '+' '.join(json.dumps(v,ensure_ascii=False) for v in [resolve_waybar() or 'waybar','-c',str(Path(config).resolve()),'-s',str(Path(style).resolve())])
         from adws_topbar import BEGIN,END
         pattern=re.compile(re.escape(BEGIN)+r'.*?'+re.escape(END),re.S)
         text=pattern.sub('',text)

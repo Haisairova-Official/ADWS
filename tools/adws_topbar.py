@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from adws_i18n import tr as _tr,chinese
 from adws_atomic import replace_files
-from adws_waybar import folder,decode
+from adws_waybar import folder,decode,css_string
 
 ROOT=Path(__file__).resolve().parents[1]
 BEGIN='// ==== ADWS top Waybar BEGIN ===='
@@ -97,7 +97,7 @@ def rendered(root=ROOT,preview=False):
     css=(root/'config/waybar/style-top.css').read_text()
     for side in ('left','right'):
         name='arrow-'+side+'-symbolic.svg'
-        css=css.replace('url('+json.dumps(name)+')','url('+json.dumps(str(root/'config/waybar'/name))+')')
+        css=css.replace('url('+json.dumps(name)+')','url('+css_string(str(root/'config/waybar'/name))+')')
     return json.dumps(data,ensure_ascii=False,indent=2)+'\n',css
 
 def install_defaults(root=ROOT):
@@ -125,8 +125,9 @@ def stop_preview():
     marker.unlink(missing_ok=True);return True
 
 def preview(root=ROOT,preset="standard"):
-    binary=shutil.which('waybar')
-    if not binary:raise RuntimeError(_tr('未找到 Waybar。'))
+    from adws_waybar_compat import resolve_waybar,compatibility_errors
+    binary=resolve_waybar()
+    if not binary:raise RuntimeError('\n'.join(compatibility_errors(shutil.which('waybar'))))
     stop_preview()
     directory=Path(tempfile.mkdtemp(prefix='adws-top-preview-'))
     from adws_waybar_presets import rendered as preset_rendered
@@ -167,7 +168,8 @@ def add_autostart(path):
         return False
     if BEGIN in text or existing(path,set()):return False
     data=json.loads(profile_path().read_text())
-    argv=['waybar','-c',data['config'],'-s',data['style']]
+    from adws_waybar_compat import resolve_waybar
+    argv=[resolve_waybar() or 'waybar','-c',data['config'],'-s',data['style']]
     line='spawn-at-startup '+' '.join(json.dumps(v,ensure_ascii=False) for v in argv)
     write_config(Path(path),text.rstrip()+'\n\n'+BEGIN+'\n'+line+'\n'+END+'\n');return True
 

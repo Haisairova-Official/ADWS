@@ -27,7 +27,7 @@ class SetupTests(unittest.TestCase):
             run.assert_not_called()
 
     def test_recheck_stops_on_failure(self):
-        with patch.object(setup, 'dependency_errors', return_value=['missing']), patch.object(setup, 'install_packages'), patch.object(setup.shutil, 'which', return_value='/bin/tool'):
+        with patch.object(setup, 'ensure_waybar', return_value='/bin/tool'), patch.object(setup, 'dependency_errors', return_value=['missing']), patch.object(setup, 'install_packages'), patch.object(setup.shutil, 'which', return_value='/bin/tool'):
             with self.assertRaisesRegex(RuntimeError, _tr('补齐后仍有问题')):
                 setup.prepare()
 

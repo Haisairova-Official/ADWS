@@ -28,6 +28,7 @@ esac
 # Help must not run component-changing commands (for example install -h).
 if [[ "${2:-}" == "-h" || "${2:-}" == "--help" || "${2:-}" == "-?" ]]; then
     case "${1:-}" in
+        check) shift; exec python3 "$ROOT/tools/adws_health.py" "$@" ;;
         niri-compat) exec python3 "$ROOT/tools/adws_niri_compat.py" --help ;;
         desktop|taskbar) exec python3 "$ROOT/tools/adws_runtime.py" "$1" --help ;;
         *) usage; exit 0 ;;
@@ -65,7 +66,8 @@ case "${1:-help}" in
         exec python3 "$ROOT/tools/adws-config.py" "$@"
         ;;
     check)
-        exec python3 "$ROOT/tools/adws_health.py"
+        shift
+        exec python3 "$ROOT/tools/adws_health.py" "$@"
         ;;
     build-taskbar)
         cd "$ROOT/src/niri-taskbar"

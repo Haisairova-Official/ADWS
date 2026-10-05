@@ -36,6 +36,9 @@ class InstallationTests(unittest.TestCase):
             file = self.bin / program
             file.write_text('#!/bin/sh\nexit 0\n')
             file.chmod(0o755)
+        # Capability checks inspect ELF module names; use the host binary only
+        # for this read-only probe. No bar is launched during installation.
+        shutil.copy2(shutil.which('waybar'), self.bin / 'waybar')
         self.libs = self.home / '.local/lib/waybar'
         self.libs.mkdir(parents=True)
         for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so'):
@@ -150,7 +153,7 @@ runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_n
         config, style = self.config_files()
         fake = self.bin / 'waybar'
         fake.write_text('#!/bin/sh\necho "bad config test" >&2\nexit 7\n')
-        with patch.dict(os.environ, self.env), patch.object(layout, 'taskbar_pids', return_value=[]):
+        with patch.dict(os.environ, self.env), patch.object(layout, 'taskbar_pids', return_value=[]), patch.object(health, 'waybar_capability_errors', return_value=[]):
             ok, message = layout.restart_taskbar(config, style)
         self.assertFalse(ok)
         self.assertIn('7', message)

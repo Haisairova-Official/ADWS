@@ -131,9 +131,9 @@ def confirm_install():
         return False
 
 
-def install_update(result, progress=print):
+def install_update(result, progress=print, transfer_progress=None):
     from adws_upgrade import install_update as install
-    return install(result, progress)
+    return install(result, progress, transfer_progress)
 
 
 def check_update(preview=False):

@@ -93,13 +93,19 @@ def validate_waybar(config, style, data=None):
     return errors
 
 
+def waybar_capability_errors(executable=None):
+    from adws_waybar_compat import compatibility_errors, resolve_waybar
+    return compatibility_errors(executable or resolve_waybar() or shutil.which('waybar'))
+
+
 def dependency_errors():
     errors = []
     if sys.version_info < (3, 11):
         errors.append(_tr('需要 Python 3.11 或更新版本'))
-    for program in ('waybar', 'niri', 'systemctl', 'thunar'):
+    for program in ('niri', 'systemctl', 'thunar'):
         if not shutil.which(program):
             errors.append(''.join([_tr('缺少运行依赖：'), f'{program}']))
+    errors.extend(waybar_capability_errors())
     probe = """import gi, cairo, yaml
 from PIL import ImageFilter
 for name, version in [('Gtk','3.0'),('Gdk','3.0'),('GtkLayerShell','0.1'),('PangoCairo','1.0'),('Gio','2.0'),('Polkit','1.0'),('PolkitAgent','1.0')]:
@@ -199,5 +205,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--preinstall', action='store_true')
     parser.add_argument('--init-desktop', action='store_true')
+    parser.add_argument('--repair-waybar', action='store_true', help=_tr('检查 Waybar 兼容性，并询问是否安装或构建兼容版本。'))
+    parser.add_argument('--install-fonts', action='store_true', help=_tr('检查并可选安装 Nerd Fonts 图标字体。'))
     args = parser.parse_args()
+    if args.install_fonts:
+        from adws_fonts import ensure_fonts
+        from adws_setup import confirm, install_packages
+        raise SystemExit(0 if ensure_fonts(confirm, install_packages) else 1)
+    if args.repair_waybar:
+        from adws_waybar_compat import main
+        raise SystemExit(main())
     raise SystemExit(initialize_desktop() if args.init_desktop else check(args.preinstall))

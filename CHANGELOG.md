@@ -1,5 +1,16 @@
 # Changelog / 更新记录
 
+## 1.35-N Pre-Release — 2026-10-05
+
+- 修复 Ubuntu 下中文路径和设置组件兼容问题。（M）
+- 更新器显示后台下载进度，确认后自动校验与安装。（M）
+- 新增 Waybar 模块兼容性检查，可安装/升级或构建官方兼容版本。（N）
+- 可选安装 Nerd Fonts 图标字体，帮助新增依赖修复命令。（N）
+
+Fix Ubuntu paths/settings compatibility and add background update progress with installation after confirmation. Add Waybar compatibility repair and optional Nerd Fonts icon installation, with commands documented in help.
+
+[更新说明 / Update notes](docs/update-notes-1.35-N-2026-10-05.md)
+
 ## 1.35-L Pre-Release — 2026-10-05
 
 开发分支 / Development branch: `Pre-1.35`.

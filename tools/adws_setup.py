@@ -9,6 +9,7 @@ import sys
 import tempfile
 from adws_launcher import ask
 from adws_health import dependency_errors, check
+from adws_waybar_compat import ensure_waybar, resolve_waybar
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = {
@@ -16,6 +17,19 @@ PACKAGES = {
  'pacman': {'python': ['python-gobject', 'python-cairo', 'python-pillow', 'gtk3', 'gtk-layer-shell', 'polkit'], 'build': ['rust', 'base-devel', 'pkgconf', 'gtk3', 'gtk-layer-shell', 'json-glib']},
  'dnf': {'python': ['python3-gobject', 'python3-cairo', 'python3-pillow', 'gtk3', 'gtk-layer-shell', 'polkit'], 'build': ['cargo', 'rust', 'gcc', 'make', 'pkgconf-pkg-config', 'gtk3-devel', 'gtk-layer-shell-devel', 'json-glib-devel']},
 }
+
+PACKAGES['apt-get']['waybar-build'] = ['git', 'build-essential', 'meson', 'ninja-build', 'cmake', 'pkg-config',
+ 'libgtkmm-3.0-dev', 'libjsoncpp-dev', 'libsigc++-2.0-dev', 'libfmt-dev', 'libspdlog-dev',
+ 'libwayland-dev', 'wayland-protocols', 'libgtk-layer-shell-dev', 'libxkbcommon-dev', 'libxkbregistry-dev',
+ 'libhowardhinnant-date-dev', 'libdbusmenu-gtk3-dev', 'libpulse-dev', 'libnl-3-dev', 'libnl-genl-3-dev',
+ 'libudev-dev', 'libevdev-dev']
+PACKAGES['pacman']['waybar-build'] = ['git', 'base-devel', 'meson', 'ninja', 'cmake', 'pkgconf', 'gtkmm3',
+ 'jsoncpp', 'libsigc++', 'fmt', 'spdlog', 'wayland', 'wayland-protocols', 'gtk-layer-shell', 'libxkbcommon',
+ 'libdbusmenu-gtk3', 'libpulse', 'libnl', 'systemd', 'libevdev']
+PACKAGES['dnf']['waybar-build'] = ['git', 'gcc-c++', 'meson', 'ninja-build', 'cmake', 'pkgconf-pkg-config',
+ 'gtkmm30-devel', 'jsoncpp-devel', 'libsigc++20-devel', 'fmt-devel', 'spdlog-devel', 'wayland-devel',
+ 'wayland-protocols-devel', 'gtk-layer-shell-devel', 'libxkbcommon-devel', 'libdbusmenu-gtk3-devel',
+ 'pulseaudio-libs-devel', 'libnl3-devel', 'systemd-devel', 'libevdev-devel']
 
 
 def confirm(prompt):
@@ -67,15 +81,20 @@ def prepare():
     errors = dependency_errors()
     if errors:
         print('\n'.join(errors))
-        missing = [name for name in ('waybar', 'niri', 'systemctl', 'thunar') if not shutil.which(name)]
+        missing = [name for name in ('niri', 'systemctl', 'thunar') if not shutil.which(name)]
         missing = ['systemd' if name == 'systemctl' else name for name in missing]
         groups = ['python'] if any('Python/GTK' in error for error in errors) else []
         if sys.version_info < (3, 11):
             raise RuntimeError(_tr('需要 Python 3.11 或更新版本，请先通过系统的软件管理器升级 Python。'))
-        install_packages(missing, groups)
+        if missing or groups:
+            install_packages(missing, groups)
+        if not resolve_waybar():
+            ensure_waybar(confirm, install_packages)
         errors = dependency_errors()
         if errors:
             raise RuntimeError(_tr('补齐后仍有问题：\n') + '\n'.join(errors) + _tr('\n请检查系统软件源和当前 Python 环境后重试。'))
+    from adws_fonts import ensure_fonts
+    ensure_fonts(confirm, install_packages)
     library_dir = Path.home() / '.local/lib/waybar'
     from adws_prebuilt import install as install_prebuilt
     prebuilt = install_prebuilt(ROOT, library_dir, confirm, atomic_install)

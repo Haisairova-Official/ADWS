@@ -1,5 +1,6 @@
 """Start and stop ADWS components without matching unrelated command lines."""
 from adws_i18n import tr as _tr
+from adws_waybar_compat import resolve_waybar
 import argparse
 import json
 import os
@@ -80,8 +81,8 @@ def taskbar_environment(environ=None, proc=Path('/proc')):
 
 def start_taskbar(config, style):
     """Verify files and detect early exit; preserve startup errors in a log."""
-    from adws_health import validate_waybar, state_home
-    errors = validate_waybar(config, style)
+    from adws_health import validate_waybar, state_home, waybar_capability_errors
+    errors = waybar_capability_errors() + validate_waybar(config, style)
     if errors:
         return False, '\n'.join(errors)
     log = state_home() / 'adws/taskbar.log'
@@ -91,7 +92,7 @@ def start_taskbar(config, style):
         with log.open('ab') as output:
             output.write(b'\n--- ADWS taskbar start ---\n')
             output.flush()
-            child = subprocess.Popen(['waybar', '-c', str(config), '-s', str(style)], env=env,
+            child = subprocess.Popen([resolve_waybar() or 'waybar', '-c', str(config), '-s', str(style)], env=env,
                                      start_new_session=True, stdout=output, stderr=output)
         time.sleep(.5)
         code = child.poll()
@@ -137,6 +138,8 @@ def help_text(component=None):
         commands += _tr('  niri-compat          可选 Niri 补丁：status / build / install / restore\n')
         commands += _tr('  setup                打开初始设置向导\n')
         commands = commands.replace("  -v", _tr("  -u, --update         检查 GitHub Release 更新，确认后安装\n      --preview        与 -u / --update 合用，检查 Beta 渠道\n") + "  -v", 1)
+    if component is None:
+        commands += _tr('依赖修复（操作前会询问）：\n  adws check --repair-waybar  检查 Waybar；安装/升级软件包或构建兼容版本\n  adws check --install-fonts  检测并补装 Nerd Fonts 图标字体（约 3 MB）\n  编译版 Waybar 使用用户专用目录；字体安装保留原来的正文字体。\n\n')
     target = component or "desktop"
     commands += _tr('  start-menu           打开 ADWS 开始菜单\n\n')
     return ''.join([f'{title}', '\n', f'{info.get("help_version") or version_text(info)}', _tr('     构建日期：'), f'{build_date}', _tr('\n\n最新更新：\n'), f'{summary}', _tr('\n\n用法：'), f'{usage}', '\n\n', f'{commands}', _tr('组件选项（desktop / taskbar；每次选择一项）：\n  -s, --start           后台启动；已运行时不重复启动\n  -S, --stop            正常停止\n  -k, --kill            强制结束\n  -r, --restart         正常停止后重新启动\n  -d, --debug           在当前终端运行并输出日志；Ctrl+C 结束\n      --status          查询运行状态与 PID\n  -h, --help, -?        显示帮助\n\n日志级别（仅用于 --debug，默认 -4）：\n  -1 致命   -2 错误   -3 警告   -4 信息   -5 调试   -6 跟踪\n\n示例：\n  adws -s\n  adws -s '), f'{target}', '\n  adws ', f'{target}', ' -s\n  adws ', f'{target}', ' -d -6\n  adws ', f'{target}', _tr(' --status\n\n组件与选项可前后互换；省略组件时，启停、重启和状态查询同时作用于桌面和任务栏。\n调试须指定一个组件。启动成功不输出提示；失败时输出错误。\n调试模式先停止旧实例；结束后用 -s 恢复后台运行。\n停止 desktop 后桌面右键失效；--status 未运行时返回 1。\n\n我不知道 ADWS 含不含有超级牛力。\n')])
@@ -248,7 +251,10 @@ def main(argv=None, quiet=False):
                 config, style = folder / 'config-bottom.jsonc', folder / 'style-bottom.css'
                 if not config.is_file() or not style.is_file():
                     parser.exit(1, _tr('缺少任务栏配置，请先运行 adws install。\n'))
-                command = ['waybar', '-c', str(config), '-s', str(style), '-l', ('critical', 'error', 'warning', 'info', 'debug', 'trace')[level - 1]]
+                from adws_health import waybar_capability_errors
+                errors = waybar_capability_errors()
+                if errors: parser.exit(1, '\n'.join(errors)+'\n')
+                command = [resolve_waybar(), '-c', str(config), '-s', str(style), '-l', ('critical', 'error', 'warning', 'info', 'debug', 'trace')[level - 1]]
                 env['RUST_LOG'] = ('off', 'error', 'warn', 'info', 'debug', 'trace')[level - 1]
                 if level >= 5:
                     env['ADWS_PANEL_DEBUG'] = '1'

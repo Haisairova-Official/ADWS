@@ -442,7 +442,7 @@ class LayoutWindow:
             holder.pack_start(widget, False, False, 0)
             entry['control_boxes'][key] = holder
         entry['box'] = button
-        button.drag_source_set(1 << 8, [Gtk.TargetEntry.new('application/x-adws-layout-instance', Gtk.TargetFlags.SAME_APP, 0)], self.Gdk.DragAction.MOVE)
+        button.drag_source_set(self.Gdk.ModifierType.BUTTON1_MASK, [Gtk.TargetEntry.new('application/x-adws-layout-instance', Gtk.TargetFlags.SAME_APP, 0)], self.Gdk.DragAction.MOVE)
         button.connect('drag-data-get', lambda _, context, selection, info, time: selection.set(selection.get_target(), 8, entry['instance'].encode()))
         self.bind_drop(button, entry['slot'], entry)
         self.rows.append(entry)

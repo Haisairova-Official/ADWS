@@ -937,6 +937,11 @@ class ConfigWindow(Gtk.Window):
         self.update_result = Gtk.Label(xalign=0, selectable=True)
         self.update_result.set_line_wrap(True)
         box.pack_start(self.update_result, False, False, 0)
+        self.update_progress = Gtk.ProgressBar(show_text=True)
+        self.update_progress.set_no_show_all(True)
+        self.update_progress.set_hexpand(True)
+        box.pack_start(self.update_progress, False, False, 0)
+        self.update_pulse_source = 0
         self.update_link = Gtk.LinkButton.new_with_label('https://github.com/Haisairova-Official/ADWS/releases', _tr('打开发布页面'))
         self.update_link.set_no_show_all(True)
         self.update_link.set_halign(Gtk.Align.START)
@@ -980,7 +985,7 @@ class ConfigWindow(Gtk.Window):
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         box.pack_start(separator, False, False, 6)
         help_text = (
-            _tr('常用命令：\n  adws config           打开本设置\n  adws check            查看组件状态\n  adws restart taskbar  重启底部任务栏\n  adws restart desktop  重启桌面图标层\n  adws build-taskbar    重新编译任务栏模块')
+            _tr('常用命令：\n  adws config           打开本设置\n  adws check            查看组件状态\n  adws restart taskbar  重启底部任务栏\n  adws restart desktop  重启桌面图标层\n  adws build-taskbar    重新编译任务栏模块') + _tr('\n\n依赖修复（操作前会询问）：\n  adws check --repair-waybar  检查 Waybar；安装/升级软件包或构建兼容版本\n  adws check --install-fonts  检测并补装 Nerd Fonts 图标字体（约 3 MB）\n  编译版 Waybar 使用用户专用目录；字体安装保留原来的正文字体。')
         )
         help_label = Gtk.Label(label=help_text, xalign=0, yalign=0, selectable=True)
         help_label.set_line_wrap(True)
@@ -995,15 +1000,13 @@ class ConfigWindow(Gtk.Window):
         self.update_button.set_sensitive(False)
         self.update_result.set_text(_tr('正在检查更新…'))
         self.update_link.hide()
+        self.update_progress.hide()
         def finish(result, error):
             if not (getattr(self, "settings_host", None) or self).get_realized():
                 return False
             self.update_button.set_sensitive(True)
             self.update_preview.set_sensitive(True)
             self.update_result.set_text(error or result['text'])
-            if result and result['url']:
-                self.update_link.set_uri(result['url'])
-                self.update_link.show()
             if result and result.get('available') and self.confirm_update(result):
                 self.install_update(result)
             return False
@@ -1034,23 +1037,67 @@ class ConfigWindow(Gtk.Window):
         from adws_update import install_update
         self.update_button.set_sensitive(False)
         self.update_preview.set_sensitive(False)
-        self.update_result.set_text(_tr('正在准备更新组件，请稍候…'))
+        self.update_link.hide()
+        self.update_result.set_text(_tr('正在下载更新…'))
+        self.update_progress.set_fraction(0)
+        self.update_progress.set_text(_tr('正在下载更新…'))
+        self.update_progress.show()
+        def alive():
+            return (getattr(self, "settings_host", None) or self).get_realized()
+        def stop_pulse():
+            if self.update_pulse_source:
+                GLib.source_remove(self.update_pulse_source)
+                self.update_pulse_source = 0
+        def pulse():
+            if not alive():
+                self.update_pulse_source = 0
+                return False
+            self.update_progress.pulse()
+            return True
+        def start_pulse():
+            if not self.update_pulse_source:
+                self.update_pulse_source = GLib.timeout_add(120, pulse)
         def show_progress(text):
-            if (getattr(self, "settings_host", None) or self).get_realized():
+            if alive():
                 self.update_result.set_text(text)
+                self.update_progress.set_text(text)
+                start_pulse()
             return False
-        def finish(text):
-            if (getattr(self, "settings_host", None) or self).get_realized():
+        def show_download(count, total):
+            if not alive(): return False
+            amount = count / (1024 * 1024)
+            if total:
+                stop_pulse()
+                fraction = min(1, count / total)
+                self.update_progress.set_fraction(fraction)
+                text = _tr('下载更新：%d%%（%.1f MiB）') % (fraction * 100, amount)
+            else:
+                start_pulse()
+                text = _tr('下载更新：%.1f MiB') % amount
+            self.update_progress.set_text(text)
+            self.update_result.set_text(text)
+            return False
+        def finish(text, success):
+            stop_pulse()
+            if alive():
                 self.update_button.set_sensitive(True)
                 self.update_preview.set_sensitive(True)
                 self.update_result.set_text(text)
+                if success:
+                    self.update_progress.set_fraction(1)
+                    self.update_progress.set_text(_tr('更新已安装。'))
+                else:
+                    self.update_progress.hide()
             return False
+        start_pulse()
         def worker():
             try:
-                text = install_update(result, lambda text: GLib.idle_add(show_progress, text))
+                text = install_update(result, lambda text: GLib.idle_add(show_progress, text),
+                                      lambda count, total: GLib.idle_add(show_download, count, total))
+                success = True
             except (OSError, ValueError, RuntimeError) as error:
-                text = str(error)
-            GLib.idle_add(finish, text)
+                text, success = str(error), False
+            GLib.idle_add(finish, text, success)
         # Closing Settings must not terminate a file replacement halfway through.
         threading.Thread(target=worker, daemon=False).start()
 

@@ -322,7 +322,7 @@ class WaybarPage(Gtk.Box):
         colors=backend.folder()/'colors.css'
         if not colors.is_file():colors=Path(__file__).resolve().parents[1]/'config/waybar/colors.css'
         import json
-        css=css.replace('@import "colors.css";', '@import '+json.dumps(str(colors))+';')
+        css=css.replace('@import "colors.css";', '@import '+backend.css_string(str(colors))+';')
         self.loading=True
         try:
             self.data=backend.decode(content);self.buffer.set_text(content);self.modified.clear();self.preset_style=css;self.imported_files=None

@@ -50,20 +50,32 @@ def atomic_copy(source, target):
         Path(name).unlink(missing_ok=True)
 
 
-def download(url, target, use_proxy, digest=None):
+def download(url, target, use_proxy, digest=None, progress=None):
     errors = []
     for candidate in github_urls(url, use_proxy):
         try:
             request = urllib.request.Request(candidate, headers={'User-Agent': 'ADWS-update'})
             count = 0
+            last_report = 0.0
             checksum = hashlib.sha256()
             with urllib.request.urlopen(request, timeout=30) as response, target.open('wb') as stream:
-                while chunk := response.read(1024 * 1024):
+                length = getattr(response, 'headers', {}).get('Content-Length')
+                total = int(length) if length and str(length).isdigit() else None
+                if total and total > MAX_DOWNLOAD:
+                    raise ValueError(_tr('更新包超过大小限制。'))
+                if progress: progress(0, total)
+                while chunk := response.read(64 * 1024):
                     count += len(chunk)
                     if count > MAX_DOWNLOAD:
                         raise ValueError(_tr('更新包超过大小限制。'))
                     checksum.update(chunk)
                     stream.write(chunk)
+                    now = time.monotonic()
+                    if progress and now - last_report >= .1:
+                        progress(count, total)
+                        last_report = now
+                if total is not None and count != total:
+                    raise ValueError(_tr('更新包下载不完整。'))
             if digest and checksum.hexdigest() != digest:
                 raise ValueError(_tr('更新包校验失败。'))
             # Check ZIP CRC here, so a broken proxy response can fall back to GitHub.
@@ -72,6 +84,7 @@ def download(url, target, use_proxy, digest=None):
                     raise ValueError(_tr('更新包超过大小限制。'))
                 if archive.testzip() is not None:
                     raise ValueError(_tr('更新包校验失败。'))
+            if progress: progress(count, count)
             return
         except (OSError, ValueError, zipfile.BadZipFile) as error:
             target.unlink(missing_ok=True)
@@ -360,7 +373,7 @@ def installed_version(root):
     return version_key(text)
 
 
-def install_update(result, progress=print):
+def install_update(result, progress=print, transfer_progress=None):
     release = result.get('release')
     if not result.get('available') or not isinstance(release, dict):
         raise ValueError(_tr('缺少已确认的更新版本，请重新检查更新。'))
@@ -385,7 +398,14 @@ def install_update(result, progress=print):
                 progress(_tr('正在下载更新…'))
                 url, digest, prebuilt = package(release)
                 archive = directory / 'update.zip'
-                download(url, archive, result.get('use_proxy', False), digest)
+                def downloaded(count, total):
+                    if transfer_progress:
+                        transfer_progress(count, total)
+                    else:
+                        amount = count / (1024 * 1024)
+                        progress((_tr('下载更新：%d%%（%.1f MiB）') % (min(100, count * 100 // total), amount))
+                                 if total else (_tr('下载更新：%.1f MiB') % amount))
+                download(url, archive, result.get('use_proxy', False), digest, downloaded)
                 prepared = extract(archive, directory / 'source')
                 if installed_version(prepared) != expected:
                     raise ValueError(_tr('安装包版本与所选更新不一致。'))

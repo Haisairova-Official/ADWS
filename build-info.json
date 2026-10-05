@@ -22,9 +22,13 @@
     "窗口项目卡与 Peek 的点击切换改为后台请求，连续点击不再无限积压；补充请求超时与默认卡顿警告日志。（1.35）",
     "修复悬停窗口图标时样式路径持续累积造成的任务栏卡顿，补充重复悬停和 Peek 回归验证。",
     "插件新增独立 Watchdog，崩溃或无响应时通知并在设置中标黄；异常退出不再反复自动重启。",
-    "NCMLyricsBar 1.1.0 配色修订：上一首、下一首按钮实时跟随任务栏主题。"
+    "NCMLyricsBar 1.1.0 配色修订：上一首、下一首按钮实时跟随任务栏主题。",
+    "修复 Ubuntu 下中文目录的 CSS 路径与设置拖动按键兼容问题；任务栏启动前检查必需模块。（M）",
+    "更新界面新增后台下载进度条，确认后自动校验、构建并安装更新，不再只展示下载链接。（M）",
+    "安装脚本新增 Waybar 兼容性修复：先尝试软件源安装/升级，仍不兼容则可构建官方版本；失败保留日志与旧版。（N）",
+    "新增可选 Nerd Fonts 图标字体安装，已有字体自动跳过，保留原来的正文字体；帮助补充依赖修复命令。（N）"
   ],
-  "display_version": "1.35-L Pre-Release",
-  "help_version": "Major 1.35    Minor：L    Pre-Release",
-  "minor_version": "L"
+  "display_version": "1.35-N Pre-Release",
+  "help_version": "Major 1.35    Minor：N    Pre-Release",
+  "minor_version": "N"
 }

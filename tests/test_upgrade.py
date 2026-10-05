@@ -38,6 +38,22 @@ class ArchiveTests(unittest.TestCase):
                 upgrade.download('https://github.com/a/b.zip',Path(folder)/'direct.zip',False)
                 self.assertEqual(request.call_args.args[0].full_url,'https://github.com/a/b.zip')
 
+    def test_download_reports_bytes_and_rejects_truncated_response(self):
+        with tempfile.TemporaryDirectory() as folder:
+            z=Path(folder)/'fixture.zip';archive(z);payload=z.read_bytes()
+            response=io.BytesIO(payload);response.headers={'Content-Length':str(len(payload))}
+            updates=[]
+            with patch.object(upgrade.urllib.request,'urlopen',return_value=response):
+                upgrade.download('https://github.com/fixture.zip',Path(folder)/'download.zip',False,progress=lambda n,t:updates.append((n,t)))
+            self.assertEqual(updates[0],(0,len(payload)))
+            self.assertEqual(updates[-1],(len(payload),len(payload)))
+            self.assertTrue(all(0<=n<=t for n,t in updates))
+            response=io.BytesIO(payload);response.headers={'Content-Length':str(len(payload)+1)}
+            target=Path(folder)/'broken.zip'
+            with patch.object(upgrade.urllib.request,'urlopen',return_value=response):
+                with self.assertRaises(RuntimeError):upgrade.download('https://github.com/fixture.zip',target,False)
+            self.assertFalse(target.exists())
+
     def test_unsafe_archives_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
