@@ -23,15 +23,17 @@ mod cache;
 pub fn stream() -> impl Stream<Item = EnrichedNotification> {
     // For lifetime reasons, it's easier to have an async channel extract the
     // data out of the GLib event loop than it is to return the stream directly.
-    let (tx, rx) = async_channel::unbounded();
-    glib::spawn_future_local(async move {
+    let (tx, rx) = async_channel::bounded(32);
+    let worker = glib::spawn_future_local(async move {
         match monitor_dbus(tx).await {
             Ok(()) => tracing::info!("no longer monitoring D-Bus"),
             Err(e) => tracing::error!(%e, "D-Bus error"),
         }
     });
 
+    let tasks = crate::tasks::Tasks(vec![worker]);
     async_stream::stream! {
+        let _tasks = tasks;
         while let Ok(notification) = rx.recv().await {
             yield notification;
         }

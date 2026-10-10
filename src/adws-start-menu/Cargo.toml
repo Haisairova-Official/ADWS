@@ -1,0 +1,12 @@
+[package]
+name = "adws-start-menu"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+gtk = "0.18.2"
+cairo-rs = { version = "0.18", features = ["png"] }
+serde_json = "1"
+regex = "1"

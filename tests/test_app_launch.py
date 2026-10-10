@@ -21,10 +21,30 @@ class AppLaunchTests(unittest.TestCase):
     def test_admin_argv_is_literal_and_has_no_user_credentials(self):
         info = self.info('/usr/bin/test-app --name %c %i %k %% "$(touch /tmp/not-executed)" %U', Icon='test-icon')
         with patch.object(launch.shutil, 'which', side_effect=lambda name: '/usr/bin/pkexec' if name == 'pkexec' else name), \
-             patch.dict(launch.os.environ, {'HOME':'/private','DBUS_SESSION_BUS_ADDRESS':'private', 'WAYLAND_DISPLAY':'wayland-1'}, clear=True):
+             patch.dict(launch.os.environ, {'HOME':'/private','DBUS_SESSION_BUS_ADDRESS':'private', 'WAYLAND_DISPLAY':'wayland-1','XDG_RUNTIME_DIR':'/run/user/1000','LD_PRELOAD':'private','PYTHONPATH':'private'}, clear=True):
             argv = launch.admin_argv(info)
-        self.assertEqual(argv[:5], ['/usr/bin/pkexec','--disable-internal-agent','/usr/bin/env','WAYLAND_DISPLAY=wayland-1','/usr/bin/test-app'])
+        self.assertEqual(argv[:5], ['/usr/bin/pkexec','--disable-internal-agent','/usr/bin/env','WAYLAND_DISPLAY=/run/user/1000/wayland-1','/usr/bin/test-app'])
+        self.assertFalse(any(arg.startswith(('HOME=', 'XDG_RUNTIME_DIR=', 'DBUS_SESSION_BUS_ADDRESS=', 'LD_PRELOAD=', 'PYTHONPATH=')) for arg in argv))
         self.assertEqual(argv[5:], ['--name','测试 App %U','--icon','test-icon','/tmp/Test App.desktop','%','$(touch /tmp/not-executed)'])
+
+    def test_display_socket_and_runtime_environment(self):
+        with patch.object(launch.shutil,'which',side_effect=lambda name:'/usr/bin/'+name if not name.startswith('/') else name):
+            with patch.dict(launch.os.environ,{'WAYLAND_DISPLAY':'/private/wayland-9','XDG_RUNTIME_DIR':'/user/runtime'},clear=True):
+                argv=launch.admin_argv(self.info())
+                self.assertIn('WAYLAND_DISPLAY=/private/wayland-9',argv)
+                self.assertFalse(any(a.startswith('XDG_RUNTIME_DIR=') for a in argv))
+            with patch.dict(launch.os.environ,{'WAYLAND_DISPLAY':'wayland-1'},clear=True),self.assertRaises(ValueError):
+                launch.admin_argv(self.info())
+            with patch.dict(launch.os.environ,{'DISPLAY':':9','XAUTHORITY':'/tmp/auth'},clear=True):
+                argv=launch.admin_argv(self.info())
+                self.assertIn('DISPLAY=:9',argv);self.assertIn('XAUTHORITY=/tmp/auth',argv)
+
+    def test_failure_explains_application_refusal_and_keeps_diagnostics(self):
+        message=launch.administrator_error(self.info(),'Running Firefox as root is not supported.',1)
+        self.assertIn('Running Firefox as root is not supported.',message)
+        self.assertIn('测试 App %U',message)
+        self.assertIn('auth agent missing',launch.administrator_error(self.info(),'auth agent missing',127))
+        self.assertLess(len(launch.administrator_error(self.info(),'x'*10000,1)),4300)
 
     def test_invalid_or_unsupported_admin_launch(self):
         for info in (self.info('/bin/true %Z'), self.info(XFlatpak='ignored')):
@@ -51,7 +71,7 @@ class AppLaunchTests(unittest.TestCase):
     def test_admin_cancellation_and_failure(self):
         with patch.object(launch,'resolve_app',return_value=self.info()), \
              patch.object(launch,'admin_argv',return_value=['pkexec','test']), \
-             patch.object(launch.subprocess,'run',return_value=Mock(returncode=126)) as run:
+             patch.object(launch,'run_administrator',return_value=Mock(returncode=126)) as run:
             launch.launch('test',True)
             run.assert_called_once()
             run.return_value = Mock(returncode=127, stderr='auth agent missing')

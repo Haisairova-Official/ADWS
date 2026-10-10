@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="340" height="120" viewBox="0 0 340 120">
+<!-- Original static orbit ornament based on the forum's orbital motif. -->
+<g fill="none" stroke="#c7dfff" stroke-width="1" opacity=".16">
+  <ellipse cx="251" cy="62" rx="108" ry="35" transform="rotate(-20 251 62)"/>
+  <ellipse cx="251" cy="62" rx="81" ry="51" transform="rotate(28 251 62)"/>
+  <circle cx="251" cy="62" r="25"/>
+  <circle cx="251" cy="62" r="30" stroke="#bc8cff"/>
+</g>
+<g fill="#c7dfff" opacity=".28"><circle cx="155" cy="86" r="3"/><circle cx="322" cy="85" r="4"/><circle cx="289" cy="21" r="2"/></g>
+<g fill="#bc8cff" opacity=".25"><circle cx="189" cy="25" r="2"/><circle cx="254" cy="63" r="4"/><path d="M109 34l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/><path d="M319 37l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z"/></g>
+</svg>

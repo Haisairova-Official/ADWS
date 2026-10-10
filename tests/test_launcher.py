@@ -19,8 +19,9 @@ class LauncherTests(unittest.TestCase):
                 result = layout.render_waybar_config(
                     {'builtins': [], 'plugins': [], 'options': {'start_launcher_command': command}}, available=[],
                     base={'include': ['apps.jsonc']}, config_path=root / 'bar.jsonc')
-                self.assertEqual(result['custom/applauncher'], {
-                    'format': 'My Apps', 'on-click': command, 'tooltip': False})
+                self.assertEqual({key: result['custom/applauncher'][key] for key in ('format','on-click','tooltip')}, {
+                    'format': 'My Apps', 'on-click': command, 'tooltip': True})
+                self.assertIn('--start-instance start', result['custom/applauncher']['on-click-right'])
 
     def test_layout_without_launcher_setting_keeps_existing_command(self):
         result = layout.render_waybar_config({'builtins': [], 'plugins': []}, available=[], base={
@@ -32,16 +33,34 @@ class LauncherTests(unittest.TestCase):
             layout.render_waybar_config({'options': {'start_launcher_command': '  '}},
                                         available=[], base={})
 
+    def test_default_native_needs_no_external_launcher(self):
+        with patch.object(launcher.shutil, 'which', return_value=None), patch.object(launcher, 'ask', return_value=''), patch.object(launcher.subprocess, 'run') as execute:
+            self.assertEqual(launcher.select_launcher(), launcher.native_menu_command())
+            execute.assert_not_called()
+
+    def test_declined_package_returns_to_choice(self):
+        with patch.object(launcher.shutil, 'which', return_value=None), patch.object(launcher, 'ask', side_effect=['3','n','1']):
+            self.assertEqual(launcher.select_launcher(), launcher.native_menu_command())
+
+    def test_native_text_start_uses_anchor_widget_all_edges(self):
+        for edge in ('top','bottom','left','right'):
+            result = layout.render_waybar_config({'builtins':[{'id':'start','enabled':True,'slot':'center','order':0}], 'plugins':[], 'options':{'start_launcher_mode':'adws','position':edge}}, available=[],base={})
+            button=result['cffi/start-button']
+            self.assertEqual(button['start_position'],edge)
+            self.assertEqual(button['start_image'],'')
+            self.assertEqual(button['exec'],launcher.native_menu_command())
+            self.assertIn('cffi/start-button',str(result['modules-center']))
+
     def test_priority(self):
-        with patch.object(launcher.shutil, 'which', return_value='/bin/present'):
+        with patch.object(launcher.shutil, 'which', return_value='/bin/present'), patch.object(launcher, 'ask', return_value='2'):
             self.assertEqual(launcher.select_launcher(), 'fuzzel')
 
     def test_rofi(self):
-        with patch.object(launcher.shutil, 'which', side_effect=lambda name: '/bin/rofi' if name == 'rofi' else None):
+        with patch.object(launcher.shutil, 'which', side_effect=lambda name: '/bin/rofi' if name == 'rofi' else None), patch.object(launcher, 'ask', return_value='3'):
             self.assertEqual(launcher.select_launcher(), 'rofi -show drun')
 
     def test_custom_and_empty(self):
-        with patch.object(launcher.shutil, 'which', return_value=None), patch.object(launcher, 'ask', side_effect=['n', '', 'my-launcher --apps']):
+        with patch.object(launcher.shutil, 'which', return_value=None), patch.object(launcher, 'ask', side_effect=['4', '', 'my-launcher --apps']):
             self.assertEqual(launcher.select_launcher(), 'my-launcher --apps')
 
     def test_cancel(self):
@@ -57,12 +76,12 @@ class LauncherTests(unittest.TestCase):
             nonlocal installed
             installed = True
             return Mock(returncode=0)
-        with patch.object(launcher.shutil, 'which', side_effect=which), patch.object(launcher, 'ask', return_value=''), patch.object(launcher.os, 'geteuid', return_value=0), patch.object(launcher.subprocess, 'run', side_effect=run) as execute:
+        with patch.object(launcher.shutil, 'which', side_effect=which), patch.object(launcher, 'ask', side_effect=['2', '']), patch.object(launcher.os, 'geteuid', return_value=0), patch.object(launcher.subprocess, 'run', side_effect=run) as execute:
             self.assertEqual(launcher.select_launcher(), 'fuzzel')
             self.assertEqual(execute.call_args.args[0], ['/usr/bin/apt-get', 'install', 'fuzzel'])
 
     def test_install_failure(self):
-        with patch.object(launcher.shutil, 'which', side_effect=lambda name: '/bin/apt-get' if name == 'apt-get' else None), patch.object(launcher, 'ask', return_value='y'), patch.object(launcher.os, 'geteuid', return_value=0), patch.object(launcher.subprocess, 'run', return_value=Mock(returncode=1)):
+        with patch.object(launcher.shutil, 'which', side_effect=lambda name: '/bin/apt-get' if name == 'apt-get' else None), patch.object(launcher, 'ask', side_effect=['2', 'y']), patch.object(launcher.os, 'geteuid', return_value=0), patch.object(launcher.subprocess, 'run', return_value=Mock(returncode=1)):
             with self.assertRaises(RuntimeError):
                 launcher.select_launcher()
 

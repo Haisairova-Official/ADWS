@@ -1,6 +1,7 @@
 """Interactive dependency repair and component build for installation."""
 from adws_i18n import tr as _tr
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -9,13 +10,27 @@ import sys
 import tempfile
 from adws_launcher import ask
 from adws_health import dependency_errors, check
+from adws_waybar_compat import ensure_waybar, resolve_waybar
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = {
- 'apt-get': {'python': ['python3-gi', 'python3-cairo', 'python3-pil', 'gir1.2-gtk-3.0', 'gir1.2-gtklayershell-0.1'], 'build': ['cargo', 'rustc', 'build-essential', 'pkg-config', 'libgtk-3-dev', 'libgtk-layer-shell-dev', 'libjson-glib-dev']},
- 'pacman': {'python': ['python-gobject', 'python-cairo', 'python-pillow', 'gtk3', 'gtk-layer-shell'], 'build': ['rust', 'base-devel', 'pkgconf', 'gtk3', 'gtk-layer-shell', 'json-glib']},
- 'dnf': {'python': ['python3-gobject', 'python3-cairo', 'python3-pillow', 'gtk3', 'gtk-layer-shell'], 'build': ['cargo', 'rust', 'gcc', 'make', 'pkgconf-pkg-config', 'gtk3-devel', 'gtk-layer-shell-devel', 'json-glib-devel']},
+ 'apt-get': {'python': ['python3-gi', 'python3-cairo', 'python3-pil', 'gir1.2-gtk-3.0', 'gir1.2-gtklayershell-0.1', 'gir1.2-polkit-1.0', 'policykit-1'], 'build': ['cargo', 'rustc', 'build-essential', 'pkg-config', 'libgtk-3-dev', 'libgtk-layer-shell-dev', 'libjson-glib-dev']},
+ 'pacman': {'python': ['python-gobject', 'python-cairo', 'python-pillow', 'gtk3', 'gtk-layer-shell', 'polkit'], 'build': ['rust', 'base-devel', 'pkgconf', 'gtk3', 'gtk-layer-shell', 'json-glib']},
+ 'dnf': {'python': ['python3-gobject', 'python3-cairo', 'python3-pillow', 'gtk3', 'gtk-layer-shell', 'polkit'], 'build': ['cargo', 'rust', 'gcc', 'make', 'pkgconf-pkg-config', 'gtk3-devel', 'gtk-layer-shell-devel', 'json-glib-devel']},
 }
+
+PACKAGES['apt-get']['waybar-build'] = ['git', 'build-essential', 'meson', 'ninja-build', 'cmake', 'pkg-config',
+ 'libgtkmm-3.0-dev', 'libjsoncpp-dev', 'libsigc++-2.0-dev', 'libfmt-dev', 'libspdlog-dev',
+ 'libwayland-dev', 'wayland-protocols', 'libgtk-layer-shell-dev', 'libxkbcommon-dev', 'libxkbregistry-dev',
+ 'libhowardhinnant-date-dev', 'libdbusmenu-gtk3-dev', 'libpulse-dev', 'libnl-3-dev', 'libnl-genl-3-dev',
+ 'libudev-dev', 'libevdev-dev']
+PACKAGES['pacman']['waybar-build'] = ['git', 'base-devel', 'meson', 'ninja', 'cmake', 'pkgconf', 'gtkmm3',
+ 'jsoncpp', 'libsigc++', 'fmt', 'spdlog', 'wayland', 'wayland-protocols', 'gtk-layer-shell', 'libxkbcommon',
+ 'libdbusmenu-gtk3', 'libpulse', 'libnl', 'systemd', 'libevdev']
+PACKAGES['dnf']['waybar-build'] = ['git', 'gcc-c++', 'meson', 'ninja-build', 'cmake', 'pkgconf-pkg-config',
+ 'gtkmm30-devel', 'jsoncpp-devel', 'libsigc++20-devel', 'fmt-devel', 'spdlog-devel', 'wayland-devel',
+ 'wayland-protocols-devel', 'gtk-layer-shell-devel', 'libxkbcommon-devel', 'libdbusmenu-gtk3-devel',
+ 'pulseaudio-libs-devel', 'libnl3-devel', 'systemd-devel', 'libevdev-devel']
 
 
 def confirm(prompt):
@@ -49,17 +64,59 @@ def install_packages(programs=(), groups=()):
     subprocess.run(command, check=True)
 
 
-def atomic_install(source, target):
+def atomic_install(source, target, mode=0o644):
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix='.adws-', dir=target.parent)
     os.close(fd)
     try:
         shutil.copyfile(source, temporary)
-        os.chmod(temporary, 0o644)
+        os.chmod(temporary, mode)
         os.replace(temporary, target)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+
+def build_environment():
+    """Use a supported Rust pair, including rustup absent from a GUI's PATH."""
+    base = dict(os.environ)
+    candidates = [base.get('PATH', os.defpath)]
+    cargo_home = Path(base.get('CARGO_HOME') or Path.home() / '.cargo')
+    candidates.append(str(cargo_home / 'bin') + os.pathsep + candidates[0])
+    for path in dict.fromkeys(candidates):
+        env = {**base, 'PATH': path}
+        rustc = shutil.which('rustc', path=path)
+        cargo = shutil.which('cargo', path=path)
+        if not rustc or not cargo:
+            continue
+        try:
+            compiler = subprocess.run([rustc, '--version'], capture_output=True, text=True, timeout=15, env=env)
+            driver = subprocess.run([cargo, '--version'], capture_output=True, text=True, timeout=15, env=env)
+            versions = [re.search(r'\b(?:rustc|cargo) (\d+)\.(\d+)\.(\d+)', result.stdout or '') for result in (compiler, driver)]
+            if all(result.returncode == 0 for result in (compiler, driver)) and all(
+                    version and tuple(map(int, version.groups())) >= (1, 87, 0) for version in versions):
+                return env
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    raise RuntimeError(_tr('构建需要 Rust / Cargo 1.87 或更新版本。请通过 rustup 安装或更新 stable 工具链后重试；Ubuntu / Mint 自带的旧版 Rust 不满足要求。'))
+
+
+def choose_build_mirror(env=None):
+    """Ask once, in Chinese environments only; never edit global Cargo settings."""
+    from adws_i18n import chinese
+    result = dict(os.environ if env is None else env)
+    if 'ADWS_BUILD_MIRROR' not in result:
+        result['ADWS_BUILD_MIRROR'] = '1' if chinese() and confirm('是否为本次构建使用国内 Rust 镜像源（RsProxy）？') else '0'
+    return result
+
+
+def cargo_build_command(env):
+    command = ['cargo']
+    if env.get('ADWS_BUILD_MIRROR') == '1':
+        command += ['--config', 'source.crates-io.replace-with="adws-rsproxy"',
+                    '--config', 'source.adws-rsproxy.registry="sparse+https://rsproxy.cn/index/"']
+    return command + ['build', '--release', '--locked']
 
 
 def prepare():
@@ -67,22 +124,27 @@ def prepare():
     errors = dependency_errors()
     if errors:
         print('\n'.join(errors))
-        missing = [name for name in ('waybar', 'niri', 'systemctl', 'thunar') if not shutil.which(name)]
+        missing = [name for name in ('niri', 'systemctl', 'thunar') if not shutil.which(name)]
         missing = ['systemd' if name == 'systemctl' else name for name in missing]
         groups = ['python'] if any('Python/GTK' in error for error in errors) else []
         if sys.version_info < (3, 11):
             raise RuntimeError(_tr('需要 Python 3.11 或更新版本，请先通过系统的软件管理器升级 Python。'))
-        install_packages(missing, groups)
+        if missing or groups:
+            install_packages(missing, groups)
+        if not resolve_waybar():
+            ensure_waybar(confirm, install_packages)
         errors = dependency_errors()
         if errors:
             raise RuntimeError(_tr('补齐后仍有问题：\n') + '\n'.join(errors) + _tr('\n请检查系统软件源和当前 Python 环境后重试。'))
+    from adws_fonts import ensure_fonts
+    ensure_fonts(confirm, install_packages)
     library_dir = Path.home() / '.local/lib/waybar'
     from adws_prebuilt import install as install_prebuilt
     prebuilt = install_prebuilt(ROOT, library_dir, confirm, atomic_install)
     if not prebuilt:
         # File existence does not identify the ABI/source version. Cargo and
         # make reuse their build caches, but every source install checks all libs.
-        missing = ['libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so']
+        missing = ['libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so', 'adws-plugin-runner', 'adws-start-menu']
         print(_tr('将构建并更新原生组件：') + ', '.join(missing))
         if not confirm(_tr('是否现在构建并安装这些组件？首次构建可能需要下载依赖。')):
             raise RuntimeError(_tr('已取消安装；也可以按 README 手动构建后重新运行 install.sh。'))
@@ -91,16 +153,27 @@ def prepare():
             build_missing = subprocess.run(['pkg-config', '--exists', 'gtk+-3.0', 'gtk-layer-shell-0', 'json-glib-1.0']).returncode != 0
         if build_missing:
             install_packages(groups=['build'])
+        build_env = choose_build_mirror(build_environment())
         if 'libniri_taskbar.so' in missing:
-            subprocess.run(['bash', str(ROOT / 'adws'), 'build-taskbar'], check=True)
+            subprocess.run(['bash', str(ROOT / 'adws'), 'build-taskbar'], check=True, env=build_env)
+        subprocess.run(cargo_build_command(build_env),
+                       cwd=ROOT / 'src/adws-runtime', check=True,
+                       env={key: value for key, value in build_env.items() if key != 'CARGO_TARGET_DIR'})
+        atomic_install(ROOT / 'src/adws-runtime/target/release/adws-plugin-runner',
+                       ROOT / 'libexec/adws-plugin-runner', mode=0o755)
+        subprocess.run(cargo_build_command(build_env),
+                       cwd=ROOT / 'src/adws-start-menu', check=True,
+                       env={key: value for key, value in build_env.items() if key != 'CARGO_TARGET_DIR'})
+        atomic_install(ROOT / 'src/adws-start-menu/target/release/adws-start-menu',
+                       ROOT / 'libexec/adws-start-menu', mode=0o755)
         if 'libadws_panel.so' in missing:
             subprocess.run(['make', '-C', str(ROOT / 'src/panel-rows')], check=True)
             atomic_install(ROOT / 'src/panel-rows/libadws_panel.so', library_dir / 'libadws_panel.so')
         if 'libwaybar-space.so' in missing:
-            flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk+-3.0', 'gtk-layer-shell-0'], text=True)
+            flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk+-3.0', 'gtk-layer-shell-0', 'wayland-client'], text=True)
             with tempfile.TemporaryDirectory(prefix='adws-build-') as directory:
                 output = Path(directory) / 'libwaybar-space.so'
-                subprocess.run(['cc', '-shared', '-fPIC', '-O2', str(ROOT / 'src/niri-desktop-layer/integration/waybar-space.c'), '-o', str(output), *shlex.split(flags)], check=True)
+                subprocess.run(['cc', '-shared', '-fPIC', '-O2', str(ROOT / 'src/niri-desktop-layer/integration/waybar-space.c'), '-o', str(output), *shlex.split(flags), '-lm'], check=True)
                 atomic_install(output, library_dir / output.name)
     if check(preinstall=True):
         raise RuntimeError(_tr('仍有配置问题需要处理，请按上面的提示修复后再次运行 install.sh；现有配置不会被强制覆盖。'))
@@ -109,6 +182,13 @@ def prepare():
 
 def main():
     try:
+        if sys.argv[1:] == ['--cargo-build']:
+            env = choose_build_mirror(build_environment())
+            subprocess.run(cargo_build_command(env), env=env, check=True)
+            return 0
+        if sys.argv[1:] == ['--build-path']:
+            print(build_environment()['PATH'])
+            return 0
         return prepare()
     except (EOFError, KeyboardInterrupt):
         print(_tr('\n已取消。'))

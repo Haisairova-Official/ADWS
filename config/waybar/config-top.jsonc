@@ -1,0 +1,350 @@
+// ADWS top bar: independently authored defaults; system modules are supported.
+{
+  "name": "adws-top",
+  "layer": "top",
+  "position": "top",
+  "height": 30,
+  "spacing": 0,
+  "fixed-center": true,
+  "exclusive": true,
+  "reload_style_on_change": true,
+  "modules-left": [
+    "niri/workspaces",
+    "custom/right_div#5",
+    "niri/window",
+    "custom/right_div#6"
+  ],
+  "modules-center": [
+    "custom/left_div#3",
+    "custom/actions",
+    "custom/settings",
+    "custom/screenshot",
+    "custom/clipboard",
+    "custom/left_div#2",
+    "idle_inhibitor",
+    "custom/colorpicker",
+    "power-profiles-daemon",
+    "custom/left_div#11",
+    "custom/left_div#1",
+    "custom/applauncher",
+    "custom/right_div#1",
+    "custom/right_div#11",
+    "clock",
+    "custom/right_div#2",
+    "custom/cava",
+    "custom/right_div#3"
+  ],
+  "modules-right": [
+    "custom/left_div#7",
+    "custom/updates",
+    "tray",
+    "custom/left_div#4",
+    "group/brightness",
+    "privacy",
+    "group/audio",
+    "custom/left_div#8",
+    "bluetooth",
+    "network",
+    "battery",
+    "custom/left_div#5",
+    "custom/taskbar-toggle",
+    "group/powermenu"
+  ],
+  "niri/workspaces": {
+    "format": "{icon}",
+    "format-icons": {
+      "active": "󰜋",
+      "default": ""
+    },
+    "all-outputs": false
+  },
+  "niri/window": {
+    "format": "{title}",
+    "max-length": 24,
+    "separate-outputs": true
+  },
+  "hyprland/workspaces": {
+    "format": "{name}"
+  },
+  "hyprland/window": {
+    "format": "{title}",
+    "max-length": 24,
+    "separate-outputs": true
+  },
+  "clock": {
+    "interval": 60,
+    "format": "󰥔 {:%H:%M}",
+    "tooltip-format": "{:%Y-%m-%d %A}"
+  },
+  "cpu": {
+    "interval": 5,
+    "format": "CPU {usage}%"
+  },
+  "memory": {
+    "interval": 5,
+    "format": "RAM {percentage}%",
+    "tooltip-format": "{used:0.1f} / {total:0.1f} GiB"
+  },
+  "network": {
+    "format-wifi": "󰤨",
+    "format-ethernet": "󰈀",
+    "format-disconnected": "󰤮",
+    "tooltip-format-wifi": "{essid}\n{ipaddr}",
+    "tooltip-format-ethernet": "{ifname}\n{ipaddr}"
+  },
+  "pulseaudio": {
+    "format": "{icon} {format_source}",
+    "format-muted": " {format_source}",
+    "scroll-step": 5,
+    "format-source": "{volume}%",
+    "format-source-muted": "",
+    "format-icons": {
+      "default": [
+        "",
+        "",
+        ""
+      ]
+    }
+  },
+  "wireplumber": {
+    "format": " {volume}%",
+    "format-muted": "",
+    "scroll-step": 5
+  },
+  "battery": {
+    "format": "󰁹 {capacity}%",
+    "format-charging": "󰂄 {capacity}%",
+    "states": {
+      "warning": 25,
+      "critical": 10
+    }
+  },
+  "tray": {
+    "icon-size": 18,
+    "spacing": 8
+  },
+  "custom/left_div#1": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/left_div#11": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/left_div#2": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/left_div#3": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/left_div#4": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/left_div#5": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/left_div#7": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/left_div#8": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/right_div#1": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/right_div#11": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/right_div#2": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/right_div#3": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/right_div#5": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/right_div#6": {
+    "format": "",
+    "tooltip": false
+  },
+  "custom/actions": {
+    "format": "",
+    "tooltip-format": "Open the default terminal"
+  },
+  "custom/settings": {
+    "format": "",
+    "tooltip-format": "ADWS settings"
+  },
+  "custom/screenshot": {
+    "format": "",
+    "tooltip-format": "Take a screenshot"
+  },
+  "custom/wallpapers": {
+    "format": "󰸉",
+    "tooltip-format": "Wallpaper settings"
+  },
+  "custom/colorpicker": {
+    "format": "󱏜",
+    "tooltip-format": "Pick a color"
+  },
+  "custom/applauncher": {
+    "format": "",
+    "tooltip-format": "Start"
+  },
+  "custom/updates": {
+    "format": "",
+    "tooltip-format": "Check ADWS updates"
+  },
+  "custom/adws-brightness": {
+    "format": "󰃠",
+    "tooltip-format": "Brightness and night mode"
+  },
+  "custom/wlogout": {
+    "format": "󰐥",
+    "tooltip-format": "Power and session"
+  },
+  "idle_inhibitor": {
+    "format": "{icon}",
+    "format-icons": {
+      "activated": "",
+      "deactivated": ""
+    },
+    "start-activated": false,
+    "tooltip-format-activated": "Keep awake: block automatic screen blanking",
+    "tooltip-format-deactivated": "Allow automatic screen blanking (system policy)"
+  },
+  "power-profiles-daemon": {
+    "format": "{icon}",
+    "format-icons": {
+      "performance": "󱐋",
+      "balanced": "",
+      "power-saver": ""
+    }
+  },
+  "mpris": {
+    "format": "{player_icon}",
+    "format-paused": "{status_icon}",
+    "player-icons": {
+      "default": "▶"
+    },
+    "status-icons": {
+      "paused": "Ⅱ"
+    },
+    "dynamic-len": 25
+  },
+  "privacy": {
+    "icon-spacing": 10,
+    "icon-size": 16,
+    "modules": [
+      {
+        "type": "screenshare",
+        "tooltip": true,
+        "tooltip-icon-size": 24
+      }
+    ]
+  },
+  "bluetooth": {
+    "format": "󰂯",
+    "format-disabled": "󰂲",
+    "format-connected": "󰂱",
+    "tooltip-format": "{status}",
+    "tooltip-format-connected": "{device_alias}"
+  },
+  "group/audio": {
+    "orientation": "inherit",
+    "drawer": {
+      "transition-left-to-right": false,
+      "transition-duration": 650,
+      "children-class": "adws-drawer-child"
+    },
+    "modules": [
+      "pulseaudio",
+      "pulseaudio/slider"
+    ]
+  },
+  "group/brightness": {
+    "orientation": "inherit",
+    "drawer": {
+      "transition-left-to-right": false,
+      "transition-duration": 650,
+      "children-class": "adws-drawer-child"
+    },
+    "modules": [
+      "custom/adws-brightness",
+      "custom/adws-brightness-low",
+      "custom/adws-brightness-medium",
+      "custom/adws-brightness-high",
+      "custom/adws-night"
+    ]
+  },
+  "group/powermenu": {
+    "orientation": "inherit",
+    "drawer": {
+      "transition-left-to-right": false,
+      "transition-duration": 650,
+      "children-class": "adws-drawer-child"
+    },
+    "modules": [
+      "custom/wlogout",
+      "custom/reboot",
+      "custom/logout",
+      "custom/lockscreen"
+    ]
+  },
+  "pulseaudio/slider": {
+    "min": 0,
+    "max": 100,
+    "orientation": "horizontal"
+  },
+  "backlight/slider": {
+    "min": 5,
+    "max": 100,
+    "orientation": "horizontal"
+  },
+  "custom/clipboard": {
+    "format": "󰅍"
+  },
+  "custom/adws-brightness-low": {
+    "format": "󰃞"
+  },
+  "custom/adws-brightness-medium": {
+    "format": "󰃟"
+  },
+  "custom/adws-brightness-high": {
+    "format": "󰃠"
+  },
+  "custom/adws-night": {
+    "format": "󰖔"
+  },
+  "custom/reboot": {
+    "format": ""
+  },
+  "custom/logout": {
+    "format": "󰈆"
+  },
+  "custom/lockscreen": {
+    "format": "󰍁"
+  },
+  "custom/taskbar-toggle": {
+    "format": "{}",
+    "return-type": "json",
+    "interval": 2
+  },
+  "custom/cava": {
+    "format": "{}",
+    "tooltip": false,
+    "restart-interval": 3
+  }
+}

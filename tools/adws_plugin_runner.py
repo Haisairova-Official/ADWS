@@ -41,7 +41,7 @@ def report_failure(error, plugin_id=None):
     return 1
 
 
-def execute(root, manifest, overrides, timeout=30):
+def prepare_command(root, manifest, overrides, timeout):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError('Timeout must be finite and positive')
     values = settings(manifest, overrides)
@@ -50,8 +50,47 @@ def execute(root, manifest, overrides, timeout=30):
         command.append('--output-json')
     if 'renderer' in manifest or manifest.get('settingsSchema'):
         command += ['--settings-json', json.dumps(values, ensure_ascii=False)]
+    return command
+
+
+def dispatch(root, manifest, overrides, timeout=30):
+    """Prefer the native supervisor; Python prepares its launch specification."""
+    if os.environ.get('ADWS_PLUGIN_WATCHDOG_WORKER') != '1':
+        prepare_command(root, manifest, overrides, timeout)
+        from adws_plugin_watchdog import run
+        return run(root, manifest, overrides, timeout)
+    backend = os.environ.get('ADWS_PLUGIN_RUNNER', 'auto')
+    if backend == 'python':
+        return execute(root, manifest, overrides, timeout)
+    if backend not in ('auto', 'rust'):
+        raise ValueError('ADWS_PLUGIN_RUNNER must be auto, python or rust')
+    command = prepare_command(root, manifest, overrides, timeout)
+    project = Path(__file__).resolve().parents[1]
+    candidates = (project / 'libexec/adws-plugin-runner',
+                  project / 'src/adws-runtime/target/release/adws-plugin-runner')
+    binary = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), None)
+    if binary is None and backend == 'auto':
+        return execute(root, manifest, overrides, timeout)
+    if binary is None:
+        raise ValueError(tr('Rust 插件运行器尚未构建，请先构建 src/adws-runtime，或改用 Python 后端。'))
+    spec = {'command': command, 'cwd': str(root.resolve()), 'id': manifest['id'],
+            'rows': ('panel.rows-v1' in manifest.get('interfaces', [])
+                     or manifest.get('renderer') == 'panel.rows-v1'),
+            'heartbeat': 'renderer' in manifest, 'timeout': timeout,
+            'error_text': tr('插件运行失败')}
+    # Keep the same PID so Waybar's stop signal reaches the actual supervisor.
+    # No Python forwarding process remains resident after successful exec.
+    os.execv(str(binary), [str(binary), '--spec-json', json.dumps(spec, ensure_ascii=False)])
+    return 0
+
+
+def execute(root, manifest, overrides, timeout=30):
+    previous_preview = None
+    command = prepare_command(root, manifest, overrides, timeout)
     process = None
-    def stop(_signum, _frame): raise InterruptedError('Plugin stopped')
+    class Stopped(Exception):
+        pass
+    def stop(_signum, _frame): raise Stopped()
     previous = signal.signal(signal.SIGTERM, stop)
     count = 0
     try:
@@ -61,7 +100,12 @@ def execute(root, manifest, overrides, timeout=30):
             selector.register(process.stdout, selectors.EVENT_READ, 'stdout')
             selector.register(process.stderr, selectors.EVENT_READ, 'stderr')
             deadline = time.monotonic() + timeout
+            pulse_at = 0.
             while selector.get_map():
+                if time.monotonic() >= pulse_at:
+                    from adws_plugin_watchdog import pulse
+                    pulse(process.pid)
+                    pulse_at = time.monotonic()+1.
                 if time.monotonic() >= deadline: raise TimeoutError('Plugin output timed out')
                 for key, _ in selector.select(min(.2, max(0, deadline-time.monotonic()))):
                     data = os.read(key.fileobj.fileno(), 65536)
@@ -89,6 +133,15 @@ def execute(root, manifest, overrides, timeout=30):
                             raise ValueError('Invalid CSS class')
                         if 'percentage' in payload and (not finite(payload['percentage']) or not 0 <= payload['percentage'] <= 100):
                             raise ValueError('Invalid percentage')
+                        display = {key: value[:4096] for key, value in payload.items()
+                                   if key in ('primary','secondary','text','class') and isinstance(value,str)}
+                        if display != previous_preview:
+                            try:
+                                from adws_plugin_preview import publish
+                                publish(display,os.environ.get('ADWS_PLUGIN_INSTANCE') or manifest['id'])
+                                previous_preview = display
+                            except (OSError, ValueError):
+                                pass  # An optional preview must never stop a plugin.
                         write_line(json.dumps(payload, ensure_ascii=False), sys.stdout)
                         count += 1
                         # Legacy streams emit only changed data and have no heartbeat contract.
@@ -98,7 +151,16 @@ def execute(root, manifest, overrides, timeout=30):
             code = process.wait(timeout=min(timeout, max(.1, deadline-time.monotonic())))
             if code or not count: raise ValueError(f'Plugin exited with status {code}; records={count}')
         return 0
-    except BrokenPipeError:
+    except (BrokenPipeError, Stopped):
+        # A signal can interrupt TextIOWrapper's flush into a full consumer pipe.
+        # Its shutdown flush would then block again after the child is reaped.
+        # The consumer is closing; discard only the interrupted pending output.
+        try:
+            with open(os.devnull,'wb') as sink:
+                for stream in (sys.stdout,sys.stderr):
+                    os.dup2(sink.fileno(),stream.fileno())
+        except (OSError, ValueError):
+            pass
         return 0
     except (OSError, ValueError, RecursionError, OverflowError, subprocess.TimeoutExpired) as error:
         return report_failure(error, manifest['id'])
@@ -114,14 +176,19 @@ def execute(root, manifest, overrides, timeout=30):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('package')
+    parser.add_argument('package', nargs='?')
+    parser.add_argument('--worker-spec-json', help=argparse.SUPPRESS)
     parser.add_argument('--settings-json', default='{}')
     parser.add_argument('--timeout', type=float, default=30)
     args = parser.parse_args()
+    if args.worker_spec_json:
+        spec = json.loads(args.worker_spec_json)
+        return dispatch(Path(spec['root']), spec['manifest'], spec['overrides'], spec['timeout'])
+    if not args.package: parser.error('package is required')
     from adws_plugin import load_manifest, materialize
     path = Path(args.package)
     try:
-        return execute(materialize(path), load_manifest(path), json.loads(args.settings_json), args.timeout)
+        return dispatch(materialize(path), load_manifest(path), json.loads(args.settings_json), args.timeout)
     except BrokenPipeError:
         return 0
     except (OSError, ValueError) as error:

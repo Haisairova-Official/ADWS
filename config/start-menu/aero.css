@@ -1,0 +1,14 @@
+/* Vista: narrow program well, inset bottom search, glass frame and avatar rail.
+ * Blur is supplied by the compositor; all tint colors follow the WM palette. */
+.adws-start-menu.aero { border-radius: 9px; padding: 8px; border: 1px solid alpha(@adws_fg, 0.7); background-color: alpha(@adws_bg, 0.94); background-image: linear-gradient(135deg, alpha(@adws_accent, 0.4), alpha(@adws_bg, 0.5) 45%, alpha(@adws_accent, 0.18)); box-shadow: inset 0 1px alpha(@adws_fg, 0.5); }
+.adws-start-menu.aero .menu-programs { background: @adws_bg; border: 1px solid alpha(@adws_fg, 0.45); border-radius: 5px; box-shadow: 0 1px 3px alpha(black, 0.3); }
+.adws-start-menu.aero .menu-home { padding: 4px; }
+.adws-start-menu.aero .section-title { padding: 5px; }
+.adws-start-menu.aero .menu-sidebar { padding: 8px 4px 0 10px; }
+.adws-start-menu.aero .menu-avatar { padding: 6px; margin: 0 34px 6px; border: 2px solid alpha(@adws_fg, 0.7); border-radius: 6px; background-image: linear-gradient(to bottom, alpha(@adws_fg, 0.5), alpha(@adws_accent, 0.6)); box-shadow: 0 2px 5px alpha(black, 0.5); }
+.adws-start-menu.aero .menu-sidebar button { padding: 9px 5px; border-radius: 3px; }
+.adws-start-menu.aero button:hover { background-image: linear-gradient(to bottom, alpha(@adws_fg, 0.2), alpha(@adws_accent, 0.25)); border-color: alpha(@adws_fg, 0.4); box-shadow: inset 0 1px alpha(@adws_fg, 0.3); }
+.adws-start-menu.aero .all-programs { border-top: 1px solid @adws_border; border-radius: 0; padding: 6px; }
+.adws-start-menu.aero .menu-search { border-radius: 2px; margin: 5px; padding: 4px 6px; }
+.adws-start-menu.aero row { border-radius: 3px; padding: 5px; }
+.adws-start-menu.aero .menu-footer { padding: 7px 2px 0; }

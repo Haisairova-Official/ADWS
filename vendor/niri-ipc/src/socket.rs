@@ -41,6 +41,12 @@ impl Socket {
         Ok(Self { stream })
     }
 
+    /// Clone the transport for shutdown from the owning module. Shutting down
+    /// this handle also interrupts a blocked event read on the original socket.
+    pub fn try_clone_stream(&self) -> io::Result<UnixStream> {
+        self.stream.get_ref().try_clone()
+    }
+
     /// Sends a request to niri and returns the response.
     ///
     /// Return values:

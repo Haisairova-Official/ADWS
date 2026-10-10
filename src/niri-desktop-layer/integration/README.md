@@ -14,10 +14,14 @@
 ```sh
 cc -shared -fPIC -O2 -Wall -Wextra -Werror integration/waybar-space.c \
   -o integration/libwaybar-space.new.so \
-  $(pkg-config --cflags --libs gtk+-3.0 gtk-layer-shell-0)
+  $(pkg-config --cflags --libs gtk+-3.0 gtk-layer-shell-0 wayland-client) -lm
 mv integration/libwaybar-space.new.so integration/libwaybar-space.so
 ```
 
 已加载的库应通过上述临时文件原子替换，不能直接截断覆盖；然后仅重新加载底栏进程。
 配置中的库路径为项目绝对路径，移动项目时需要同步修改。
 恢复 `backups/config-bottom.jsonc.before-space-delay` 并重新加载底栏可撤销占位时序修改。
+
+`popup-effect.c` 随此库编译，为 GTK3 弹窗提供可选的 Wayland 模糊区域控制。只操作 ADWS 自己的表面，区域更新跟随 GTK 的下一次提交；不改变合成器配置。不支持协议或旧库缺少接口时回退。隐藏时释放效果对象，重新映射时绑定新表面，避免复用失效的 Wayland 对象。
+
+模糊区域使用最多三块保守的内接矩形，圆角边框仍由 GTK 精确绘制；避免逐像素圆角区域把合成器的 damage 拆成大量片段。打开期间保持模糊区域固定；关闭时才随可见区域一起退场。

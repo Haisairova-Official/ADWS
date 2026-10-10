@@ -65,7 +65,7 @@ def open_adws_config(tab: str) -> bool:
         return False
     env = {key: value for key, value in os.environ.items() if key != "GDK_BACKEND"}
     try:
-        subprocess.Popen([sys.executable, script, "--tab", tab], env=env, start_new_session=True)
+        subprocess.Popen([sys.executable, script] + (["--tab", tab] if tab else []), env=env, start_new_session=True)
         return True
     except OSError:
         return False
@@ -872,10 +872,34 @@ def run_gui(args, cfg, directory):
             dialog.connect("response", lambda w, result: LOG.info(_tr('弹窗响应：%s，结果=%s'), w.get_title(), result))
             dialog.show_all()
 
+        def open_with(self, key):
+            if self.launch_dialog:
+                self.launch_dialog.present()
+                return
+            from .open_with import choose
+            keys = list(self.selection) if key in self.selection else [key]
+            paths = [entry.path for value in keys if (entry := self.entry(value)) is not None]
+            def failure(message):
+                dialog = Gtk.MessageDialog(transient_for=self, modal=True,
+                    message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.CLOSE,
+                    text=_tr('打开失败'))
+                dialog.format_secondary_text(message)
+                dialog.connect('response', lambda *_: dialog.destroy())
+                dialog.show_all()
+            self.launch_dialog = choose(self, paths, failure)
+            if self.launch_dialog:
+                self.launch_dialog.connect('destroy', lambda *_: setattr(self, 'launch_dialog', None))
+
         def make_menu(self, key):
             menu = Gtk.Menu()
-            def item(parent, label, callback=None):
+            def item(parent, label, callback=None, icon=None):
                 widget = Gtk.MenuItem(label=label)
+                if icon:
+                    widget.remove(widget.get_child())
+                    row = Gtk.Box(spacing=8)
+                    row.pack_start(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU), False, False, 0)
+                    row.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
+                    widget.add(row)
                 widget.set_sensitive(callback is not None)
                 if callback:
                     widget.connect("activate", lambda *_: (LOG.info(_tr('菜单操作：%s'), label), callback()))
@@ -907,6 +931,9 @@ def run_gui(args, cfg, directory):
                 separator(menu)
                 item(menu, _tr('打开终端'), self.owner.open_terminal)
                 item(menu, _tr('打开桌面文件夹'), self.owner.open_directory)
+                separator(menu)
+                item(menu, _tr('桌面配置…'), self.show_desktop_settings, 'video-display-symbolic')
+                item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
                 return menu
             if not key:
                 new_menu = submenu(_tr('新建'))
@@ -917,6 +944,7 @@ def run_gui(args, cfg, directory):
             if key:
                 item(menu, ''.join([_tr('打开选中的 '), f'{len(self.selection)}', _tr(' 项')]) if len(self.selection) > 1 else _tr('打开'),
                      self.open_selected if len(self.selection) > 1 else lambda: self.open_entry(key))
+                item(menu, _tr('用指定应用打开…'), lambda: self.open_with(key), 'application-x-executable-symbolic')
                 item(menu, _tr('在 Thunar 中显示'), self.reveal_selected)
                 item(menu, _tr('复制文件路径'), self.copy_paths)
                 item(menu, _tr('重命名…'), (lambda: self.rename_entry(key)) if len(self.selection) <= 1 else None)
@@ -954,7 +982,8 @@ def run_gui(args, cfg, directory):
                 item(menu, _tr('上一页'), lambda: self.change_page(-1))
                 item(menu, _tr('下一页'), lambda: self.change_page(1))
             separator(menu)
-            item(menu, _tr('桌面设置…'), self.show_desktop_settings)
+            item(menu, _tr('桌面配置…'), self.show_desktop_settings, 'video-display-symbolic')
+            item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
             item(menu, _tr('隐藏桌面图标'), self.owner.toggle)
             exit_item = item(menu, _tr('退出桌面图标'), self.confirm_exit)
             exit_item.get_style_context().add_class("desktop-exit")
@@ -1319,11 +1348,11 @@ def run_gui(args, cfg, directory):
             dialog.run()
             dialog.destroy()
 
-        @logged_action(_tr('打开桌面设置'))
+        @logged_action(_tr('打开桌面配置'))
         def show_desktop_settings(self):
             if open_adws_config("desktop"):
                 return
-            dialog = Gtk.Dialog(title=_tr('桌面设置'), transient_for=self, modal=True, destroy_with_parent=True)
+            dialog = Gtk.Dialog(title=_tr('桌面配置'), transient_for=self, modal=True, destroy_with_parent=True)
             dialog.add_button(_tr('取消'), Gtk.ResponseType.CANCEL)
             dialog.add_button(_tr('应用'), Gtk.ResponseType.ACCEPT)
             dialog.set_default_size(400, -1)
@@ -1747,14 +1776,18 @@ def run_gui(args, cfg, directory):
         @logged_action(_tr('打开终端'))
         def open_terminal(self):
             import subprocess
-            executable = next((path for name in ("xdg-terminal-exec", "kitty", "foot", "alacritty", "konsole", "gnome-terminal", "xterm")
-                               if (path := shutil.which(name))), None)
-            if executable is None:
-                LOG.warning(_tr('未找到可用的终端程序'))
-                return
+            from .terminal import configured_argv
+            argv = configured_argv()
+            if not argv:
+                executable = next((path for name in ("xdg-terminal-exec", "kitty", "foot", "alacritty", "konsole", "gnome-terminal", "xterm")
+                                   if (path := shutil.which(name))), None)
+                if executable is None:
+                    LOG.warning(_tr('未找到可用的终端程序'))
+                    return
+                argv = [executable]
             try:
-                process = subprocess.Popen([executable], cwd=directory, start_new_session=True)
-                LOG.info(_tr('终端启动请求已提交：%s，PID=%s'), executable, process.pid)
+                process = subprocess.Popen(argv, cwd=directory, start_new_session=True)
+                LOG.info(_tr('终端启动请求已提交：%s，PID=%s'), argv[0], process.pid)
             except OSError as exc:
                 LOG.warning(_tr('打开终端失败: %s'), exc)
 

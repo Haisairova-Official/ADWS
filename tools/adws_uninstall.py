@@ -85,8 +85,13 @@ def remove_autostart():
     pattern = re.compile(r'(?ms)^[ \t]*// ==== ADWS 桌面图标层自启（自动生成）====[^\n]*\n.*?^[ \t]*// ==== ADWS 桌面图标层自启 END ====[^\n]*\n?')
     from adws_autostart import PATTERN
     cleaned = PATTERN.sub('', pattern.sub('', text))
+    from adws_topbar import BEGIN as TOP_BEGIN, END as TOP_END
+    top_pattern = re.compile(r'(?ms)^' + re.escape(TOP_BEGIN) + r'[^\n]*\n.*?^' + re.escape(TOP_END) + r'[^\n]*\n?')
+    cleaned = top_pattern.sub('', cleaned)
     from adws_windows import PATTERN as WINDOW_RULES
     cleaned = WINDOW_RULES.sub('', cleaned)
+    from adws_keyboard import clean_block
+    cleaned = clean_block(cleaned)
     launchers = {str(ROOT / 'src/niri-desktop-layer/start-desktop-layer')}
     previous_root = read_inventory().get('root')
     if isinstance(previous_root, str):
@@ -100,6 +105,8 @@ def remove_autostart():
 
 
 def remove_owned_files(keep_config):
+    from adws_location_registration import remove_location_registration
+    remove_location_registration()
     data = read_inventory()
     roots = {ROOT}
     previous_root = data.get('root')
@@ -167,6 +174,10 @@ def uninstall():
             for component in ('desktop', 'taskbar'):
                 if control([component, '--stop'], quiet=True) != 0:
                     return 1
+            from adws_power_policy import stop_all
+            stop_all()
+            # Uninstall only ADWS-owned components and app configuration.
+            # System settings chosen by the user remain effective.
             remove_autostart()
             remove_owned_files(keep_config)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:

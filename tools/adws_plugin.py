@@ -88,6 +88,8 @@ def validate_manifest(manifest, members: set[str] | None = None) -> list[str]:
     errors = []
     if not isinstance(manifest, dict):
         return [_tr('plugin.json 必须是 JSON 对象')]
+    if "isSingleOnly" in manifest and type(manifest["isSingleOnly"]) is not bool:
+        errors.append(_tr("isSingleOnly 必须是布尔值 true 或 false。"))
     if "renderer" in manifest:
         errors.extend(api1.public_errors(manifest))
         manifest = api1.normalize(manifest)
@@ -345,7 +347,7 @@ def cmd_init(args) -> int:
     stem = re.sub(r"[^a-z0-9]", "", target.name.lower())
     pkg_id = args.id or ("org.adws." + stem if stem else "org.adws.plugin")
     manifest = json.loads(EXAMPLE_PLUGIN_JSON)
-    manifest.update(renderer='panel.text-v1', adws={'api': 1, 'minVersion': '1.25'})
+    manifest.update(renderer='panel.text-v1', isSingleOnly=False, adws={'api': 1, 'minVersion': '1.25'})
     for key in ('api', 'apiVersion', 'kind', 'language', 'interfaces'):
         manifest.pop(key, None)
     manifest["id"] = pkg_id
@@ -357,7 +359,10 @@ def cmd_init(args) -> int:
     (target / "main.py").write_text((project_root() / 'plugins/sample/main.py').read_text(), encoding="utf-8")
     (target / "README.md").write_text(
         _tr('# %s\n\nADWS %s 插件。运行 `adws mplg build %s` 打包，\n然后把生成的 .mplg 丢到 `adws mplg dir` 显示的文件夹即可。\n')
-        % (manifest["name"], 'panel', target), encoding="utf-8"
+        % (manifest["name"], 'panel', target)
+        + '\n## Instances / 实例\n\n'
+        + '默认允许重复添加，实例各自保存布局和设置。顶层 `"isSingleOnly": true` 限制为一个活动实例；`false` 或省略则可重复。该字段只接受 JSON 布尔值。\n\n'
+        + 'Repeatable by default. Set top-level `"isSingleOnly": true` for one active instance. Use `ADWS_PLUGIN_INSTANCE` to isolate writable instance state.\n', encoding="utf-8"
     )
     print(_tr('已创建插件源：%s') % target)
     print(_tr('打包：adws mplg build %s') % target)
@@ -502,9 +507,9 @@ def cmd_run(args) -> int:
     if manifest["language"] != "python":
         print(_tr('当前 run 仅支持 python 插件'), file=sys.stderr)
         return 1
-    from adws_plugin_runner import execute
+    from adws_plugin_runner import dispatch
     try:
-        return execute(root, manifest, json.loads(args.settings_json), timeout=float(args.timeout))
+        return dispatch(root, manifest, json.loads(args.settings_json), timeout=float(args.timeout))
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1

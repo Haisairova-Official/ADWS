@@ -38,6 +38,22 @@ class ArchiveTests(unittest.TestCase):
                 upgrade.download('https://github.com/a/b.zip',Path(folder)/'direct.zip',False)
                 self.assertEqual(request.call_args.args[0].full_url,'https://github.com/a/b.zip')
 
+    def test_download_reports_bytes_and_rejects_truncated_response(self):
+        with tempfile.TemporaryDirectory() as folder:
+            z=Path(folder)/'fixture.zip';archive(z);payload=z.read_bytes()
+            response=io.BytesIO(payload);response.headers={'Content-Length':str(len(payload))}
+            updates=[]
+            with patch.object(upgrade.urllib.request,'urlopen',return_value=response):
+                upgrade.download('https://github.com/fixture.zip',Path(folder)/'download.zip',False,progress=lambda n,t:updates.append((n,t)))
+            self.assertEqual(updates[0],(0,len(payload)))
+            self.assertEqual(updates[-1],(len(payload),len(payload)))
+            self.assertTrue(all(0<=n<=t for n,t in updates))
+            response=io.BytesIO(payload);response.headers={'Content-Length':str(len(payload)+1)}
+            target=Path(folder)/'broken.zip'
+            with patch.object(upgrade.urllib.request,'urlopen',return_value=response):
+                with self.assertRaises(RuntimeError):upgrade.download('https://github.com/fixture.zip',target,False)
+            self.assertFalse(target.exists())
+
     def test_unsafe_archives_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
@@ -301,3 +317,56 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(set(upgrade.prepare_libraries(self.root,True,log)),set(upgrade.LIBRARIES))
             (folder/upgrade.LIBRARIES[0]).write_text('corrupt')
             with self.assertRaises(ValueError):upgrade.prepare_libraries(self.root,True,log)
+
+
+    def test_live_style_migrates_with_backup_and_preserves_symlink(self):
+        config=self.home/'config';folder=config/'waybar';folder.mkdir(parents=True)
+        target=folder/'theme.css';original=b'label {color: red; font-family: "Custom; Font", sans-serif;}'
+        target.write_bytes(original);link=folder/'style-bottom.css';link.symlink_to(target)
+        with patch.dict(os.environ,{'XDG_CONFIG_HOME':str(config)}):
+            upgrade.install_update(self.result,lambda _:None)
+        self.assertTrue(link.is_symlink());self.assertIn(b'Symbols Nerd Font',target.read_bytes())
+        self.assertIn(b'color: red',target.read_bytes());self.assertIn(b'"Custom; Font"',target.read_bytes())
+        backup=Path(json.loads(self.record.read_text())['last_update_backup'])
+        self.assertEqual((backup/'waybar-font-styles/0.css').read_bytes(),original)
+
+    def test_failed_restart_restores_live_font_style(self):
+        config=self.home/'config';folder=config/'waybar';folder.mkdir(parents=True)
+        target=folder/'style-bottom.css';original=b'label {font-family: "Custom Text";}'
+        target.write_bytes(original)
+        def control(root,component,operation,log):
+            if operation=='--start' and json.loads((root/'build-info.json').read_text())['display_version']=='1.28-A':
+                self.assertIn(b'Symbols Nerd Font',target.read_bytes())
+                raise RuntimeError('new component failed')
+            self.change_process_state(root,component,operation,log)
+        self.control.side_effect=control
+        with patch.dict(os.environ,{'XDG_CONFIG_HOME':str(config)}):
+            with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
+        self.assertEqual(target.read_bytes(),original);self.verify_old()
+
+
+class NativeSupervisorUpgradeTests(unittest.TestCase):
+    def test_prebuilt_runner_is_verified_and_staged_executable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'src/adws-runtime').mkdir(parents=True)
+            (root/'src/adws-runtime/Cargo.toml').touch()
+            (root/'src/adws-start-menu').mkdir(parents=True)
+            (root/'src/adws-start-menu/Cargo.toml').touch()
+            (root/'build-info.json').write_text('{"display_version":"1.35 Development"}')
+            folder = root/'prebuilt'; folder.mkdir()
+            hashes = {}
+            for name in (*upgrade.LIBRARIES, 'adws-plugin-runner', 'adws-start-menu'):
+                (folder/name).write_bytes(b'artifact')
+                hashes[name] = hashlib.sha256(b'artifact').hexdigest()
+            (folder/'manifest.json').write_text(json.dumps({'version':'1.35 Development','os':'arch','arch':'x86_64','sha256':hashes}))
+            with patch.object(upgrade, 'run'), patch.object(upgrade.shutil, 'which', return_value=None):
+                paths = upgrade.prepare_libraries(root, True, io.BytesIO())
+                self.assertEqual(set(paths), set(upgrade.LIBRARIES))
+                installed = root/'libexec/adws-plugin-runner'
+                self.assertEqual(installed.read_bytes(), b'artifact')
+                self.assertEqual(installed.stat().st_mode & 0o777, 0o755)
+                self.assertEqual((root/'libexec/adws-start-menu').stat().st_mode & 0o777, 0o755)
+                (folder/'adws-start-menu').write_bytes(b'corrupted')
+                with self.assertRaises(ValueError): upgrade.prepare_libraries(root, True, io.BytesIO())
+                self.assertEqual(installed.read_bytes(), b'artifact')

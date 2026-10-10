@@ -1,0 +1,462 @@
+diff --git a/niri-config/src/binds.rs b/niri-config/src/binds.rs
+index 0be7596..9d77c7c 100644
+--- a/niri-config/src/binds.rs
++++ b/niri-config/src/binds.rs
+@@ -38,6 +38,7 @@ pub struct Key {
+ 
+ #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+ pub enum Trigger {
++    Modifier(Modifiers),
+     Keysym(Keysym),
+     MouseLeft,
+     MouseRight,
+@@ -951,30 +952,15 @@ impl FromStr for Key {
+ 
+         for part in split {
+             let part = part.trim();
+-            if part.eq_ignore_ascii_case("mod") {
+-                modifiers |= Modifiers::COMPOSITOR
+-            } else if part.eq_ignore_ascii_case("ctrl") || part.eq_ignore_ascii_case("control") {
+-                modifiers |= Modifiers::CTRL;
+-            } else if part.eq_ignore_ascii_case("shift") {
+-                modifiers |= Modifiers::SHIFT;
+-            } else if part.eq_ignore_ascii_case("alt") {
+-                modifiers |= Modifiers::ALT;
+-            } else if part.eq_ignore_ascii_case("super") || part.eq_ignore_ascii_case("win") {
+-                modifiers |= Modifiers::SUPER;
+-            } else if part.eq_ignore_ascii_case("iso_level3_shift")
+-                || part.eq_ignore_ascii_case("mod5")
+-            {
+-                modifiers |= Modifiers::ISO_LEVEL3_SHIFT;
+-            } else if part.eq_ignore_ascii_case("iso_level5_shift")
+-                || part.eq_ignore_ascii_case("mod3")
+-            {
+-                modifiers |= Modifiers::ISO_LEVEL5_SHIFT;
+-            } else {
++            let Some(modifier) = modifier_from_name(part) else {
+                 return Err(miette!("invalid modifier: {part}"));
+-            }
++            };
++            modifiers |= modifier;
+         }
+ 
+-        let trigger = if key.eq_ignore_ascii_case("MouseLeft") {
++        let trigger = if let Some(modifier) = modifier_from_name(key) {
++            Trigger::Modifier(modifier)
++        } else if key.eq_ignore_ascii_case("MouseLeft") {
+             Trigger::MouseLeft
+         } else if key.eq_ignore_ascii_case("MouseRight") {
+             Trigger::MouseRight
+@@ -1039,6 +1025,27 @@ impl FromStr for Key {
+     }
+ }
+ 
++// Modifier names adapted from SHORiN-KiWATA/niri, 21be84f6 (GPL-3.0-or-later).
++fn modifier_from_name(name: &str) -> Option<Modifiers> {
++    if name.eq_ignore_ascii_case("mod") {
++        Some(Modifiers::COMPOSITOR)
++    } else if name.eq_ignore_ascii_case("ctrl") || name.eq_ignore_ascii_case("control") {
++        Some(Modifiers::CTRL)
++    } else if name.eq_ignore_ascii_case("shift") {
++        Some(Modifiers::SHIFT)
++    } else if name.eq_ignore_ascii_case("alt") {
++        Some(Modifiers::ALT)
++    } else if name.eq_ignore_ascii_case("super") || name.eq_ignore_ascii_case("win") {
++        Some(Modifiers::SUPER)
++    } else if name.eq_ignore_ascii_case("iso_level3_shift") || name.eq_ignore_ascii_case("mod5") {
++        Some(Modifiers::ISO_LEVEL3_SHIFT)
++    } else if name.eq_ignore_ascii_case("iso_level5_shift") || name.eq_ignore_ascii_case("mod3") {
++        Some(Modifiers::ISO_LEVEL5_SHIFT)
++    } else {
++        None
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -1100,4 +1107,16 @@ mod tests {
+             },
+         );
+     }
++    #[test]
++    fn adws_modifier_tap_parse() {
++        for (name, modifier) in [("Super", Modifiers::SUPER), ("Win", Modifiers::SUPER),
++                                 ("Mod", Modifiers::COMPOSITOR), ("Ctrl", Modifiers::CTRL),
++                                 ("Control", Modifiers::CTRL)] {
++            let key = name.parse::<Key>().unwrap();
++            assert_eq!(key.trigger, Trigger::Modifier(modifier));
++            assert!(key.modifiers.is_empty());
++        }
++        assert_eq!("Ctrl+C".parse::<Key>().unwrap().trigger, Trigger::Keysym(Keysym::c));
++    }
++
+ }
+diff --git a/src/input/mod.rs b/src/input/mod.rs
+index f1ad493..f06e264 100644
+--- a/src/input/mod.rs
++++ b/src/input/mod.rs
+@@ -56,6 +56,7 @@ use crate::utils::spawning::{spawn, spawn_sh};
+ use crate::utils::{center, get_monotonic_time, CastSessionId, ResizeEdge};
+ 
+ pub mod backend_ext;
++pub mod modifier_tap;
+ pub mod move_grab;
+ pub mod pick_color_grab;
+ pub mod pick_window_grab;
+@@ -118,6 +119,19 @@ impl State {
+         I::Device: 'static, // Needed for downcasting.
+     {
+         let _span = tracy_client::span!("process_input_event");
++        if matches!(&event, InputEvent::DeviceRemoved { .. }) {
++            self.niri.modifier_tap = Default::default();
++        } else if (should_hide_hotkey_overlay(&event)
++            || matches!(
++                &event,
++                InputEvent::GestureHoldBegin { .. }
++                    | InputEvent::TouchUp { .. }
++                    | InputEvent::TouchCancel { .. }
++            ))
++            && !matches!(&event, InputEvent::Keyboard { .. })
++        {
++            self.niri.modifier_tap.cancel();
++        }
+ 
+         // Make sure some logic like workspace clean-up has a chance to run before doing actions.
+         self.niri.advance_animations();
+@@ -373,6 +387,7 @@ impl State {
+         let serial = SERIAL_COUNTER.next_serial();
+         let time = Event::time_msec(&event);
+         let pressed = event.state() == KeyState::Pressed;
++        let tap_alone = self.niri.modifier_tap.key_event(event.key_code(), pressed);
+ 
+         // Stop bind key repeat on any release. This won't work 100% correctly in cases like:
+         // 1. Press Mod
+@@ -411,6 +426,7 @@ impl State {
+             // The accessibility modifier first press must not change XKB state, so we return
+             // early here.
+             if block == KbMonBlock::ModifierFirstPress {
++                self.niri.modifier_tap.cancel();
+                 return;
+             }
+             block
+@@ -418,7 +434,7 @@ impl State {
+         #[cfg(not(feature = "dbus"))]
+         let _ = consumed_by_a11y;
+ 
+-        let Some(Some(bind)) = self.niri.seat.get_keyboard().unwrap().input(
++        let maybe_bind = self.niri.seat.get_keyboard().unwrap().input(
+             self,
+             event.key_code(),
+             event.state(),
+@@ -434,6 +450,7 @@ impl State {
+                 // don't handle them.
+                 #[cfg(feature = "dbus")]
+                 if block != KbMonBlock::Pass {
++                    this.niri.modifier_tap.cancel();
+                     // HACK: there's a slight problem with this code. Here we filter out keys
+                     // consumed by accessibility from getting sent to the Wayland client. However,
+                     // the Wayland client can still receive these keys from the wl_keyboard
+@@ -468,6 +485,26 @@ impl State {
+                     }
+                 }
+ 
++                if pressed
++                    && tap_alone
++                    && !this.niri.screenshot_ui.is_open()
++                    && !this.niri.exit_confirm_dialog.is_open()
++                    && !this.niri.window_mru_ui.is_open()
++                {
++                    let config = this.niri.config.borrow();
++                    if let Some(bind) = raw.and_then(|raw| {
++                        modifier_tap::find_bind(
++                            &config.binds.0,
++                            mod_key,
++                            raw,
++                            *mods,
++                            is_inhibiting_shortcuts,
++                        )
++                    }) {
++                        this.niri.modifier_tap.arm(key_code, bind);
++                    }
++                }
++
+                 if this.niri.exit_confirm_dialog.is_open() && pressed {
+                     if raw == Some(Keysym::Return) {
+                         info!("quitting after confirming exit dialog");
+@@ -543,19 +580,28 @@ impl State {
+                     this.niri.mru_apply_keyboard_commit();
+                 }
+ 
++                if !matches!(res, FilterResult::Forward) {
++                    this.niri.modifier_tap.cancel();
++                }
+                 res
+             },
+-        ) else {
+-            return;
+-        };
++        );
+ 
+         if !pressed {
++            if let Some(bind) = self.niri.modifier_tap.finish(event.key_code()) {
++                if !(is_inhibiting_shortcuts && bind.allow_inhibiting)
++                    && !self.niri.screenshot_ui.is_open()
++                    && !self.niri.exit_confirm_dialog.is_open()
++                {
++                    self.handle_bind(bind);
++                }
++            }
+             return;
+         }
+-
+-        self.handle_bind(bind.clone());
+-
+-        self.start_key_repeat(bind);
++        if let Some(Some(bind)) = maybe_bind {
++            self.handle_bind(bind.clone());
++            self.start_key_repeat(bind);
++        }
+     }
+ 
+     fn start_key_repeat(&mut self, bind: Bind) {
+diff --git a/src/input/modifier_tap.rs b/src/input/modifier_tap.rs
+new file mode 100644
+index 0000000..dff6cdb
+--- /dev/null
++++ b/src/input/modifier_tap.rs
+@@ -0,0 +1,158 @@
++//! ADWS optional modifier taps. Presses and releases remain client events;
++//! actions run once after an otherwise unused key is released.
++use niri_config::{Bind, ModKey, Modifiers, Trigger};
++use smithay::backend::input::Keycode;
++use smithay::input::keyboard::{Keysym, ModifiersState};
++use std::collections::HashSet;
++
++#[derive(Default)]
++pub struct ModifierTap {
++    held: HashSet<Keycode>,
++    pending: Option<(Keycode, Bind)>,
++}
++impl ModifierTap {
++    pub fn key_event(&mut self, code: Keycode, pressed: bool) -> bool {
++        if pressed {
++            let alone = self.held.is_empty();
++            // Another press (including key repetition) invalidates a tap.
++            self.cancel();
++            self.held.insert(code);
++            alone
++        } else {
++            self.held.remove(&code);
++            false
++        }
++    }
++    pub fn arm(&mut self, code: Keycode, bind: Bind) {
++        self.pending = Some((code, bind));
++    }
++    pub fn cancel(&mut self) {
++        self.pending = None;
++    }
++    pub fn finish(&mut self, code: Keycode) -> Option<Bind> {
++        match self.pending.take() {
++            Some((pending, bind)) if pending == code && self.held.is_empty() => Some(bind),
++            _ => None,
++        }
++    }
++}
++
++pub fn find_bind(
++    binds: &[Bind],
++    mod_key: ModKey,
++    key: Keysym,
++    mods: ModifiersState,
++    inhibited: bool,
++) -> Option<Bind> {
++    let modifier = match key {
++        Keysym::Super_L | Keysym::Super_R => Modifiers::SUPER,
++        Keysym::Control_L | Keysym::Control_R => Modifiers::CTRL,
++        Keysym::Shift_L | Keysym::Shift_R => Modifiers::SHIFT,
++        Keysym::Alt_L | Keysym::Alt_R => Modifiers::ALT,
++        Keysym::ISO_Level3_Shift => Modifiers::ISO_LEVEL3_SHIFT,
++        Keysym::ISO_Level5_Shift => Modifiers::ISO_LEVEL5_SHIFT,
++        _ => return None,
++    };
++    // This compatibility patch deliberately supports standalone taps only.
++    let mut others = super::modifiers_from_state(mods);
++    others.remove(modifier);
++    if !others.is_empty() {
++        return None;
++    }
++    binds
++        .iter()
++        .find(|bind| {
++            let Trigger::Modifier(trigger) = bind.key.trigger else {
++                return false;
++            };
++            let matches = trigger == modifier
++                || (trigger == Modifiers::COMPOSITOR && modifier == mod_key.to_modifiers());
++            matches && bind.key.modifiers.is_empty() && !(inhibited && bind.allow_inhibiting)
++        })
++        .cloned()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use niri_config::{Action, Key};
++    fn binding() -> Bind {
++        Bind {
++            key: Key {
++                trigger: Trigger::Modifier(Modifiers::CTRL),
++                modifiers: Modifiers::empty(),
++            },
++            action: Action::ToggleOverview,
++            repeat: true,
++            cooldown: None,
++            allow_when_locked: false,
++            allow_inhibiting: true,
++            hotkey_overlay_title: None,
++        }
++    }
++    #[test]
++    fn adws_tap_runs_once_on_release() {
++        let mut tap = ModifierTap::default();
++        let ctrl = Keycode::from(37u32);
++        assert!(tap.key_event(ctrl, true));
++        tap.arm(ctrl, binding());
++        assert!(tap.pending.is_some());
++        tap.key_event(ctrl, false);
++        assert!(tap.finish(ctrl).is_some());
++        assert!(tap.finish(ctrl).is_none());
++    }
++    #[test]
++    fn adws_combinations_never_become_taps() {
++        for ctrl_first in [true, false] {
++            let mut tap = ModifierTap::default();
++            let ctrl = Keycode::from(37u32);
++            let c = Keycode::from(54u32);
++            if ctrl_first {
++                assert!(tap.key_event(ctrl, true));
++                tap.arm(ctrl, binding());
++                assert!(!tap.key_event(c, true));
++                tap.key_event(c, false);
++            } else {
++                tap.key_event(c, true);
++                assert!(!tap.key_event(ctrl, true));
++                tap.key_event(c, false);
++            }
++            tap.key_event(ctrl, false);
++            assert!(tap.finish(ctrl).is_none());
++        }
++    }
++    #[test]
++    fn adws_cancel_mouse_or_repeat() {
++        let mut tap = ModifierTap::default();
++        let ctrl = Keycode::from(37u32);
++        for repeat in [false, true] {
++            tap.key_event(ctrl, true);
++            tap.arm(ctrl, binding());
++            if repeat {
++                tap.key_event(ctrl, true);
++            } else {
++                tap.cancel();
++            }
++            tap.key_event(ctrl, false);
++            assert!(tap.finish(ctrl).is_none());
++        }
++    }
++    #[test]
++    fn adws_inhibition_and_other_modifiers() {
++        let binds = [binding()];
++        let mods = ModifiersState {
++            ctrl: true,
++            ..Default::default()
++        };
++        assert!(find_bind(&binds, ModKey::Super, Keysym::Control_L, mods, false).is_some());
++        assert!(find_bind(&binds, ModKey::Super, Keysym::Control_R, mods, true).is_none());
++        assert!(find_bind(
++            &binds,
++            ModKey::Super,
++            Keysym::Control_L,
++            ModifiersState { alt: true, ..mods },
++            false
++        )
++        .is_none());
++    }
++}
+diff --git a/src/niri.rs b/src/niri.rs
+index ec40e01..f3e20ce 100644
+--- a/src/niri.rs
++++ b/src/niri.rs
+@@ -324,6 +324,7 @@ pub struct Niri {
+     pub seat: Seat<State>,
+     /// Scancodes of the keys to suppress.
+     pub suppressed_keys: HashSet<Keycode>,
++    pub modifier_tap: crate::input::modifier_tap::ModifierTap,
+     /// Button codes of the mouse buttons to suppress.
+     pub suppressed_buttons: HashSet<u32>,
+     pub bind_cooldown_timers: HashMap<Key, RegistrationToken>,
+@@ -2551,6 +2552,7 @@ impl Niri {
+             popups: PopupManager::default(),
+             popup_grab: None,
+             suppressed_keys: HashSet::new(),
++            modifier_tap: Default::default(),
+             suppressed_buttons: HashSet::new(),
+             bind_cooldown_timers: HashMap::new(),
+             bind_repeat_timer: Option::default(),
+diff --git a/src/ui/hotkey_overlay.rs b/src/ui/hotkey_overlay.rs
+index b8fdca1..d099ba4 100644
+--- a/src/ui/hotkey_overlay.rs
++++ b/src/ui/hotkey_overlay.rs
+@@ -546,6 +546,24 @@ fn key_name(screen_reader: bool, mod_key: ModKey, key: &Key) -> String {
+     }
+ 
+     let pretty = match key.trigger {
++        Trigger::Modifier(modifier) => {
++            let name = if modifier == Modifiers::COMPOSITOR {
++                "Mod"
++            } else if modifier == Modifiers::SUPER {
++                "Super"
++            } else if modifier == Modifiers::CTRL {
++                "Ctrl"
++            } else if modifier == Modifiers::SHIFT {
++                "Shift"
++            } else if modifier == Modifiers::ALT {
++                "Alt"
++            } else if modifier == Modifiers::ISO_LEVEL3_SHIFT {
++                "Mod5"
++            } else {
++                "Mod3"
++            };
++            format!("{name} (tap)")
++        }
+         Trigger::Keysym(keysym) => prettify_keysym_name(screen_reader, &keysym_get_name(keysym)),
+         Trigger::MouseLeft => String::from("Mouse Left"),
+         Trigger::MouseRight => String::from("Mouse Right"),
+diff --git a/src/utils/mod.rs b/src/utils/mod.rs
+index bbeac5b..c1aa03b 100644
+--- a/src/utils/mod.rs
++++ b/src/utils/mod.rs
+@@ -141,6 +141,10 @@ impl ResizeEdge {
+ }
+ 
+ pub fn version() -> String {
++    format!("{} + ADWS modifier-taps 1.0.0", upstream_version())
++}
++
++fn upstream_version() -> String {
+     if let Some(v) = option_env!("NIRI_BUILD_VERSION_STRING") {
+         return String::from(v);
+     }
+@@ -635,3 +639,11 @@ mod tests {
+         check((0, 0, 10, 20), (20, 30, 40, 50), (0, 0));
+     }
+ }
++
++#[cfg(test)]
++mod adws_patch_version_tests {
++    #[test]
++    fn adws_version_always_identifies_the_patch() {
++        assert!(super::version().ends_with(" + ADWS modifier-taps 1.0.0"));
++    }
++}

@@ -24,7 +24,7 @@ class UninstallTests(unittest.TestCase):
         self.root.mkdir()
         self.addCleanup(patch.stopall)
         patch.object(removal, 'ROOT', self.root).start()
-        patch.dict(os.environ, HOME=str(self.home), XDG_CONFIG_HOME=str(self.config), XDG_STATE_HOME=str(self.state),
+        patch.dict(os.environ, HOME=str(self.home), XDG_CONFIG_HOME=str(self.config), XDG_STATE_HOME=str(self.state), XDG_DATA_HOME=str(self.base/'data'),
                    NIRI_CONFIG=str(self.config/'niri/config.kdl')).start()
         self.control = patch('adws_runtime.main', return_value=0).start()
         (self.home / '.local/bin').mkdir(parents=True)
@@ -88,6 +88,19 @@ class UninstallTests(unittest.TestCase):
         self.assertTrue((self.bar / 'colors.css').exists())
         self.assertEqual((self.home / 'Desktop/important.txt').read_text(), 'user document')
         self.assertTrue(self.root.exists())
+
+    def test_purge_retains_system_settings_and_shared_user_configuration(self):
+        import adws_power_policy as power
+        system=self.base/'system';system.mkdir()
+        files=[system/'logind.conf',system/'locale.conf',system/'NetworkManager.conf',self.config/'mimeapps.list',self.config/'fcitx5/conf/classicui.conf']
+        for path in files:
+            path.parent.mkdir(parents=True,exist_ok=True);path.write_text('user settings')
+        self.niri.write_text('input { keyboard { repeat-rate 30; } }\n'+self.niri.read_text())
+        with patch.object(power,'logind_write',side_effect=AssertionError('System settings must be retained')) as reset:
+            result,_,_=self.run_answers(['y','n'])
+        self.assertEqual(result,0);reset.assert_not_called()
+        self.assertTrue(all(path.read_text()=='user settings' for path in files))
+        self.assertIn('repeat-rate 30',self.niri.read_text())
 
     def test_changed_library_and_foreign_link_survive(self):
         self.lib.write_bytes(b'other installation')

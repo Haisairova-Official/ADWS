@@ -4,6 +4,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/adws-i18n.sh"
+# Ask before dependency installation, backups, or stopping existing components.
+# The transaction re-enters this script after the outer invocation confirmed.
+if [ "${ADWS_INSTALL_TRANSACTION:-}" != "$ROOT" ]; then
+    source "$ROOT/scripts/adws-install-session.sh"
+    adws_confirm_install_session || exit "$?"
+fi
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/waybar"
 LOCAL_BIN="$HOME/.local/bin"
 
@@ -43,8 +49,11 @@ for file in config-bottom.jsonc style-bottom.css modules.jsonc colors.css; do
     fi
 done
 
+python3 "$ROOT/tools/adws_topbar.py" --install-defaults
+
 python3 "$ROOT/tools/adws_include.py" "$CONFIG_DIR/config-bottom.jsonc"
 python3 "$ROOT/tools/adws_launcher.py" --apply "$CONFIG_DIR/modules.jsonc" "$LAUNCHER"
+python3 "$ROOT/tools/adws_launcher.py" --save-selection "$LAUNCHER"
 python3 "$ROOT/tools/adws_health.py" --init-desktop
 
 python3 "$ROOT/tools/adws_commands.py"
@@ -56,3 +65,7 @@ fi
 "$ROOT/adws" -v
 adws_message "安装完成。运行 adws-config 打开统一设置；运行 adws desktop --start（或 -s）启动桌面。" "Installation complete. Run adws-config for settings or adws -s to start desktop and taskbar."
 python3 "$ROOT/tools/adws_autostart.py"
+python3 "$ROOT/tools/adws_topbar.py" --offer-autostart
+
+# Optional compositor compatibility never blocks the main installation.
+python3 "$ROOT/tools/adws_niri_compat.py" offer

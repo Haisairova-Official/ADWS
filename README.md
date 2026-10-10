@@ -6,9 +6,79 @@
 
 **A simpler desktop experience for Niri.**
 
-稳定版本 / Stable release: **1.30 Released** · 构建日期 / Build date: **2026-09-28** · [更新记录 / Changelog](CHANGELOG.md)
+稳定版本 / Stable: **1.35** · 内部版本 / Internal revision: **Q** (`Pre-1.35`) · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
+
+## 1.35 正式版 / Release
+
+原生开始菜单、独立系统设置、可编辑任务栏和顶部栏，以及侧边栏、控制中心和新版剪贴板。完善天气与潮汐、设备报错和托盘恢复，优化启动、动效与长期运行可靠性。
+
+Native Start, independent settings, configurable bars, sidebar and control center. Improve clipboard, weather/tides, device errors, tray recovery and runtime reliability.
+
+[正式版更新记录 / Release notes](docs/release-1.35.md)
+
+## 1.35-N Pre-Release
+
+- 修复 Ubuntu 下中文路径和设置组件兼容问题。（M）
+- 更新器显示后台下载进度，确认后自动校验与安装。（M）
+- 新增 Waybar 模块兼容性检查，可安装/升级或构建官方兼容版本。（N）
+- 可选安装 Nerd Fonts 图标字体，帮助新增依赖修复命令。（N）
+
+Fix Ubuntu paths/settings compatibility and add background update progress with installation after confirmation. Add Waybar compatibility repair and optional Nerd Fonts icon installation, with commands documented in help.
+
+[更新说明 / Update notes](docs/update-notes-1.35-N-2026-10-05.md)
+
+## 1.35-L Pre-Release
+
+汇总 1.30 之后的原生开始菜单、系统设置、组件布局与顶部 Waybar 更新。新增四套顶部栏预设、完整快捷组件、整套配置导入、备份恢复与自启选项；优化折角、字体、托盘提示和窗口切换。修复图标悬停引发的样式路径累积卡顿，新增插件独立 Watchdog 与歌词按钮配色修订。
+
+Consolidated changes since 1.30: native Start menus, system settings, component layouts and standalone Waybar presets/controls. Add bundle import/backup restore/autostart, refine corners/fonts/tray tips and move window activation off the UI thread. Fix GTK style-path accumulation during icon hover, add independent plugin watchdogs and theme-following lyric controls.
+
+[完整更新记录 / Update notes](docs/update-notes-1.35-L-2026-10-05.md)
+
+## 1.34-I
+
+- 提供不依赖 Shorin 的通用顶部 Waybar，支持新安装与临时预览；已有本机配置保留。[说明 / Guide](docs/top-waybar.md)
+
+- 新增独立 Waybar 配置页，可调整尺寸、间距和组件排列，保留现有主题与注释。
+
+- 开始菜单重复打开更快，闲置三分钟后释放缓存；配置和应用变化会刷新。浮入淡出使用固定布局和临时画面缓存，完整应用列表避开动画填充。
+- 默认应用补充默认终端；提供当前 Kitty 和同款 Alacritty 外观预设，一键部署前自动备份。
+- 壁纸新增 Matugen 安装／卸载与可选自动配色，卸载保留配色与壁纸。
+- 修复管理员授权后的崩溃，授权框改为紧凑布局。（G）
+
+Standalone Waybar configuration with backups and targeted refresh. Faster cached Start opens, default terminal selection, Kitty/Alacritty presets with backups, optional wallpaper colors and Matugen package controls, plus compact administrator authorization dialogs.
+
+[更新记录 / Update notes](docs/update-notes-1.34-I-2026-10-05.md)
+
+## 1.33-G
+
+修复 Wayland 下 Shift＋右键无反应的问题；按住显示红色“结束进程”，松开恢复“关闭窗口”。（G）
+
+Fix unresponsive Shift + right-click on Wayland: hold Shift for red End process, and release it to restore Close window. (G)
+
+[完整累计更新 / Consolidated update notes](docs/update-notes-1.33-G-2026-10-05.md)。
+
+## 1.33-F
+
+汇总 1.30 之后的更新：原生开始菜单与四套主题、独立系统设置、分体任务栏与四种材质、可拖动的组件布局及实时预览、托盘／声音／亮度组件。完善 Shift 终止、登录启动项删除和配置保护，并优化启动、歌词渲染与资源清理。[完整累计更新](docs/update-notes-1.33-F-2026-10-05.md)。
+
+Changes since 1.30 include a native Start menu with four themes, independent system settings, split panels and four materials, draggable component layouts with live preview, and tray/audio/brightness controls. Improvements cover Shift termination, confirmed login-entry deletion, configuration preservation, startup, lyric rendering and cleanup. See the [consolidated update notes](docs/update-notes-1.33-F-2026-10-05.md).
+
+开发阶段：1.32-B 稳定性；1.32-C 系统设置；1.32-D 主题与布局；1.32-E 系统组件；1.33-E 修复；1.33-F 登录启动项删除。中间编号未单独发布，原有 1.31 A／B 记录保留在 [CHANGELOG](CHANGELOG.md)。透明材质的背景模糊由窗口管理器提供。
+
+Intermediate numbers identify development stages, not separate releases; published 1.31 A/B history is retained in the [changelog](CHANGELOG.md). Transparent-material background blur depends on the compositor.
+
+## 1.31 A
+
+插件常驻运行器现已默认优先使用 Rust，负责进程与管道管理、JSON 校验、超时、断管和进程组清理。源码安装自动构建，Arch 预构建流程包含运行器。未构建时可回退 Python，也可显式选择后端。Python 仍用于启动准备和现有插件本体，语言标签据实显示插件语言；迁移范围与验证方法见 [1.31 开发记录](docs/1.31-development.md)。
+
+The resident plugin supervisor now prefers Rust by default. Source installation builds it, and the Arch packaging pipeline includes it. Python remains available as a fallback and still prepares packages, settings and translations. Plugin language badges describe the implementation, not the supervisor. See the [1.31 development notes](docs/1.31-development.md) for scope, backend selection and verification.
+
+安装新增灵魂拷问：SSH 或非图形会话先确认是否继续，默认取消；普通桌面终端不受影响。
+
+Installation now asks for confirmation in SSH or non-graphical sessions, defaulting to cancel; normal desktop terminals are unaffected.
 
 ## 中文
 
@@ -84,7 +154,7 @@ ADWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 ### 主要功能
 
 - **桌面图标层**：显示、选择和排列桌面文件，提供文件操作、终端入口、简化菜单与安全退出确认。
-- **时钟设置**：右键时钟打开设置，支持日期、星期和秒数；按系统时间地区推荐日期格式，也可手动选择。默认上行大时间、下行小日期；支持 `YYYY-MM-DD`、`HH:mm:SS` 等自定义格式（`MM` 月份，`mm` 分钟）。左键不执行操作。
+- **时钟设置**：右键时钟打开设置，支持日期、星期和秒数；按系统时间地区推荐日期格式，也可手动选择。默认上行大时间、下行小日期；支持 `YYYY-MM-DD`、`HH:mm:SS` 等自定义格式（`MM` 月份，`mm` 分钟）。左键打开控制中心，可查看日历、添加/编辑/删除本地日程，并切换快捷开关、调节音量和所有可调节显示器的亮度。日程保存在 `~/.local/share/adws/agenda.json`。
 - **底部任务栏**：显示 Niri 窗口、工作区、时钟和插件；窗口较多时自动滚动，支持任务栏右键菜单。
 - **统一设置**：调整桌面、任务栏、组件顺序、前中后分区和插件设置；中间分区按整条任务栏真正居中。
 - **开始按钮**：支持文字、发行版图标或自定义图片；默认图和悬停图可分别设置，并保留原有左键、右键和悬停提示逻辑。
@@ -98,7 +168,9 @@ ADWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 
 - Linux、Niri，以及支持 CFFI v2 的 Waybar。
 - Python 3.11+、PyGObject（GTK 3/Gio）、PyCairo、Pillow、gtk-layer-shell；文件管理集成使用 Thunar。
-- 源码构建需要 Rust 1.87+ / Cargo、C 编译器、Make、pkg-config，以及 GTK 3、gtk-layer-shell、json-glib 开发文件。
+- 源码构建需要 Rust 1.87+ / Cargo、C 编译器、Make、pkg-config，以及 GTK 3、gtk-layer-shell、json-glib 开发文件。Ubuntu / Mint 软件源中的 Rust 可能过旧；安装时会校验 Rust 和 Cargo 版本，并检查未加入图形会话 PATH 的用户 rustup 工具链。
+
+系统设置、声音与亮度面板可在 X11 下打开；桌面图标层和 Niri 任务栏需要 Wayland / Niri。X11 下启动这些组件会直接提示，不会停止已有组件；Niri / Hyprland 显示器设置不会因残留会话变量误显示。X11 测试使用隔离虚拟显示，不代表完整 X11 桌面壳支持。
 - 歌词插件需要浏览器启用 MPRIS，并正在播放 `music.163.com` 的音乐；其他平台支持需要在插件设置中手动开启实验选项。
 
 任务栏使用仓库内的 `vendor/niri-ipc`，兼容上游 Niri 窗口数据与 Shorin 最小化扩展；上游不提供最小化接口时会回退到聚焦窗口。
@@ -266,7 +338,9 @@ Window hover/focus transitions and settings-tab crossfades are independently opt
 
 - Linux, Niri and Waybar with CFFI v2 support.
 - Python 3.11+, PyGObject (GTK 3/Gio), PyCairo, Pillow and gtk-layer-shell. File-manager integration uses Thunar.
-- Source builds require Rust 1.87+ / Cargo, a C compiler, Make, pkg-config and development files for GTK 3, gtk-layer-shell and json-glib.
+- Source builds require Rust 1.87+ / Cargo, a C compiler, Make, pkg-config and development files for GTK 3, gtk-layer-shell and json-glib. Ubuntu / Mint may ship an older Rust version; installation validates both Rust and Cargo and also checks the user’s rustup toolchain when it is absent from the graphical session PATH.
+
+System settings and sound/brightness panels can open on X11; the desktop icon layer and Niri taskbar require Wayland / Niri. Starting these components on X11 reports that requirement before stopping existing components. Stale compositor variables do not expose Niri / Hyprland display settings. Isolated virtual-display tests do not imply support for a complete X11 desktop shell.
 - Lyrics require an MPRIS-enabled browser playing music on `music.163.com`; support for other services must be enabled explicitly in plugin settings.
 
 The bundled `vendor/niri-ipc` supports upstream Niri window data and Shorin minimization extensions. When minimization is unavailable, ADWS falls back to focusing the window.
@@ -361,3 +435,30 @@ Added a wallpaper setup page: keep existing settings by default, preview images 
 Existing wallpaper services are preserved unless you confirm switching. Images remain external files and are not included in Config.ad-yml; keep them at the saved path. Startup restores the chosen wallpaper only when no wallpaper service is already running.
 
 壁纸图片保留在原路径，不打包进 Config.ad-yml。已有服务需要确认才会切换；登录时仅在没有壁纸服务运行的情况下恢复所选壁纸。
+
+
+### 2026-10-05 字体与吸附修复
+
+修复任务栏吸附动画在缺少绘制帧时停住；默认配置、生成和升级迁移加入 Nerd Symbols 字体回退，保留自定义文字字体。
+
+### 应用缩放与侧边栏
+
+“默认应用 → 应用缩放”可按应用指定 50%–400% 的启动缩放，支持 Qt / WPS 和 Chromium / Electron / 飞书。保存后完全退出应用再重新打开；“恢复原始启动命令”保留其他启动项修改。固定缩放不会在跨屏移动时自动变化。
+
+桌面文件右键选择“用指定应用打开”，可选择已安装应用打开选中的文件，不改变默认关联。
+
+运行 `adws sidebar`，或通过内置任务栏组件打开侧边栏。入口跟随按钮所在屏幕与位置，重复点击或按 Esc 收起，点击外部自动关闭。窗口动效跟随任务栏动效开关。背景采用半透明毛玻璃：使用 `launcher` layer 命名空间匹配合成器模糊规则；不支持模糊的环境保留半透明效果。动画在固定窗口表面内绘制，避免逐帧调整窗口边距；关闭后短暂复用进程和单个已隐藏窗口，任务栏通过 Rust 直接通知已运行的侧边栏，悬停入口时预先准备隐藏窗口，避免点击时启动 Python；命令行仍可通过轻量入口切换；隐藏时停止绘制，闲置 60 秒后释放窗口并退出（运行中的计时器仅保留提醒）。隐藏期间配置改变会重新加载；复用进程跟随本次调用的界面语言。支持 ext-background-effect-v1 的 Wayland 环境由 C 原生模块让退出的可见区域与模糊区域同步收回；模糊区域合并处理，打开期间保持稳定以减少重复计算；旧合成器与 X11 保留透明度动效。后台结果在动效结束后分批更新，设备说明保持单行，避免同时刷新和高度跳变。
+
+- **通知**：读取现有 Mako / Dunst 通知服务，当前通知与折叠历史分开显示，按应用分组并支持分批展开，刷新保留折叠状态。Wi-Fi、蓝牙、音量和所有可调节显示器的亮度直接在面板操作；可见时定期同步外部变化，隐藏后停止轮询。快捷操作固定在下方。勿扰仅在通知服务提供支持时可用。
+- **小组件**：添加、移除、拖动卡片标题排序，并切换紧凑或宽卡片；布局自动保存。包含媒体控制、系统监视、便签、日历、待办和计时器。待办与便签保留；日历使用统一月份网格，区分今天、选中日期与日程圆点，支持月份切换和返回今天，并列出未来七天日程；控制中心可点击近期日程直接编辑；计时器关闭侧边栏后继续，结束时发送通知。
+- **天气**：手动指定城市，以卡片显示当前天气、体感、湿度、风速、紫外线、能见度、气压、降水量、日出日落、昼长、月相与月升月落，以及接下来几小时和三天预报；逐小时卡片按可用宽度排列，直接显示降雨概率，并绘制温度曲线和降雨概率柱形图；补充今日高低温、风向、阵风和云量。日出日落时间解析不受系统语言影响。读取时显示进度，失败保留上次成功结果与更新时间；数据来自 wttr.in。点击“使用当前位置”先请求系统位置服务；失败后必须单独允许才会通过 ipapi.co 查询 IP 大致位置。拒绝或失败时自动潮汐显示灰色；手动城市仍可使用。位置仅用于本次面板，清除位置会丢弃旧请求结果。
+
+- **潮汐趋势**：使用 [Open-Meteo 海洋 API](https://open-meteo.com/en/docs/marine-weather-api) 的免费非商业公开接口，无需密钥。展示含潮汐影响的平均海平面高度模型、未来两天曲线与估算高低点，标明网格距离和时区；不是港口实测潮汐表，不用于航海。城市坐标无有效潮位时，最多追加一次批量查询，在 15/30/45 公里搜索环的候选中选择最近的有效模型网格；实际返回网格必须在原位置 50 公里内，并显示坐标、距离及“附近网格模型估算”。该标记不代表港口观测站；附近仍无有效数据时显示不可用，网络故障不触发扩展查询，无后台定时联网。指定城市后直接解析城市坐标并查询潮位，无需获取设备位置或 IP；保存的城市在打开天气页时查询，失败可手动重试。海面与潮位曲线合并，平滑曲线保留采样点和高低点，缺失数据不跨段连接；波纹在曲线下方缓慢流动，跟随动效开关。曲线上的点代表当前时刻的插值模型预报，标注查询地点的当地时间和潮位，不是实时测量；缺测或超出预报时段不显示该点。标记可见时每 30 秒更新，隐藏页面或海面滚出视口后停止绘制与计时。曲线与文字绘制资源复用，窗口缓存到期或退出时清理被分页容器解绑的页面、小组件和菜单；背景减轻多层不透明度叠加。开关动画跟随显示帧推进，使用物理像素对齐的临时画面缓存；动画结束后释放画面缓存，布局未变时切页不重复拆装卡片。切页时复用页面快照，设备状态更新推迟到动效结束；即使 Wayland 暂停发送帧回调，开关动画也会按时完成。
+
+交互参考 Windows 通知中心与小组件面板，工具分区参考 [StatIndet/quickshell](https://github.com/StatIndet/quickshell)，实现由 ADWS 独立编写。
+
+中文环境下，源码构建前询问是否为本次构建使用 [RsProxy](https://rsproxy.cn/) 国内 Cargo 镜像；其他语言环境不询问。不会修改全局 Cargo 配置，系统软件包仍使用系统的软件源。
+
+侧边栏也可在“组件与插件 → 添加组件”中作为内置任务栏组件添加。左键切换侧边栏，右键打开侧边栏设置；可拖动位置或移除，仅允许添加一个。不会自动改变已有布局。
+
+剪贴板历史使用 ADWS 毛玻璃卡片，支持搜索、逐条删除、清空确认、回车复制和 Esc 收起。搜索覆盖已读取的最多 500 条记录，每批绘制 80 张匹配卡片，点击“显示更多”继续浏览旧记录；删除后保留相邻记录的选中位置，Ctrl+F 回到搜索。可见的 PNG/JPEG 记录在后台生成缩略图；点击“查看内容”或在记录上按空格查看文本，Delete 删除选中的记录。图片读取限制为 8 MiB / 1600 万像素，文本预览限制为 64 KiB；超限或预览失败仍可复制完整原始内容。缩略图仅在内存缓存最多 24 张，关闭时释放。标题栏的图钉可将整个窗口置顶：拖动标题可移动，失焦、复制和再次点击入口均保持打开，点击 × 关闭；取消窗口置顶恢复失焦收起。卡片图钉用于固定记录，两者独立。固定记录置顶，清空普通历史仍会保留；取消固定会先放回普通历史。固定内容保存在 `~/.local/share/adws/clipboard-pins/`（遵循 `XDG_DATA_HOME`），最多 100 条、单条 32 MiB。需要 `cliphist` 与 `wl-clipboard`。

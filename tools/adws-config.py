@@ -545,7 +545,8 @@ def write_taskbar_font(font_family: str, font_size: float) -> Path:
 
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description=_tr('ADWS 统一设置'))
-    parser.add_argument("--tab", choices=("desktop", "taskbar", "components", "about"), default=None)
+    parser.add_argument("--tab", choices=("desktop", "taskbar", "components", "about", "start", "layout", "wallpaper", "apps", "sidebar", "waybar", "displays", "input", "network", "bluetooth", "sound", "power", "region"), default=None)
+    parser.add_argument("--start-instance", help=_tr("开始按钮实例"))
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--restart-desktop", action="store_true", help=_tr('重启桌面图标层（不打开界面）'))
     parser.add_argument("--autostart", choices=("status", "on", "off"), default=None,
@@ -642,8 +643,9 @@ def on_settings_window_destroy(*_):
 
 
 class ConfigWindow(Gtk.Window):
-    def __init__(self, tab=None):
-        super().__init__(title=_tr('桌面设置 — ADWS'))
+    def __init__(self, tab=None, embedded=False):
+        self.embedded = embedded
+        super().__init__(title=_tr('桌面配置 — ADWS'))
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.set_default_size(600, 440)
         self.set_border_width(12)
@@ -673,7 +675,8 @@ class ConfigWindow(Gtk.Window):
         footer.pack_end(apply, False, False, 0)
         outer.pack_end(footer, False, False, 0)
         self.connect("destroy", on_settings_window_destroy)
-        self.show_all()
+        if not embedded:
+            self.show_all()
 
     def build_appearance_page(self):
         prefs = load_desktop_prefs()
@@ -707,6 +710,7 @@ class ConfigWindow(Gtk.Window):
         taskbar_title = Gtk.Label(label=_tr('底部任务栏文字'), xalign=0)
         taskbar_title.get_style_context().add_class("title")
         box.pack_start(taskbar_title, False, False, 0)
+        self.desktop_taskbar_widgets = [separator, taskbar_title]
         _, _, _, taskbar_family, taskbar_size = read_taskbar_overrides()
         self.taskbar_family, self.taskbar_font_size = make_font_controls(taskbar_family, taskbar_size)
         box.pack_start(row_widget(_tr('字体：'), self.taskbar_family), False, False, 0)
@@ -717,6 +721,11 @@ class ConfigWindow(Gtk.Window):
         hint.get_style_context().add_class("dim-label")
         hint.set_line_wrap(True)
         box.pack_start(hint, False, False, 0)
+        self.desktop_taskbar_widgets.extend([self.taskbar_family.get_parent(), self.taskbar_font_size.get_parent(), hint])
+        if self.embedded:
+            for widget in self.desktop_taskbar_widgets:
+                widget.set_no_show_all(True)
+                widget.hide()
         self.restart_desktop_check = Gtk.CheckButton(label=_tr('应用后立即重启桌面图标层'))
         self.restart_desktop_check.set_active(True)
         box.pack_start(self.restart_desktop_check, False, False, 0)
@@ -740,7 +749,7 @@ class ConfigWindow(Gtk.Window):
                 _, _, _, current_family, current_size = read_taskbar_overrides()
                 new_family = (self.taskbar_family.get_active_text() or current_family).strip()
                 new_size = float(self.taskbar_font_size.get_value())
-                if new_family != current_family or abs(new_size - current_size) > 0.05:
+                if not self.embedded and (new_family != current_family or abs(new_size - current_size) > 0.05):
                     write_taskbar_font(new_family, new_size)
                 if self.restart_desktop_check.get_active():
                     ok, text = restart_desktop()
@@ -800,6 +809,9 @@ class ConfigWindow(Gtk.Window):
         style_task.connect("clicked", self.action_open_taskbar_style)
         taskbar_buttons.pack_start(restart_task, False, False, 0)
         taskbar_buttons.pack_start(style_task, False, False, 0)
+        start_task = Gtk.Button(label=_tr('开始菜单设置…'))
+        start_task.connect('clicked', lambda *_: self.settings_host.show_page('start') if getattr(self, 'settings_host', None) else subprocess.Popen([sys.executable, str(PROJECT_ROOT / 'tools/adws-config.py'), '--tab', 'start'], start_new_session=True))
+        taskbar_buttons.pack_start(start_task, False, False, 0)
         box.pack_start(taskbar_buttons, False, False, 0)
         hint = Gtk.Label(
             label=_tr('两个开关互相独立：桌面图标层使用 desktop-hidden 标记，任务栏使用 taskbar-hidden。'),
@@ -876,9 +888,15 @@ class ConfigWindow(Gtk.Window):
         GLib.timeout_add(400, self.refresh_statuses)
 
     def action_open_taskbar_style(self, _button=None):
+        if getattr(self, "settings_host", None):
+            self.settings_host.show_page("taskbar")
+            return
         TaskbarStyleWindow()
 
     def action_open_layout(self, _button=None):
+        if getattr(self, "settings_host", None):
+            self.settings_host.show_page("layout")
+            return
         script = PROJECT_ROOT / "tools/adws_layout.py"
         if not script.exists():
             self.show_message(_tr('布局设置'), _tr('找不到 %s') % script)
@@ -897,7 +915,7 @@ class ConfigWindow(Gtk.Window):
             button = Gtk.Button(label=_tr(caption))
             def open_bundle(_button, importing=importing):
                 from adws_config_bundle import dialog
-                dialog(self, importing, desktop_state_path())
+                dialog(getattr(self, "settings_host", None) or self, importing, desktop_state_path())
             button.connect('clicked', open_bundle)
             transfer.pack_start(button, False, False, 0)
         box.pack_start(transfer, False, False, 0)
@@ -919,6 +937,11 @@ class ConfigWindow(Gtk.Window):
         self.update_result = Gtk.Label(xalign=0, selectable=True)
         self.update_result.set_line_wrap(True)
         box.pack_start(self.update_result, False, False, 0)
+        self.update_progress = Gtk.ProgressBar(show_text=True)
+        self.update_progress.set_no_show_all(True)
+        self.update_progress.set_hexpand(True)
+        box.pack_start(self.update_progress, False, False, 0)
+        self.update_pulse_source = 0
         self.update_link = Gtk.LinkButton.new_with_label('https://github.com/Haisairova-Official/ADWS/releases', _tr('打开发布页面'))
         self.update_link.set_no_show_all(True)
         self.update_link.set_halign(Gtk.Align.START)
@@ -962,7 +985,7 @@ class ConfigWindow(Gtk.Window):
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         box.pack_start(separator, False, False, 6)
         help_text = (
-            _tr('常用命令：\n  adws config           打开本设置\n  adws check            查看组件状态\n  adws restart taskbar  重启底部任务栏\n  adws restart desktop  重启桌面图标层\n  adws build-taskbar    重新编译任务栏模块')
+            _tr('常用命令：\n  adws config           打开本设置\n  adws check            查看组件状态\n  adws restart taskbar  重启底部任务栏\n  adws restart desktop  重启桌面图标层\n  adws build-taskbar    重新编译任务栏模块') + _tr('\n\n依赖修复（操作前会询问）：\n  adws check --repair-waybar  检查 Waybar；安装/升级软件包或构建兼容版本\n  adws check --install-fonts  检测并补装 Nerd Fonts 图标字体（约 3 MB）\n  编译版 Waybar 使用用户专用目录；字体安装保留原来的正文字体。')
         )
         help_label = Gtk.Label(label=help_text, xalign=0, yalign=0, selectable=True)
         help_label.set_line_wrap(True)
@@ -977,15 +1000,13 @@ class ConfigWindow(Gtk.Window):
         self.update_button.set_sensitive(False)
         self.update_result.set_text(_tr('正在检查更新…'))
         self.update_link.hide()
+        self.update_progress.hide()
         def finish(result, error):
-            if not self.get_realized():
+            if not (getattr(self, "settings_host", None) or self).get_realized():
                 return False
             self.update_button.set_sensitive(True)
             self.update_preview.set_sensitive(True)
             self.update_result.set_text(error or result['text'])
-            if result and result['url']:
-                self.update_link.set_uri(result['url'])
-                self.update_link.show()
             if result and result.get('available') and self.confirm_update(result):
                 self.install_update(result)
             return False
@@ -998,7 +1019,7 @@ class ConfigWindow(Gtk.Window):
         threading.Thread(target=worker, daemon=True).start()
 
     def confirm_update(self, result):
-        dialog = Gtk.MessageDialog(transient_for=self, modal=True, destroy_with_parent=True,
+        dialog = Gtk.MessageDialog(transient_for=getattr(self, "settings_host", None) or self, modal=True, destroy_with_parent=True,
                                    message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.NONE,
                                    text=_tr('是否现在安装更新？'))
         dialog.format_secondary_text(result['text'] + '\n' + _tr('将保留现有配置，并在准备完成后重启正在运行的 ADWS 组件。'))
@@ -1016,29 +1037,73 @@ class ConfigWindow(Gtk.Window):
         from adws_update import install_update
         self.update_button.set_sensitive(False)
         self.update_preview.set_sensitive(False)
-        self.update_result.set_text(_tr('正在准备更新组件，请稍候…'))
+        self.update_link.hide()
+        self.update_result.set_text(_tr('正在下载更新…'))
+        self.update_progress.set_fraction(0)
+        self.update_progress.set_text(_tr('正在下载更新…'))
+        self.update_progress.show()
+        def alive():
+            return (getattr(self, "settings_host", None) or self).get_realized()
+        def stop_pulse():
+            if self.update_pulse_source:
+                GLib.source_remove(self.update_pulse_source)
+                self.update_pulse_source = 0
+        def pulse():
+            if not alive():
+                self.update_pulse_source = 0
+                return False
+            self.update_progress.pulse()
+            return True
+        def start_pulse():
+            if not self.update_pulse_source:
+                self.update_pulse_source = GLib.timeout_add(120, pulse)
         def show_progress(text):
-            if self.get_realized():
+            if alive():
                 self.update_result.set_text(text)
+                self.update_progress.set_text(text)
+                start_pulse()
             return False
-        def finish(text):
-            if self.get_realized():
+        def show_download(count, total):
+            if not alive(): return False
+            amount = count / (1024 * 1024)
+            if total:
+                stop_pulse()
+                fraction = min(1, count / total)
+                self.update_progress.set_fraction(fraction)
+                text = _tr('下载更新：%d%%（%.1f MiB）') % (fraction * 100, amount)
+            else:
+                start_pulse()
+                text = _tr('下载更新：%.1f MiB') % amount
+            self.update_progress.set_text(text)
+            self.update_result.set_text(text)
+            return False
+        def finish(text, success):
+            stop_pulse()
+            if alive():
                 self.update_button.set_sensitive(True)
                 self.update_preview.set_sensitive(True)
                 self.update_result.set_text(text)
+                if success:
+                    self.update_progress.set_fraction(1)
+                    self.update_progress.set_text(_tr('更新已安装。'))
+                else:
+                    self.update_progress.hide()
             return False
+        start_pulse()
         def worker():
             try:
-                text = install_update(result, lambda text: GLib.idle_add(show_progress, text))
+                text = install_update(result, lambda text: GLib.idle_add(show_progress, text),
+                                      lambda count, total: GLib.idle_add(show_download, count, total))
+                success = True
             except (OSError, ValueError, RuntimeError) as error:
-                text = str(error)
-            GLib.idle_add(finish, text)
+                text, success = str(error), False
+            GLib.idle_add(finish, text, success)
         # Closing Settings must not terminate a file replacement halfway through.
         threading.Thread(target=worker, daemon=False).start()
 
     def show_message(self, title, message):
         dialog = Gtk.MessageDialog(
-            transient_for=self, modal=True, destroy_with_parent=True,
+            transient_for=getattr(self, "settings_host", None) or self, modal=True, destroy_with_parent=True,
             message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
             text=title,
         )
@@ -1067,7 +1132,7 @@ def keep_scroll_for_page(container, scroll):
 
 
 class TaskbarSettingsWindow(Gtk.Window):
-    def __init__(self, tab=None, layout_file=None, open_plugin=None):
+    def __init__(self, tab=None, layout_file=None, open_plugin=None, embedded=False):
         super().__init__(title=_tr('任务栏设置 — ADWS'))
         self.layout_file = layout_file
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
@@ -1091,6 +1156,23 @@ class TaskbarSettingsWindow(Gtk.Window):
             self.position.append(key, caption)
         self.position.set_active_id(options['position'])
         box.pack_start(row_widget(_tr('任务栏位置：'), self.position), False, False, 0)
+        self.split_panel = Gtk.CheckButton(label=_tr('分体任务栏（按有内容的区域显示）'))
+        self.split_panel.set_active(options['split_panel'])
+        box.pack_start(self.split_panel, False, False, 0)
+        self.panel_choices = {}
+        for key, title, choices in [
+            ('split_center_corners', _tr('分体端头样式：'), [('same',_tr('同两侧一样')),('pointed',_tr('尖角（< >）'))]),
+            ('termination_mode', _tr('终止进程选项：'), [('shift',_tr('Shift 激活')),('below',_tr('列于关闭下方')),('disabled',_tr('禁用'))]),
+            ('panel_mode', _tr('任务栏模式：'), [('docked',_tr('吸附屏幕边缘')),('auto',_tr('有平铺窗口时吸附')),('floating',_tr('悬浮'))]),
+            ('panel_material', _tr('任务栏材质：'), [('solid',_tr('纯色')),('mica',_tr('云母')),('acrylic',_tr('亚克力')),('candy',_tr('糖果'))])]:
+            control=Gtk.ComboBoxText()
+            for value, label in choices: control.append(value,label)
+            control.set_active_id(options[key])
+            self.panel_choices[key]=control
+            box.pack_start(row_widget(title,control),False,False,0)
+        material_hint=Gtk.Label(label=_tr('透明材质的背景模糊由窗口管理器提供。'),xalign=0)
+        material_hint.set_line_wrap(True)
+        box.pack_start(material_hint,False,False,0)
         self.thickness = Gtk.SpinButton.new_with_range(24, 160, 1)
         self.thickness.set_value(options['thickness'])
         box.pack_start(row_widget(_tr('高度 / 竖栏宽度：'), self.thickness), False, False, 0)
@@ -1166,6 +1248,32 @@ class TaskbarSettingsWindow(Gtk.Window):
         layout_page = self.layout_editor.content
         layout_page.set_border_width(18)
         self.notebook.append_page(layout_page, Gtk.Label(label=_tr('组件与插件')))
+        start_scroll = Gtk.ScrolledWindow()
+        start_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        start_scroll.add(self.layout_editor.start_settings)
+        self.notebook.append_page(start_scroll, Gtk.Label(label=_tr('开始菜单')))
+        self.layout_editor.on_start_settings = lambda: self.notebook.set_current_page(2)
+        self.layout_editor.get_preview_options = lambda: {
+            **self.collect_panel_options(), 'preview_radius': self.radius.get_value(),
+            'font_family': self.family.get_active_text() or 'Sans', 'font_size': self.font_size.get_value(),
+        }
+        for control in (self.position, self.window_rows, self.family, *self.panel_choices.values()):
+            control.connect('changed', self.layout_editor.schedule_preview)
+        for control in (self.thickness, self.radius, self.font_size, self.animation_duration):
+            control.connect('value-changed', self.layout_editor.schedule_preview)
+        for control in (self.split_panel, self.theme_background, *self.panel_toggles.values()):
+            control.connect('toggled', self.layout_editor.schedule_preview)
+        self.color_button.connect('notify::rgba', self.layout_editor.schedule_preview)
+        for control, follow in self.panel_colors.values():
+            control.connect('notify::rgba', self.layout_editor.schedule_preview)
+            follow.connect('toggled', self.layout_editor.schedule_preview)
+        self.layout_editor.schedule_preview()
+        from gi.repository import GObject
+        for key, caption in [('window_animations', '菜单浮入淡出（与窗口动效同步）'), ('tab_animations', '菜单页面切换（与选项卡动效同步）')]:
+            toggle = Gtk.CheckButton(label=_tr(caption))
+            self.panel_toggles[key].bind_property('active', toggle, 'active', GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE)
+            self.layout_editor.start_settings.pack_start(toggle, False, False, 0)
+        keep_scroll_for_page(self.layout_editor.start_settings, start_scroll)
         # Protect both existing and subsequently added layout rows from wheel edits.
         def protect_layout(widget):
             scroller = self.layout_editor.list_box.get_parent()
@@ -1175,7 +1283,9 @@ class TaskbarSettingsWindow(Gtk.Window):
                 keep_scroll_for_page(widget, scroller)
         self.layout_editor.protect_scroll = protect_layout
         protect_layout(layout_page)
-        if tab == "layout" or open_plugin:
+        if tab == "start":
+            self.notebook.set_current_page(2)
+        elif tab == "layout" or open_plugin:
             self.notebook.set_current_page(1)
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         buttons.set_hexpand(True)
@@ -1200,10 +1310,21 @@ class TaskbarSettingsWindow(Gtk.Window):
         keep_scroll_for_page(box, scroll)
         self.on_theme_toggled()
         self.connect("destroy", on_settings_window_destroy)
-        self.show_all()
+        if not embedded:
+            self.show_all()
 
     def on_theme_toggled(self, *_):
         self.color_button.set_sensitive(not self.theme_background.get_active())
+
+    def collect_panel_options(self):
+        options = {key: control.get_active_id() for key,control in self.panel_choices.items()}
+        options['split_panel'] = self.split_panel.get_active()
+        options['surface_color'] = '' if self.theme_background.get_active() else css_rgba(self.color_button.get_rgba())
+        options.update(position=self.position.get_active_id(), thickness=self.thickness.get_value_as_int(),
+                       window_rows=int(self.window_rows.get_active_id()), animation_duration=self.animation_duration.get_value_as_int())
+        options.update({key: control.get_active() for key, control in self.panel_toggles.items()})
+        options.update({key: '' if follow.get_active() else css_rgba(control.get_rgba()) for key,(control,follow) in self.panel_colors.items()})
+        return options
 
     def apply_style(self, _button=None, close_after: bool = False) -> bool:
         try:
@@ -1211,10 +1332,7 @@ class TaskbarSettingsWindow(Gtk.Window):
             from adws_panel_options import validate
             layout = self.layout_editor.collect_layout()
             options = dict(layout.get('options', {}))
-            options.update(position=self.position.get_active_id(), thickness=self.thickness.get_value_as_int(),
-                           window_rows=int(self.window_rows.get_active_id()), animation_duration=self.animation_duration.get_value_as_int())
-            options.update({key: control.get_active() for key, control in self.panel_toggles.items()})
-            options.update({key: '' if follow.get_active() else css_rgba(control.get_rgba()) for key, (control, follow) in self.panel_colors.items()})
+            options.update(self.collect_panel_options())
             validate(options)
             layout['options'] = options
             color_text = css_rgba(self.color_button.get_rgba())
@@ -1241,6 +1359,8 @@ class TaskbarSettingsWindow(Gtk.Window):
         try:
             from adws_panel_options import DEFAULTS
             self.position.set_active_id(DEFAULTS['position'])
+            self.split_panel.set_active(DEFAULTS['split_panel'])
+            for key,control in self.panel_choices.items(): control.set_active_id(DEFAULTS[key])
             self.window_rows.set_active_id('1')
             self.thickness.set_value(DEFAULTS['thickness'])
             self.animation_duration.set_value(DEFAULTS['animation_duration'])
@@ -1254,7 +1374,7 @@ class TaskbarSettingsWindow(Gtk.Window):
 
     def show_error(self, text):
         dialog = Gtk.MessageDialog(
-            transient_for=self, modal=True, destroy_with_parent=True,
+            transient_for=getattr(self, "settings_host", None) or self, modal=True, destroy_with_parent=True,
             message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK,
             text=_tr('保存失败'),
         )
@@ -1297,12 +1417,8 @@ def main(argv=None):
     Gtk.init([])
     from adws_theme import start as start_theme_watch
     start_theme_watch()
-    if args.tab == "taskbar":
-        TaskbarStyleWindow()
-    else:
-        ConfigWindow(tab=args.tab)
-    Gtk.main()
-    return 0
+    from adws_system_settings import run_settings
+    return run_settings(sys.modules[__name__], tab=args.tab, start_instance=args.start_instance)
 
 
 if __name__ == "__main__":

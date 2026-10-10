@@ -19,6 +19,11 @@ ADWS 任务栏同步歌词插件 · Plugin API v1.0
 · 支持竖向任务栏：中文竖排保持正向，英文旋转 90 度。
 · 保留 1.0.2 的暂停心跳与静默重连，后台重连时保留歌词，不显示重连提示。
 
+**1.1.0 配色修订　2026-10-05**
+
+· 上一首、下一首按钮默认透明，文字与任务栏前景色一致；悬停和按下背景跟随任务栏系统配色，换配色即时更新。
+· 此修订需要更新 ADWS 的原生歌词渲染组件，单独替换插件包不会更新宿主按钮样式。
+
 ## 安装
 
 建议配合 **ADWS 1.27-A / Pre-1.30** 使用，获得本页全部交互、配色、竖排和动效。插件 API 最低声明为 ADWS 1.25，但仅升级插件包不会升级宿主的原生渲染组件。
@@ -47,6 +52,12 @@ adws mplg install ./org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
 自定义 API 使用 GET 地址模板，支持 `{id}`、`{title}`、`{artist}`、`{album}`、`{duration}`，参数自动 URL 编码。只有模板使用 `{id}` 时才先匹配网易云歌曲编号。接口可返回 UTF-8 LRC 文本或 JSON；JSON 字段路径支持点分路径和数组索引，例如 `lrc.lyric`、`tlyric.lyric`、`syncedLyrics`。无翻译时可留空译文字段。
 
 缓存位于 `$XDG_CACHE_HOME/adws/netease-lyrics-v2`，未设置 XDG_CACHE_HOME 时使用 `~/.cache`。不同歌词来源分别缓存，双屏共用缓存和请求锁。
+
+## 多实例（ADWS 1.31 B）
+
+本插件未声明 `isSingleOnly`，因此允许在任务栏重复添加。每份歌词组件单独保存位置、宽度、颜色、歌词来源及动效设置，右键进入相应实例的设置；歌曲缓存和请求锁继续共享。移除某一份不会影响其他歌词组件。
+
+插件开发者可在 `plugin.json` 顶层声明 `"isSingleOnly": true` 限制单例，`false` 或省略则允许重复；只接受 JSON 布尔值。详情见 [Plugin API](../../docs/mplg-spec.md)。
 
 ## 构建与排查
 
@@ -106,3 +117,13 @@ Custom GET API templates accept `{id}`, `{title}`, `{artist}`, `{album}` and `{d
 Cache: `$XDG_CACHE_HOME/adws/netease-lyrics-v2` (normally under `~/.cache`). Sources have separate cache keys; multiple displays share cache and request locks.
 
 Build, test and diagnose using the commands above from the ADWS source root. Keep `interval: 0` for continuous operation. Public lyrics APIs may require future compatibility updates.
+
+## Multiple instances (ADWS 1.31 B)
+
+This plugin omits `isSingleOnly`, allowing multiple taskbar instances. Placement, width, colors, lyric source and animations are configured separately; right-click opens the matching instance. Shared song caches and request locks remain shared. Removing one instance does not remove the others.
+
+Plugin authors can set top-level `"isSingleOnly": true` for one active instance, or use `false`/omit it to allow repeated instances. Only JSON Booleans are accepted. See [Plugin API](../../docs/mplg-spec.md).
+
+### 1.1.0 palette revision — 2026-10-05
+
+Previous/Next controls use transparent idle backgrounds and follow the taskbar's foreground, hover and pressed palette, including live color changes. This revision requires the updated ADWS native rows renderer; replacing only the plugin archive does not update host button styling.

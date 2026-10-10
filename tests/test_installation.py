@@ -36,6 +36,9 @@ class InstallationTests(unittest.TestCase):
             file = self.bin / program
             file.write_text('#!/bin/sh\nexit 0\n')
             file.chmod(0o755)
+        # Capability checks inspect ELF module names; use the host binary only
+        # for this read-only probe. No bar is launched during installation.
+        shutil.copy2(shutil.which('waybar'), self.bin / 'waybar')
         self.libs = self.home / '.local/lib/waybar'
         self.libs.mkdir(parents=True)
         for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so'):
@@ -47,16 +50,20 @@ class InstallationTests(unittest.TestCase):
         for name in ('adws', 'build-info.json'):
             shutil.copy2(ROOT/name, self.project/name)
         (self.project/'src/niri-taskbar').mkdir(parents=True)
+        (self.project/'src/adws-runtime').mkdir(parents=True)
+        (self.project/'src/adws-start-menu').mkdir(parents=True)
         (self.project/'src/panel-rows').mkdir()
         (self.project/'src/panel-rows/libadws_panel.so').write_text('test panel')
         for program, script in {
-            'cargo': 'mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so',
+            'rustc': 'printf "rustc 1.87.0\\n"',
+            'cargo': 'if [ "$1" = --version ]; then printf "cargo 1.87.0\\n"; exit 0; fi; mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so\nprintf test > target/release/adws-plugin-runner\nprintf test > target/release/adws-start-menu',
             'make': 'exit 0',
+            'fc-list': 'printf "Symbols Nerd Font\\n"',
             'cc': 'while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; printf test > "$1"; exit 0; fi; shift; done',
         }.items():
             file=self.bin/program;file.write_text('#!/bin/sh\n'+script+'\n');file.chmod(0o755)
 
-    def install(self, answer="y\nn\n"):
+    def install(self, answer="y\n1\nn\n"):
         # A fake HOME does not isolate /proc. Replace process discovery in the
         # transaction driver before invoking the real installer in this fixture.
         driver = """
@@ -81,6 +88,9 @@ runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_n
     def test_clean_install_xdg_idempotence_and_preservation(self):
         first = self.install()
         self.assertEqual(first.returncode, 0, first.stderr)
+        runner = self.project / 'libexec/adws-plugin-runner'
+        self.assertEqual(runner.read_text(), 'test')
+        self.assertTrue(os.access(runner, os.X_OK))
         folder = self.config / 'waybar'
         target = folder / 'config-bottom.jsonc'
         self.assertTrue(target.is_file())
@@ -145,7 +155,7 @@ runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_n
         config, style = self.config_files()
         fake = self.bin / 'waybar'
         fake.write_text('#!/bin/sh\necho "bad config test" >&2\nexit 7\n')
-        with patch.dict(os.environ, self.env), patch.object(layout, 'taskbar_pids', return_value=[]):
+        with patch.dict(os.environ, self.env), patch.object(layout, 'taskbar_pids', return_value=[]), patch.object(health, 'waybar_capability_errors', return_value=[]):
             ok, message = layout.restart_taskbar(config, style)
         self.assertFalse(ok)
         self.assertIn('7', message)
@@ -179,6 +189,9 @@ runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_n
         source = self.root / 'project'
         (source / 'src/niri-taskbar/target/release').mkdir(parents=True)
         shutil.copy2(ROOT / 'adws', source / 'adws')
+        shutil.copytree(ROOT / 'tools', source / 'tools', ignore=shutil.ignore_patterns('__pycache__'))
+        shutil.copytree(ROOT / 'src/niri-desktop-layer/desktop_layer', source / 'src/niri-desktop-layer/desktop_layer', ignore=shutil.ignore_patterns('__pycache__'))
+        shutil.copytree(ROOT / 'language', source / 'language')
         (source / 'scripts').mkdir()
         shutil.copy2(ROOT / 'scripts/adws-i18n.sh', source / 'scripts/adws-i18n.sh')
         artifact = source / 'src/niri-taskbar/target/release/libniri_taskbar.so'
@@ -188,7 +201,7 @@ runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_n
         held = old.open()
         self.addCleanup(held.close)
         cargo = self.bin / 'cargo'
-        cargo.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/cargo-args"\nexit 0\n')
+        cargo.write_text('#!/bin/sh\nif [ "$1" = --version ]; then printf "cargo 1.87.0\\n"; exit 0; fi\nprintf "%s\\n" "$@" > "$HOME/cargo-args"\nexit 0\n')
         cargo.chmod(0o755)
         result = subprocess.run([str(source / 'adws'), 'build-taskbar'], env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

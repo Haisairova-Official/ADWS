@@ -23,7 +23,10 @@ class PrebuiltTests(unittest.TestCase):
                 confirm=Mock(return_value=True)
                 self.assertTrue(prebuilt.install(root,root/'lib',confirm,atomic_install))
                 self.assertEqual((root/'lib'/prebuilt.NAMES[0]).read_bytes(),b'test artifact')
-                (folder/prebuilt.NAMES[0]).write_bytes(b'bad')
+                runner=root/'libexec/adws-plugin-runner'
+                self.assertEqual(runner.read_bytes(), b'test artifact')
+                self.assertEqual(runner.stat().st_mode & 0o777, 0o755)
+                (folder/'adws-plugin-runner').write_bytes(b'bad')
                 writer=Mock()
                 with self.assertRaises(RuntimeError): prebuilt.install(root,root/'lib',confirm,writer)
                 writer.assert_not_called()

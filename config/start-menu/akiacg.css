@@ -1,0 +1,56 @@
+/* AkiACG Orbit: forum lilac/ice-blue accents and original static orbital art.
+ * The palette supplies the surface/text colors. No network or render timers. */
+@define-color aki_lilac #bc8cff;
+@define-color aki_blue #c7dfff;
+@define-color aki_accent mix(@adws_accent, @aki_lilac, .65);
+
+.adws-start-menu.akiacg {
+  border-radius: 24px;
+  border: 1px solid alpha(@aki_blue,.3);
+  background-color: @adws_bg;
+  background-image: linear-gradient(140deg, alpha(@aki_lilac,.08), alpha(@aki_blue,.025));
+  box-shadow: 0 12px 28px alpha(black,.2);
+}
+.akiacg .menu-header {
+  padding: 16px 18px;
+  border-radius: 17px;
+  border: 1px solid alpha(@aki_blue,.2);
+  border-bottom: 2px solid alpha(@aki_lilac,.4);
+  background-color: alpha(@aki_lilac,.08);
+  background-image: url("akiacg-orbit.svg");
+  background-repeat: no-repeat;
+  background-position: right center;
+  background-size: contain;
+}
+.akiacg .menu-avatar { padding: 4px; border: 1px solid alpha(@aki_blue,.55); border-radius: 50%; background: alpha(@aki_lilac,.1); }
+.akiacg .menu-title { font-size: 1.15em; font-weight: 700; }
+.akiacg .aki-signature { font-size: 1.45em; font-weight: 800; letter-spacing: 1px; color: @aki_lilac; }
+.akiacg .menu-search { margin: 12px 0; border-radius: 13px; padding: 10px 14px; border: 1px solid alpha(@aki_blue,.22); background: alpha(@adws_fg,.055); }
+.akiacg .menu-search:focus { border-color: @aki_lilac; box-shadow: 0 0 0 2px alpha(@aki_lilac,.12); }
+.akiacg .menu-sidebar { padding: 4px 10px 4px 0; }
+.akiacg .menu-sidebar button { padding: 9px; margin: 2px 0; border-radius: 4px 12px 12px 4px; border-left: 3px solid transparent; }
+.akiacg .menu-sidebar button.active-category { background: alpha(@aki_accent,.14); border-color: transparent; border-left-color: @aki_lilac; color: @adws_fg; }
+.akiacg .menu-sidebar separator { background: alpha(@aki_blue,.2); }
+.akiacg .menu-programs { padding-left: 8px; border-left: 1px solid alpha(@aki_blue,.15); }
+.akiacg .section-title { font-weight: 700; color: @adws_fg; padding: 6px 8px 8px; }
+.akiacg flowboxchild { padding: 4px; }
+.akiacg button.shortcut { padding: 12px 10px; border-radius: 14px 14px 14px 5px; border: 1px solid alpha(@aki_blue,.2); background-image: linear-gradient(120deg, alpha(@aki_blue,.055), alpha(@aki_lilac,.035)); min-height: 36px; }
+.akiacg button.shortcut:hover, .akiacg button.shortcut:focus { border-color: alpha(@aki_lilac,.65); background-color: alpha(@aki_lilac,.13); }
+.akiacg row { margin: 3px 4px; padding: 10px; border: 1px solid transparent; border-radius: 12px; }
+.akiacg row:hover { background: alpha(@aki_accent,.13); border-color: alpha(@aki_lilac,.35); }
+.akiacg row:selected { background: alpha(@aki_accent,.24); color: white; border-color: alpha(@aki_lilac,.65); }
+/* Keep app labels legible even when the desktop theme overrides selected text. */
+.adws-start-menu.akiacg row:hover,
+.adws-start-menu.akiacg row:hover label,
+.adws-start-menu.akiacg row:selected,
+.adws-start-menu.akiacg row:selected label { color: white; }
+.akiacg button:hover { background-color: alpha(@aki_accent,.13); border-color: alpha(@aki_lilac,.35); }
+.akiacg .menu-footer { margin: 10px 0 0; padding: 12px; border: 1px solid alpha(@aki_blue,.16); border-radius: 15px; background: alpha(@aki_blue,.035); }
+.akiacg .menu-footer button { border-radius: 12px; padding: 9px 12px; border: 1px solid alpha(@aki_blue,.22); background: alpha(@adws_fg,.04); }
+.akiacg .menu-footer button:hover, .akiacg .menu-footer button:focus { border-color: @aki_lilac; background: alpha(@aki_lilac,.16); }
+.akiacg .menu-footer .settings-entry { border-color: alpha(@aki_lilac,.45); background: alpha(@aki_lilac,.12); }
+.akiacg .menu-footer .close-entry { padding: 9px; }
+.akiacg .aki-version { padding: 0 10px 0 2px; border-right: 1px solid alpha(@aki_blue,.2); }
+.akiacg .aki-version-mark { font-weight: 800; font-size: .9em; letter-spacing: 1px; color: @aki_blue; }
+.akiacg .menu-subtitle { font-size: .85em; }
+.akiacg .power-destructive:hover, .akiacg .power-destructive:focus { background: #bc355d; border-color: #e86789; color: white; }

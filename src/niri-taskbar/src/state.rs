@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use async_channel::Sender;
 use futures::{Stream, StreamExt};
-use niri_ipc::Workspace;
 use waybar_cffi::gtk::glib;
 
 use crate::{
@@ -43,32 +42,30 @@ impl State {
     }
 
     pub fn event_stream(&self) -> Result<impl Stream<Item = Event> + use<>, Error> {
-        let (tx, rx) = async_channel::unbounded();
+        // Backpressure here must reach WindowStream's latest-state mailbox;
+        // an unbounded second queue would merely move the snapshot backlog.
+        let (tx, rx) = async_channel::bounded(1);
 
+        let mut tasks = crate::tasks::Tasks::default();
         if self.config().notifications_enabled() {
-            glib::spawn_future_local(notify_stream(tx.clone()));
+            tasks.0.push(glib::spawn_future_local(notify_stream(tx.clone())));
         }
 
-        glib::spawn_future_local(window_stream(
+        tasks.0.push(glib::spawn_future_local(window_stream(
             tx.clone(),
             self.niri().window_stream(false),
-        ));
+        )));
 
-        glib::spawn_future_local(crate::pins::watch(tx.clone()));
+        tasks.0.push(glib::spawn_future_local(crate::pins::watch(tx.clone())));
 
-        // We don't want to send a set of workspaces through until after the window stream has
-        // yielded a window snapshot, and it's easier to defer it here than in the calling code.
-        let mut delay = Some((tx, self.niri().workspace_stream()?));
-
+        // All socket reads belong to the single background window stream.
         Ok(async_stream::stream! {
+            let _tasks = tasks;
             while let Ok(event) = rx.recv().await {
-                if let Some((tx, stream)) = delay.take() {
-                    if let &Event::Workspaces(_) = &event {
-                        glib::spawn_future_local(workspace_stream(tx, stream));
-                    }
-                }
-
                 yield event;
+                // A ready channel does not yield the executor. Give input,
+                // drawing and timers a turn even under a continuous event flood.
+                glib::timeout_future(std::time::Duration::from_millis(1)).await;
             }
         })
     }
@@ -94,23 +91,17 @@ async fn notify_stream(tx: Sender<Event>) {
     while let Some(notification) = stream.next().await {
         if let Err(e) = tx.send(Event::Notification(Box::new(notification))).await {
             tracing::error!(%e, "error sending notification");
+            break;
         }
     }
 }
 
 async fn window_stream(tx: Sender<Event>, window_stream: WindowStream) {
-    while let Some(snapshot) = window_stream.next().await {
+    while let Some((snapshot, outputs_changed)) = window_stream.next().await {
+        if outputs_changed && tx.send(Event::Workspaces(())).await.is_err() { break; }
         if let Err(e) = tx.send(Event::WindowSnapshot(snapshot)).await {
             tracing::error!(%e, "error sending window snapshot");
-        }
-    }
-}
-
-async fn workspace_stream(tx: Sender<Event>, workspace_stream: impl Stream<Item = Vec<Workspace>>) {
-    let mut workspace_stream = Box::pin(workspace_stream);
-    while workspace_stream.next().await.is_some() {
-        if let Err(e) = tx.send(Event::Workspaces(())).await {
-            tracing::error!(%e, "error sending workspaces");
+            break;
         }
     }
 }

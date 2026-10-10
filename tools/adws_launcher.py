@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -14,45 +15,101 @@ def rofi_theme_command():
     return "rofi -show drun -theme-str 'mainbox { background-image: none; }'"
 
 
+def native_menu_command():
+    return shlex.join(['bash', str(Path(__file__).resolve().parents[1] / 'adws'), 'start-menu'])
+
+
+def terminal_argv():
+    # Resolve at click time, so changing the system default takes effect immediately.
+    from desktop_layer.terminal import configured_argv
+    configured = configured_argv()
+    if configured: return configured
+    preferred = shutil.which('xdg-terminal-exec')
+    if preferred:
+        return [preferred]
+    try:
+        custom = shlex.split(os.environ.get('TERMINAL', ''))
+    except ValueError:
+        custom = []
+    if custom and (executable := shutil.which(custom[0])):
+        return [executable, *custom[1:]]
+    for name in ('x-terminal-emulator', 'kitty', 'foot', 'alacritty', 'konsole', 'gnome-terminal', 'xterm'):
+        if executable := shutil.which(name):
+            return [executable]
+    raise RuntimeError(_tr('未找到可用的终端程序'))
+
+
+def launch_terminal():
+    subprocess.Popen(terminal_argv(), cwd=Path.home(), start_new_session=True)
+
+
 def ask(prompt):
     print(prompt, end=' ', file=sys.stderr, flush=True)
-    return input().strip()
+    if sys.stdin.isatty():
+        return input().strip()
+    # The installer invokes several Python helpers on the same input stream.
+    # Do not read ahead and swallow answers intended for the next helper.
+    data=bytearray()
+    while True:
+        byte=os.read(sys.stdin.fileno(),1)
+        if byte == b'\n': break
+        if not byte:
+            if not data: raise EOFError
+            break
+        data.extend(byte)
+    return data.decode(sys.stdin.encoding or 'utf-8').strip()
 
 
 def select_launcher():
-    if shutil.which('fuzzel'):
-        return 'fuzzel'
-    if shutil.which('rofi'):
-        return 'rofi -show drun'
     while True:
-        answer = ask(_tr('未检测到启动器。是否安装 fuzzel（Y）或者自定义启动器参数（n）？（Y/n/Ctrl+C）')).lower()
-        if answer == 'n':
+        answer = ask(_tr('选择启动器：1 ADWS 开始菜单（默认），2 fuzzel，3 rofi，4 自定义。（1/2/3/4/Ctrl+C）')).lower()
+        if answer in ('', '1', 'adws'):
+            return native_menu_command()
+        if answer in ('4', 'custom'):
             while True:
                 command = ask(_tr('请输入完整启动命令（包含程序名和参数，Ctrl+C 取消）：'))
                 if command:
                     return command
                 print(_tr('启动命令不能为空。'), file=sys.stderr)
-        elif answer in ('', 'y'):
-            break
-        else:
-            print(_tr('请输入 y 或 n。'), file=sys.stderr)
-    managers = [('apt-get', ['install', 'fuzzel']), ('dnf', ['install', 'fuzzel']),
-                ('pacman', ['-S', 'fuzzel']), ('zypper', ['install', 'fuzzel']),
-                ('apk', ['add', 'fuzzel'])]
+        program = {'2': 'fuzzel', 'fuzzel': 'fuzzel', '3': 'rofi', 'rofi': 'rofi'}.get(answer)
+        if not program:
+            print(_tr('请输入 1、2、3 或 4。'), file=sys.stderr)
+            continue
+        if not shutil.which(program):
+            confirm = ask(_tr('未检测到 %s，是否现在安装？（Y/n/Ctrl+C）') % program).lower()
+            if confirm not in ('', 'y'):
+                continue
+            install_launcher(program)
+        return program if program == 'fuzzel' else 'rofi -show drun'
+
+
+def install_launcher(program):
+    managers = [('apt-get', ['install']), ('dnf', ['install']),
+                ('pacman', ['-S']), ('zypper', ['install']), ('apk', ['add'])]
     for manager, arguments in managers:
         executable = shutil.which(manager)
         if executable:
-            command = [executable, *arguments]
+            command = [executable, *arguments, program]
             if os.geteuid() != 0:
                 sudo = shutil.which('sudo')
                 if not sudo:
-                    raise RuntimeError(_tr('缺少 sudo，请手动安装 fuzzel 后重试，或选择自定义启动器。'))
+                    raise RuntimeError(_tr('缺少 sudo，请手动安装启动器后重试。'))
                 command.insert(0, sudo)
             result = subprocess.run(command, stdout=sys.stderr)
-            if result.returncode or not shutil.which('fuzzel'):
-                raise RuntimeError(_tr('fuzzel 安装未成功，已停止 ADWS 安装。'))
-            return 'fuzzel'
-    raise RuntimeError(_tr('无法识别包管理器，请手动安装 fuzzel 后重试，或选择自定义启动器。'))
+            if result.returncode or not shutil.which(program):
+                raise RuntimeError(_tr('%s 安装未成功，已停止 ADWS 安装。') % program)
+            return
+    raise RuntimeError(_tr('无法识别包管理器，请手动安装启动器，或选择 ADWS 开始菜单。'))
+
+
+def save_selection(command):
+    from adws_layout import load_layout, save_layout
+    layout = load_layout()
+    options = layout.setdefault('options', {})
+    options['start_launcher_mode'] = ('adws' if command == native_menu_command() else
+        'fuzzel' if command == 'fuzzel' else 'rofi' if command == 'rofi -show drun' else 'custom')
+    options['start_launcher_command'] = command
+    save_layout(layout)
 
 
 def configure(path, command):
@@ -86,10 +143,16 @@ def configure(path, command):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--select', action='store_true')
+    parser.add_argument('--terminal', action='store_true')
+    parser.add_argument('--save-selection')
     parser.add_argument('--apply', nargs=2, metavar=('PATH', 'COMMAND'))
     args = parser.parse_args()
     try:
-        if args.select:
+        if args.terminal:
+            launch_terminal()
+        elif args.save_selection:
+            save_selection(args.save_selection)
+        elif args.select:
             print(select_launcher())
         elif args.apply:
             configure(*args.apply)

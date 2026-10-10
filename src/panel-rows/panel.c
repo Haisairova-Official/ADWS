@@ -34,6 +34,13 @@ typedef struct {
     guint retry;
     int font_unit;
     int allocated_height, fitted_height;
+    int measured_height;
+    PangoFontDescription *measured_font;
+    PangoFontMap *measured_map;
+    guint measured_map_serial;
+    PangoLanguage *measured_language;
+    double measured_resolution;
+    cairo_font_options_t *measured_options;
     guint refresh_source;
     guint palette_watch;
     guint hover_source;
@@ -43,11 +50,17 @@ typedef struct {
     gboolean theme_dirty;
     gboolean palette_valid;
     GdkRGBA applied_colors[3];
+    GtkCssProvider *control_css;
+    GdkRGBA control_colors[4];
+    gboolean control_palette_valid;
     gchar *font_family;
     GdkRGBA colors[2];
     gboolean has_color[2];
     gboolean has_separator_color;
     GdkRGBA separator_color;
+    guint profile_source;
+    guint64 profile_updates, profile_fits;
+    gint64 profile_update_max, profile_fit_max;
 } Panel;
 
 typedef struct { GtkBox parent; Panel *panel; } AdwsRows;
@@ -145,6 +158,7 @@ static void theme_changed(GtkWidget *widget, gpointer data) {
 
 static void fit_height(Panel *p, int height) {
     if (height <= 1) return;
+    gint64 profile_start = p->profile_source ? g_get_monotonic_time() : 0;
     // Measure the active font, including CJK fallback, against the allocated bar
     // height. Font sizes are 3u and 2u; u is found rather than fixed in pixels.
     PangoLayout *layout = gtk_widget_create_pango_layout(p->primary, "Ag国語あいう");
@@ -152,6 +166,33 @@ static void fit_height(Panel *p, int height) {
         pango_context_get_font_description(pango_layout_get_context(layout)));
     if (p->font_family && *p->font_family)
         pango_font_description_set_family(font, p->font_family);
+    // CSS color/hover/class updates also emit style-updated. Reuse metrics
+    // unless an input that affects text shaping changed. Keep only one entry.
+    PangoContext *context = pango_layout_get_context(layout);
+    PangoFontMap *map = pango_context_get_font_map(context);
+    guint serial = map ? pango_font_map_get_serial(map) : 0;
+    PangoLanguage *language = pango_context_get_language(context);
+    double resolution = pango_cairo_context_get_resolution(context);
+    const cairo_font_options_t *options = pango_cairo_context_get_font_options(context);
+    gboolean same_options = options ? (p->measured_options &&
+        cairo_font_options_equal(options, p->measured_options)) : !p->measured_options;
+    if (p->measured_font && p->measured_height == height &&
+        pango_font_description_equal(p->measured_font, font) &&
+        p->measured_map == map && p->measured_map_serial == serial &&
+        p->measured_language == language && p->measured_resolution == resolution && same_options) {
+        pango_font_description_free(font);
+        g_object_unref(layout);
+        return;
+    }
+    if (p->measured_font) pango_font_description_free(p->measured_font);
+    p->measured_font = pango_font_description_copy(font);
+    g_set_object(&p->measured_map, map);
+    p->measured_map_serial = serial;
+    p->measured_language = language;
+    p->measured_resolution = resolution;
+    if (p->measured_options) cairo_font_options_destroy(p->measured_options);
+    p->measured_options = options ? cairo_font_options_copy(options) : NULL;
+    p->measured_height = height;
     int thickness = MAX(1, (height + 18) / 36);
     if (p->previous_button && p->next_button) {
         int icon_size = MAX(1, height / 2);
@@ -178,11 +219,44 @@ static void fit_height(Panel *p, int height) {
     }
     pango_font_description_free(font);
     g_object_unref(layout);
+    if (profile_start) {
+        p->profile_fits++;
+        p->profile_fit_max = MAX(p->profile_fit_max, g_get_monotonic_time()-profile_start);
+    }
+}
+
+static void refresh_control_palette(Panel *p) {
+    if (!p->control_css) return;
+    GtkStyleContext *context = gtk_widget_get_style_context(p->event_box);
+    GdkRGBA colors[4];
+    colors[0] = theme_color(p, 0);
+    lookup_color(context, &colors[0], (const char *[]) {"on_surface", "theme_fg_color", NULL});
+    colors[1] = colors[0]; colors[1].alpha = .12;
+    lookup_color(context, &colors[1], (const char *[]) {"surface_container", "secondary_container", NULL});
+    colors[2] = colors[1];
+    lookup_color(context, &colors[2], (const char *[]) {"primary", "accent_color", "theme_selected_bg_color", NULL});
+    colors[3] = colors[0];
+    lookup_color(context, &colors[3], (const char *[]) {"on_primary", "theme_selected_fg_color", NULL});
+    gboolean changed = !p->control_palette_valid;
+    for (int i=0; i<4; i++) changed |= !gdk_rgba_equal(&colors[i], &p->control_colors[i]);
+    if (!changed) return;
+    gchar *values[4];
+    for (int i=0; i<4; i++) { values[i]=gdk_rgba_to_string(&colors[i]); p->control_colors[i]=colors[i]; }
+    gchar *css = g_strdup_printf(
+        "button.adws-lyric-control { background-image:none; background-color:transparent; color:%s; border:none; box-shadow:none; border-radius:.6em; }"
+        "button.adws-lyric-control:hover { background-image:none; background-color:%s; color:%s; }"
+        "button.adws-lyric-control:active { background-image:none; background-color:%s; color:%s; }",
+        values[0], values[1], values[0], values[2], values[3]);
+    gtk_css_provider_load_from_data(p->control_css, css, -1, NULL);
+    g_free(css);
+    for (int i=0; i<4; i++) g_free(values[i]);
+    p->control_palette_valid=TRUE;
 }
 
 static gboolean refresh_palette(gpointer data) {
     Panel *p = data;
     if (p->disposed) return G_SOURCE_REMOVE;
+    refresh_control_palette(p);
     if (!p->font_unit) return G_SOURCE_CONTINUE;
     for (int i = 0; i < 3; i++) {
         GdkRGBA color = i < 2 ? (p->has_color[i] ? p->colors[i] : theme_color(p, i))
@@ -279,6 +353,7 @@ static void panel_unref(gpointer data) {
     g_clear_object(&p->stream);
     g_clear_object(&p->process);
     g_clear_object(&p->cancel);
+    g_clear_object(&p->control_css);
     g_free(p->command);
     g_free(p->left_command);
     g_free(p->right_command);
@@ -286,9 +361,13 @@ static void panel_unref(gpointer data) {
     g_free(p->next_command);
     g_free(p->state);
     g_free(p->font_family);
+    if (p->measured_font) pango_font_description_free(p->measured_font);
+    g_clear_object(&p->measured_map);
+    if (p->measured_options) cairo_font_options_destroy(p->measured_options);
     if (p->refresh_source) g_source_remove(p->refresh_source);
     if (p->palette_watch) g_source_remove(p->palette_watch);
     if (p->hover_source) g_source_remove(p->hover_source);
+    if (p->profile_source) g_source_remove(p->profile_source);
     g_free(p);
 }
 
@@ -299,6 +378,7 @@ static const char *string_member(JsonObject *obj, const char *name) {
 }
 
 static void update(Panel *p, const char *line) {
+    gint64 profile_start = p->profile_source ? g_get_monotonic_time() : 0;
     JsonParser *parser = json_parser_new();
     if (!json_parser_load_from_data(parser, line, -1, NULL)) { g_object_unref(parser); return; }
     JsonNode *root = json_parser_get_root(parser);
@@ -333,10 +413,43 @@ static void update(Panel *p, const char *line) {
             gtk_widget_get_allocated_width(parent), gtk_widget_get_allocated_height(parent), p->font_unit);
     }
     g_object_unref(parser);
+    if (profile_start) {
+        p->profile_updates++;
+        p->profile_update_max = MAX(p->profile_update_max, g_get_monotonic_time()-profile_start);
+    }
+}
+
+static gboolean profile_rows(gpointer data) {
+    Panel *p=data;
+    g_message("ADWS rows profile widget=%s updates=%" G_GUINT64_FORMAT
+        " fits=%" G_GUINT64_FORMAT " update_max_us=%" G_GINT64_FORMAT
+        " fit_max_us=%" G_GINT64_FORMAT " height=%d font_unit=%d",
+        gtk_widget_get_name(p->event_box), p->profile_updates, p->profile_fits,
+        p->profile_update_max, p->profile_fit_max, p->allocated_height, p->font_unit);
+    p->profile_updates=p->profile_fits=0;
+    p->profile_update_max=p->profile_fit_max=0;
+    return G_SOURCE_CONTINUE;
 }
 
 static void read_next(Panel *p);
 static gboolean start(gpointer data);
+
+static void runner_exited(GObject *source, GAsyncResult *result, gpointer data) {
+    Panel *p=data;
+    GError *error=NULL;
+    gboolean waited=g_subprocess_wait_finish(G_SUBPROCESS(source),result,&error);
+    if (!p->disposed && p->process == G_SUBPROCESS(source)) {
+        if (waited && g_subprocess_get_successful(G_SUBPROCESS(source))) {
+            p->retry=g_timeout_add_seconds_full(G_PRIORITY_DEFAULT,5,start,panel_ref(p),panel_unref);
+        } else if (!g_error_matches(error,G_IO_ERROR,G_IO_ERROR_CANCELLED)) {
+            // Keep the watchdog's failed state visible. A broken plugin must
+            // not be relaunched every five seconds by the renderer.
+            g_warning("ADWS plugin stopped unexpectedly; automatic retry disabled");
+        }
+    }
+    g_clear_error(&error);
+    panel_unref(p);
+}
 
 static void read_done(GObject *source, GAsyncResult *result, gpointer data) {
     Panel *p = data;
@@ -349,7 +462,7 @@ static void read_done(GObject *source, GAsyncResult *result, gpointer data) {
         } else {
             // Retry in the background while preserving the last rendered state.
             if (error) g_warning("ADWS panel stream interrupted: %s", error->message);
-            p->retry = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 5, start, panel_ref(p), panel_unref);
+            if (p->process) g_subprocess_wait_async(p->process,p->cancel,runner_exited,panel_ref(p));
         }
     }
     g_clear_error(&error);
@@ -625,6 +738,14 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
     gtk_style_context_add_class(gtk_widget_get_style_context(p->controls), "adws-controls");
     p->previous_button = gtk_button_new_from_icon_name("media-skip-backward-symbolic", GTK_ICON_SIZE_MENU);
     p->next_button = gtk_button_new_from_icon_name("media-skip-forward-symbolic", GTK_ICON_SIZE_MENU);
+    p->control_css=gtk_css_provider_new();
+    GtkWidget *buttons[] = {p->previous_button, p->next_button};
+    for (int i=0; i<2; i++) {
+        GtkStyleContext *context=gtk_widget_get_style_context(buttons[i]);
+        gtk_style_context_add_class(context, "adws-lyric-control");
+        gtk_style_context_add_provider(context, GTK_STYLE_PROVIDER(p->control_css), GTK_STYLE_PROVIDER_PRIORITY_USER+3);
+    }
+    refresh_control_palette(p);
     gtk_widget_set_no_show_all(p->previous_button, TRUE);
     gtk_widget_set_no_show_all(p->next_button, TRUE);
     atk_object_set_name(gtk_widget_get_accessible(p->previous_button), adws_text("上一首", "Previous"));
@@ -641,6 +762,7 @@ static Panel *create_widgets(GtkContainer *root, const char *name, int width) {
     // GTK does not emit style-updated for changes affecting only named colors.
     // Compare the resolved palette; only changed colors cause widget updates.
     p->palette_watch = g_timeout_add(100, refresh_palette, p);
+    if (g_getenv("ADWS_PANEL_PROFILE")) p->profile_source=g_timeout_add_seconds(30,profile_rows,p);
     return p;
 }
 
@@ -681,12 +803,13 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
             if (!strcmp(entries[j].key, "start_animations")) s->animations = config_boolean(entries[j].value);
             else if (!strcmp(entries[j].key, "animation_duration")) s->fade_duration=CLAMP(atoi(value),80,1000);
             else if (!strcmp(entries[j].key, "vertical")) s->vertical = config_boolean(entries[j].value);
-            else if (!strcmp(entries[j].key, "start_image")) s->normal = gdk_pixbuf_new_from_file(value, NULL);
+            else if (!strcmp(entries[j].key, "start_image") && *value) s->normal = gdk_pixbuf_new_from_file(value, NULL);
             else if (!strcmp(entries[j].key, "start_hover_image") && *value) s->hover = gdk_pixbuf_new_from_file(value, NULL);
             else if (!strcmp(entries[j].key, "exec")) s->command = g_strdup(value);
             else if (!strcmp(entries[j].key, "start_right_command")) s->right_command = g_strdup(value);
             else if (!strcmp(entries[j].key, "start_middle_command")) s->middle_command = g_strdup(value);
             else if (!strcmp(entries[j].key, "start_tooltip") && *value) gtk_widget_set_tooltip_text(GTK_WIDGET(s), value);
+            else if (!strcmp(entries[j].key, "start_position")) s->position = g_strdup(value);
             else if (!strcmp(entries[j].key, "start_label")) s->label = g_strdup(value);
             g_free(value);
         }
@@ -761,6 +884,7 @@ void wbcffi_deinit(void *instance) {
         return;
     }
     p->disposed = TRUE;
+    if (p->profile_source) { g_source_remove(p->profile_source); p->profile_source=0; }
     if (p->refresh_source) { g_source_remove(p->refresh_source); p->refresh_source = 0; }
     if (p->palette_watch) { g_source_remove(p->palette_watch); p->palette_watch = 0; }
     if (p->hover_source) { g_source_remove(p->hover_source); p->hover_source = 0; }

@@ -18,6 +18,12 @@ class UpdateTests(unittest.TestCase):
                 for value in (0.8, 0.99999):
                     self.assertEqual(message('updates.none', rng=Mock(random=Mock(return_value=value))), second)
 
+    def test_letter_preview_version(self):
+        self.assertLess(update.version_key('1.35-L Pre-Release'),update.version_key('1.35-L'))
+        self.assertGreater(update.version_key('1.35-L Pre-Release'),update.version_key('1.35-K'))
+        self.assertEqual(update.version_key('v1.35-L-pre-release'),update.version_key('1.35-L Pre-Release'))
+        self.assertLess(update.version_key('1.35-L Pre-Release'),update.version_key('1.35 Released'))
+
     def test_version_order(self):
         self.assertEqual(update.version_key('v1.27-A'),update.version_key('1.27 A'))
         self.assertLess(update.version_key('1.27-A'),update.version_key('1.30 Release'))

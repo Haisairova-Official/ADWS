@@ -16,7 +16,7 @@ def locations(desktop_state=None):
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')
     state = Path(os.environ.get('XDG_STATE_HOME') or Path.home()/'.local/state')
     result = {name: config/name for name in (
-        'adws/taskbar-layout.json', 'adws/taskbar-pins.json', 'adws/setup.json', 'adws/wallpaper.json',
+        'adws/sidebar.json', 'adws/default-terminal.json', 'adws/power-policy.json', 'adws/taskbar-layout.json', 'adws/taskbar-pins.json', 'adws/setup.json', 'adws/wallpaper.json', 'adws/wallpaper-library.json',
         'niri-desktop-layer/config.toml', 'mimeapps.list',
         'waybar/config-bottom.jsonc', 'waybar/style-bottom.css',
         'waybar/modules.jsonc', 'waybar/colors.css')}
@@ -82,9 +82,14 @@ def read_bundle(source):
         if name.endswith('.json'):
             value = json.loads(text)
             if not isinstance(value, dict): raise ValueError(_tr('JSON 配置必须是对象。'))
+            if name == 'adws/power-policy.json':
+                from adws_power_policy import validate
+                validate(value)
             if name == 'adws/taskbar-layout.json':
                 from adws_panel_options import validate
                 validate(value.get('options', {}))
+                from adws_layout import normalize_layout
+                normalize_layout(value)
                 for key in ('builtins', 'plugins'):
                     if key in value and not isinstance(value[key], list): raise ValueError(_tr('组件列表格式无效。'))
         elif name.endswith('.jsonc'):

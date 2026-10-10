@@ -8,6 +8,14 @@ use serde::{Deserialize, Deserializer};
 #[derive(Debug, Deserialize)]
 pub struct Config {
     #[serde(default)]
+    component: String,
+    #[serde(default)]
+    control_helper: String,
+    #[serde(default)]
+    clock_control_helper: String,
+    #[serde(default)]
+    control_output: String,
+    #[serde(default)]
     apps: HashMap<String, Vec<AppConfig>>,
     #[serde(default)]
     vertical: bool,
@@ -15,6 +23,8 @@ pub struct Config {
     position: String,
     #[serde(default)]
     window_peek: bool,
+    #[serde(default = "default_termination_mode")]
+    termination_mode: String,
     #[serde(default)]
     window_animations: bool,
     #[serde(default = "default_animation_duration")]
@@ -43,7 +53,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { apps: Default::default(), vertical: false, position: String::new(), window_peek: false, window_animations: false, animation_duration: default_animation_duration(), preview_helper: String::new(), group_windows: false,
+        Self { component: String::new(), control_helper: String::new(), clock_control_helper: String::new(), control_output:String::new(), apps: Default::default(), vertical: false, position: String::new(), window_peek: false, termination_mode: default_termination_mode(), window_animations: false, animation_duration: default_animation_duration(), preview_helper: String::new(), group_windows: false,
             rows: default_rows(), thickness: default_thickness(), notifications: Default::default(),
             show_all_outputs: false, current_workspace_only: false, max_width: None, icon_zone_fraction: None }
     }
@@ -77,11 +87,18 @@ fn default_animation_duration() -> u32 { 280 }
 fn default_rows() -> u32 { 1 }
 fn default_thickness() -> u32 { 36 }
 
+fn default_termination_mode() -> String { "shift".into() }
+
 fn default_true() -> bool {
     true
 }
 
 impl Config {
+    pub fn component(&self) -> &str { &self.component }
+    pub fn clock_control_helper(&self) -> &str { &self.clock_control_helper }
+    pub fn control_helper(&self) -> &str { &self.control_helper }
+    pub fn control_output(&self) -> &str { &self.control_output }
+    pub fn termination_mode(&self) -> &str { &self.termination_mode }
     pub fn position(&self) -> &str { &self.position }
     pub fn preview_helper(&self) -> &str { &self.preview_helper }
     pub fn window_peek(&self) -> bool { self.window_peek }

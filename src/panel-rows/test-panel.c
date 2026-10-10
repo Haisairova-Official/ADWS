@@ -325,6 +325,19 @@ int main(int argc, char **argv) {
     GdkPixbuf *image = gtk_offscreen_window_get_pixbuf(GTK_OFFSCREEN_WINDOW(window));
     gdk_pixbuf_save(image, "/tmp/adws-bilingual-preview.png", "png", NULL, NULL);
     g_object_unref(image);
+    // Color/class refreshes must not repeat the font binary search.
+    p->profile_source = g_timeout_add_seconds(3600, profile_rows, p);
+    guint64 fits_before = p->profile_fits;
+    for (int i = 0; i < 20; i++) fit_height(p, p->allocated_height);
+    g_assert_cmpuint(p->profile_fits, ==, fits_before);
+    g_free(p->font_family); p->font_family = g_strdup("Serif");
+    fit_height(p, p->allocated_height);
+    g_assert_cmpuint(p->profile_fits, ==, fits_before + 1);
+    g_free(p->font_family); p->font_family = g_strdup("Sans");
+    fit_height(p, p->allocated_height);
+    g_assert_cmpuint(p->profile_fits, ==, fits_before + 2);
+    g_source_remove(p->profile_source); p->profile_source = 0;
+    g_print("Font-fit cache checks passed (unchanged style, font invalidation)\n");
     int previous_unit = p->font_unit;
     int heights[] = {54, 72, 30, 36};
     for (guint i = 0; i < G_N_ELEMENTS(heights); i++) {
@@ -400,6 +413,20 @@ int main(int argc, char **argv) {
     ((AdwsRows *)dynamic->box)->panel = NULL;
     gtk_widget_destroy(dynamic_window);
     panel_unref(dynamic);
+    // A crashed worker must not turn into an endless five-second restart loop.
+    GtkWidget *failed_window=gtk_offscreen_window_new();
+    GtkWidget *failed_root=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,0);
+    gtk_container_add(GTK_CONTAINER(failed_window),failed_root);
+    Panel *failed=create_widgets(GTK_CONTAINER(failed_root),"failure-fixture",100);
+    failed->command=g_strdup("sh -c 'exit 7'");
+    start(failed); settle();
+    g_assert_true(g_subprocess_get_if_exited(failed->process));
+    g_assert_cmpint(g_subprocess_get_exit_status(failed->process), ==, 7);
+    g_assert_cmpuint(failed->retry, ==, 0);
+    failed->disposed=TRUE;
+    ((AdwsRows *)failed->box)->panel=NULL;
+    gtk_widget_destroy(failed_window);
+    panel_unref(failed);
     p->has_color[0] = p->has_color[1] = FALSE;
     p->has_separator_color = FALSE;
     const char *palettes[] = {
@@ -437,6 +464,29 @@ int main(int argc, char **argv) {
         pango_attr_iterator_destroy(it);
         g_assert_cmpfloat(color_distance(p->separator_color, wanted), >, .04);
         g_assert_cmpuint(p->refresh_source, ==, 0);
+    }
+    // Skip controls follow the host palette, independently of manual lyric colors.
+    const char *control_palettes[] = {
+        "@define-color on_surface #ddeeff; @define-color surface_container #223344; @define-color primary #55bbdd; @define-color on_primary #001122;",
+        "@define-color on_surface #332211; @define-color surface_container #eeddbb; @define-color primary #dd9955; @define-color on_primary #ffffff;"
+    };
+    for (guint i=0; i<G_N_ELEMENTS(control_palettes); i++) {
+        gtk_css_provider_load_from_data(palette, control_palettes[i], -1, NULL);
+        settle(); refresh_control_palette(p); settle();
+        GtkStyleContext *context=gtk_widget_get_style_context(p->previous_button);
+        GdkRGBA actual;
+        gtk_style_context_get_color(context, GTK_STATE_FLAG_NORMAL, &actual);
+        g_assert_cmpfloat(color_distance(actual, p->control_colors[0]), <, .001);
+        GdkRGBA *background=NULL;
+        gtk_style_context_get(context, GTK_STATE_FLAG_NORMAL, "background-color", &background, NULL);
+        g_assert_nonnull(background); g_assert_cmpfloat(background->alpha, ==, 0.);
+        gdk_rgba_free(background);
+        gtk_widget_set_state_flags(p->previous_button, GTK_STATE_FLAG_PRELIGHT, FALSE);
+        settle();
+        gtk_style_context_get(context, gtk_style_context_get_state(context), "background-color", &background, NULL);
+        g_assert_cmpfloat(color_distance(*background, p->control_colors[1]), <, .001);
+        gdk_rgba_free(background);
+        gtk_widget_unset_state_flags(p->previous_button, GTK_STATE_FLAG_PRELIGHT);
     }
     gtk_style_context_remove_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(palette));
     g_object_unref(palette);

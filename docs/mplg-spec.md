@@ -33,7 +33,7 @@ MyPlugin/
 ```
 
 必需：`id`、`name`、`version`、`entry`、`renderer`。可选：`description`、`adws`、
-`defaults`、`settingsSchema` 及作者/许可证等说明。
+`defaults`、`settingsSchema`、`isSingleOnly` 及作者/许可证等说明。
 
 - ID 至少两个以点分隔的非空段，允许 ASCII 字母、数字、下划线，区分大小写。
   安装后以 ID 标识配置，不随显示名变化。
@@ -44,6 +44,24 @@ MyPlugin/
 - `slot` 为 left/center/right；width 为非负宽度，0 表示自动（rows 默认 420）；
   align 为 0–1；interval 为非负秒数。text 的正间隔由 Waybar 定期执行，最小 0.5 秒。
   interval=0 可用于长驻逐行输出；rows 使用长驻流，结束后宿主重试。
+
+## 单例与重复实例（ADWS 1.31 B）
+
+`plugin.json` 的顶层可声明：
+
+```json
+"isSingleOnly": true
+```
+
+- `true`：单例组件，添加菜单只允许一个活动实例；手动配置多个活动实例也会拒绝应用。
+- `false` 或省略：允许重复添加。此默认行为取代之前所有插件只能添加一次的限制。
+- 必须使用 JSON 布尔值；字符串 `"true"`、数字 `1`、`null` 等会使包校验失败。
+
+布局中的每份插件具有独立 `instance` 标识，分别保存位置、顺序、宽度、动效和设置。删除某个实例不会移除其他实例或插件包；重新添加优先恢复已移除实例的设置。旧布局自动为原实例补齐标识，保留原来的配置。
+
+运行入口和播放控制命令都收到环境变量 `ADWS_PLUGIN_INSTANCE`。若插件自己维护可写状态，请将此标识用于区分实例的文件、连接或其他资源；解包文件、公共只读缓存可以共享。不要在包内写入实例状态。
+
+**English:** Set the top-level `isSingleOnly` field to JSON `true` to allow one active instance. Omit it or use `false` to allow multiple instances. Strings, numbers and null are rejected. Each layout instance has independent placement, width, animation and settings. The host supplies `ADWS_PLUGIN_INSTANCE` to both the entry and control commands, allowing plugin authors to isolate writable per-instance state. Existing configurations retain their settings.
 
 ## 输出与生命周期
 

@@ -187,6 +187,8 @@ def run():
         choices[mime] = combo
     launcher = Gtk.ComboBoxText()
     launcher.append('', _tr('保持当前设置'))
+    from adws_launcher import native_menu_command
+    launcher.append(native_menu_command(), _tr('ADWS 开始菜单'))
     import shutil
     for executable, command in [('fuzzel', 'fuzzel'), ('rofi', 'rofi -show drun')]:
         if shutil.which(executable): launcher.append(command, executable)
@@ -231,7 +233,10 @@ def run():
         options['animation_duration'] = int(speed.get_value())
         options.update({key: '' if follow.get_active() else picker.get_rgba().to_string() for key, picker in picks.items()})
         background = '@surface_container_high' if follow.get_active() else options['background_color']
-        if launcher.get_active_id(): options['start_launcher_command'] = launcher.get_active_id()
+        if launcher.get_active_id():
+            command=launcher.get_active_id()
+            options['start_launcher_command']=command
+            options['start_launcher_mode']='adws' if command==native_menu_command() else 'fuzzel' if command=='fuzzel' else 'rofi'
         busy[0] = True
         buttons.set_sensitive(False)
         error.set_text(_tr('正在保存设置…'))

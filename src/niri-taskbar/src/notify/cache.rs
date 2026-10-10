@@ -17,9 +17,10 @@ use zbus::{
 };
 
 /// A basic cache that maps D-Bus connections to PIDs.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ConnectionCache {
     tx: Sender<Request>,
+    _tasks: std::rc::Rc<crate::tasks::Tasks>,
 }
 
 impl ConnectionCache {
@@ -28,14 +29,14 @@ impl ConnectionCache {
     /// The expiry is best effort. Values below 5 minutes are unlikely to be
     /// very effective.
     pub fn new(expiry: Duration) -> Self {
-        let (tx, rx) = async_channel::unbounded();
-        glib::spawn_future_local(async move {
+        let (tx, rx) = async_channel::bounded(64);
+        let worker = glib::spawn_future_local(async move {
             if let Err(e) = worker(rx, expiry).await {
                 tracing::error!(%e, "connection cache worker error");
             }
         });
 
-        Self { tx }
+        Self { tx, _tasks: std::rc::Rc::new(crate::tasks::Tasks(vec![worker])) }
     }
 
     /// Returns the PID for the given connection, if known.

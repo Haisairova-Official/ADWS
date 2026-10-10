@@ -6,6 +6,38 @@ from adws_panel_options import validate, geometry, styles
 import adws_layout as layout
 
 class PanelOptionsTests(unittest.TestCase):
+    def test_center_buffer_follows_axis_and_corner_selection(self):
+        for edge in ('top', 'bottom', 'left', 'right'):
+            vertical = edge in ('left', 'right')
+            css = styles({'position': edge, 'split_panel': True, 'split_center_corners': 'pointed'})
+            self.assertIn('border-radius:0; padding:' + ('23px 0 23px 0' if vertical else '0 23px 0 23px') + ';', css)
+            inherited = styles({'position': edge, '_surface_radius': '17px'})
+            self.assertIn('.modules-center {', inherited)
+            self.assertIn('border-radius:17px;', inherited)
+        with self.assertRaises(ValueError):
+            validate({'split_center_corners': 'invalid'})
+
+    def test_docking_squares_only_outside_corners(self):
+        for edge in ('top', 'bottom', 'left', 'right'):
+            css = styles({'position': edge, '_surface_radius': '17px'})
+            vertical = edge in ('left','right')
+            self.assertIn('.modules-left {border-radius:' + ('0 0 17px 17px' if vertical else '0 17px 17px 0') + ';}', css)
+            self.assertIn('.modules-right {border-radius:' + ('17px 17px 0 0' if vertical else '17px 0 0 17px') + ';}', css)
+            self.assertIn('.modules-center {border-radius:17px;}', css)
+        css = styles({'split_center_corners': 'pointed', '_surface_radius': '17px'})
+        self.assertIn('.modules-center {border-radius:0;}', css)
+
+    def test_pointed_two_segments_reserve_tip_and_content_buffer(self):
+        for edge in ('top', 'bottom', 'left', 'right'):
+            css = styles({'position': edge, 'split_panel': True,
+                          'split_center_corners': 'pointed', '_occupied_slots': ['left', 'right']})
+            vertical = edge in ('left', 'right')
+            self.assertIn('padding:' + ('5px 0 23px 0' if vertical else '0 23px 0 5px') + ';', css)
+            self.assertIn('padding:' + ('23px 0 5px 0' if vertical else '0 5px 0 23px') + ';', css)
+            self.assertNotIn('.modules-center {', css)
+            for slot in ('left', 'right'):
+                self.assertIn(f'.modules-{slot} {{border-radius:0;}}', css)
+
     def test_every_edge_and_two_lanes(self):
         for position in ('top','bottom','left','right'):
             cfg={'height':36,'width':1200}
@@ -45,7 +77,8 @@ class PanelOptionsTests(unittest.TestCase):
                'builtins':[{'id':'clock','enabled':True,'slot':'right','order':0}]}
         result=layout.render_waybar_config(state,available=[],base={'clock':{'format':'{:%H:%M}','on-click':'kclock','rotate':90}})
         self.assertEqual(result['clock']['rotate'],0)
-        self.assertEqual(result['clock']['on-click'],'')
+        self.assertIn('adws_control_center.py',result['clock']['on-click'])
+        self.assertIn('--edge left',result['clock']['on-click'])
         self.assertIn('adws_clock.py',result['clock']['on-click-right'])
         self.assertEqual(result['clock']['format'],'{0:%H:%M}')
 
@@ -76,3 +109,36 @@ class PanelOptionsTests(unittest.TestCase):
             'plugins': [], 'builtins': [{'id': 'windows', 'enabled': True, 'slot': 'left', 'order': 0}]}, available=[], base={})
         self.assertTrue(result['cffi/niri-taskbar']['window_animations'])
         self.assertEqual(result['cffi/niri-taskbar']['animation_duration'], 180)
+
+    def test_split_excludes_empty_center_and_preserves_surface(self):
+        result=layout.render_waybar_config({'options':{'split_panel':True,'panel_mode':'auto'},'plugins':[], 'builtins':[{'id':'start','enabled':True,'slot':'left','order':0},{'id':'clock','enabled':True,'slot':'right','order':0}]},available=[],base={})
+        self.assertEqual(result['_adws_options']['_occupied_slots'],['left','right'])
+        self.assertEqual(result['cffi/desktop-space']['panel_mode'],'auto')
+        self.assertIn('window_animations',result['cffi/desktop-space'])
+        self.assertIn('animation_duration',result['cffi/desktop-space'])
+        self.assertIn('adws-docked > box { border-radius:0;',styles({}))
+        from adws_panel_options import surface_from_css
+        appearance=surface_from_css('window#waybar > box {background:#123456; border-radius:19px;}')
+        for material in ('solid','mica','acrylic','candy'):
+            css=styles({**result['_adws_options'],**appearance,'panel_material':material})
+            self.assertIn('#123456',css)
+            self.assertIn('19px',css)
+            self.assertNotIn('.modules-center {',css)
+    def test_docked_edges_and_termination_choices(self):
+        for edge in ('top','bottom','left','right'):
+            cfg={}
+            geometry(cfg,{'position':edge,'panel_mode':'docked'})
+            self.assertTrue(all(cfg['margin-'+side]==0 for side in ('top','bottom','left','right')))
+        for mode in ('shift','below','disabled'):
+            result=layout.render_waybar_config({'options':{'termination_mode':mode},'plugins':[], 'builtins':[{'id':'windows','enabled':True,'slot':'left','order':0}]},available=[],base={})
+            self.assertEqual(result['cffi/niri-taskbar']['termination_mode'],mode)
+        for opts in ({'panel_material':'bad'},{'panel_mode':'bad'},{'termination_mode':'bad'},{'split_panel':1}):
+            with self.assertRaises(ValueError):validate(opts)
+
+    def test_hidden_start_preserves_menu_and_skips_unused_image(self):
+        state={'options':{'start_icon_mode':'image','start_image':'/missing/old.png','start_menu_theme':'xp','start_launcher_mode':'adws'},'plugins':[], 'builtins':[{'id':'start','enabled':False}]}
+        result=layout.render_waybar_config(state,available=[],base={})
+        for slot in ('left','center','right'):
+            self.assertNotIn('cffi/start-button',result['modules-'+slot])
+            self.assertNotIn('custom/applauncher',result['modules-'+slot])
+        self.assertEqual(state['options']['start_menu_theme'],'xp')

@@ -14,8 +14,28 @@ Separately licensed components retain their existing terms and notices.
   The upstream metadata points to https://github.com/niri-wm/niri;
   an exact fork revision was not recorded. Only the manifest was adapted
   to remove workspace inheritance; Rust source is unchanged.
+- `src/adws-runtime`: ADWS native plugin supervisor, GPL-3.0-or-later.
+- `src/adws-start-menu`: ADWS GTK3 start menu, GPL-3.0-or-later. Theme presets are original CSS inspired by desktop layouts; no proprietary theme assets are bundled.
 - Other Rust dependencies retain their respective licenses. Versions are
-  recorded in `src/niri-taskbar/Cargo.lock`.
+  recorded in `src/niri-taskbar/Cargo.lock`, `src/adws-runtime/Cargo.lock` and `src/adws-start-menu/Cargo.lock`.
 
 This source release does not include compiled binaries, fonts, music,
 lyrics, or browser credentials. External lyrics services supply their own content.
+
+## Optional Niri compatibility patch
+
+`patches/niri/0001-modifier-taps-v26.04.patch` targets upstream Niri v26.04,
+commit `8ed0da44d974c32c6877d2f4630c314da0717ecb` (Ivan Molodetskikh and Niri contributors,
+GPL-3.0-or-later). The modifier-name parser adaptation is derived from
+[SHORiN-KiWATA/niri](https://github.com/SHORiN-KiWATA/niri), revision `21be84f6`,
+also GPL-3.0-or-later. ADWS supplies the standalone tap state machine, integration,
+tests and optional build tooling under GPL-3.0-or-later. The build retains upstream
+LICENSE and source; this is an optional downstream patch, not an upstream release.
+
+## Top-bar runtime dependencies
+
+ADWS top-bar defaults, CSS, action helpers and color-picker UI are independently
+implemented. They do not bundle or invoke Shorin / ML4W top-bar scripts or styles.
+Waybar, GTK, CAVA, grim, hyprpicker, fuzzel and wl-clipboard are external runtime dependencies and
+retain their own licenses. This does not change the separately licensed Niri
+components and optional compatibility patch documented above.

@@ -1,75 +1,49 @@
 {
-  "apiVersion": 1,
-  "comment": "底部任务栏组件布局。内置组件与 .mplg 插件都按 slot + order 渲染。",
+  "apiVersion": 2,
   "builtins": [
     {
       "id": "start",
+      "instance": "start",
       "enabled": true,
       "slot": "left",
       "order": 0
     },
     {
       "id": "windows",
+      "instance": "windows",
       "enabled": true,
       "slot": "left",
       "order": 1
     },
     {
-      "id": "workspaces",
+      "id": "sound",
+      "instance": "sound",
+      "enabled": true,
+      "slot": "right",
+      "order": 0
+    },
+    {
+      "id": "brightness",
+      "instance": "brightness",
       "enabled": true,
       "slot": "right",
       "order": 1
     },
     {
-      "id": "clock",
+      "id": "tray",
+      "instance": "tray",
       "enabled": true,
       "slot": "right",
       "order": 2
-    }
-  ],
-  "plugins": [
+    },
     {
-      "package": "org.AkiACG_Community.NCMLyricsBar",
+      "id": "clock",
+      "instance": "clock",
       "enabled": true,
       "slot": "right",
-      "order": 0,
-      "width": 0,
-      "animations": true,
-      "settings": {
-        "font_family": "",
-        "primary_color": "",
-        "secondary_color": "",
-        "separator_color": "",
-        "offset_ms": 0.0,
-        "experimental_other_platforms": false,
-        "api_mode": "netease",
-        "api_url": "",
-        "lyric_path": "lrc.lyric",
-        "translation_path": "tlyric.lyric"
-      }
+      "order": 3
     }
   ],
-  "options": {
-    "taskbar_library": null,
-    "desktop_space_library": null,
-    "keep_live_base": true,
-    "start_label": "",
-    "start_icon_mode": "custom",
-    "start_launcher_command": "rofi -show drun -theme-str 'mainbox { background-image: none; }'",
-    "start_launcher_custom": "rofi -show drun -theme-str 'mainbox { background-image: none; }'",
-    "start_image": "",
-    "start_hover_image": "",
-    "position": "bottom",
-    "thickness": 36,
-    "window_rows": 1,
-    "animation_duration": 280,
-    "group_windows": true,
-    "window_animations": true,
-    "tab_animations": true,
-    "hover_color": "",
-    "focus_color": "",
-    "focus_text_color": "",
-    "urgent_color": "#f6d32d",
-    "window_peek": true
-  }
+  "plugins": [],
+  "options": {}
 }

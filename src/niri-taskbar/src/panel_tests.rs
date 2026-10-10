@@ -101,17 +101,27 @@ fn panel_geometry_groups_and_colors() {
                     settle();
                     let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();settle();
                     fn choices(widget:&gtk::Widget)->Vec<gtk::Button>{
-                        if let Ok(button)=widget.clone().downcast::<gtk::Button>(){return vec![button];}
+                        if let Ok(button)=widget.clone().downcast::<gtk::Button>(){return if button.style_context().has_class("peek-close"){vec![]}else{vec![button]};}
                         widget.clone().downcast::<gtk::Container>().map(|c|c.children().iter().flat_map(choices).collect()).unwrap_or_default()
                     }
                     let choices=choices(&popup.child().unwrap());assert_eq!(choices.len(),2,"title-only cards must be clickable");
-                    choices[0].emit_clicked();
+                    choices[0].emit_clicked();settle();
                     assert!(!popup.is_visible());
                     let actions=requests.lock().unwrap();assert_eq!(actions.len(),2);
                     assert_eq!(actions[0]["Action"]["FocusWindow"]["id"],2);
                     assert_eq!(actions[1]["Action"]["FocusWindow"]["id"],1);drop(actions);
                     let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();settle();
 
+                    // A sibling close control sends only CloseWindow, never FocusWindow.
+                    fn close_control(widget:&gtk::Widget)->Option<gtk::Button>{
+                        if let Some(b)=widget.downcast_ref::<gtk::Button>() {if b.style_context().has_class("peek-close"){return Some(b.clone());}}
+                        widget.clone().downcast::<gtk::Container>().ok().and_then(|c|c.children().iter().find_map(close_control))
+                    }
+                    let before_close=requests.lock().unwrap().len();
+                    close_control(&popup.child().unwrap()).unwrap().emit_clicked();settle();
+                    assert!(!popup.is_visible());
+                    {let actions=requests.lock().unwrap();assert_eq!(actions.len(),before_close+1);assert!(actions.last().unwrap()["Action"].get("CloseWindow").is_some());}
+                    let _:bool=first.emit_by_name("enter-notify-event",&[&enter]);settle();settle();
                     let leave=gtk::gdk::Event::new(gtk::gdk::EventType::LeaveNotify);
                     let _:bool=first.emit_by_name("leave-notify-event",&[&leave]);
                     let _:bool=popup.emit_by_name("enter-notify-event",&[&enter]);
@@ -249,6 +259,7 @@ fn pins_follow_workspaces_monitor_mru_and_live_colors() {
         assert_eq!(instance.pinned_buttons["firefox.desktop"].pin_test_state(),(vec![3,5,6],3,true));
         // One click on the three-dot pin focuses the most recently used remote window.
         instance.pinned_buttons["firefox.desktop"].widget().clone().downcast::<gtk::Button>().unwrap().emit_clicked();
+        settle(); // Focus requests run on the worker; wait for the fixture response.
         assert_eq!(requests.lock().unwrap().last().unwrap(),&json!({"Action":{"FocusWindow":{"id":3}}}));
         let unmaps=std::rc::Rc::new(std::cell::Cell::new(0));
         let count=unmaps.clone();
@@ -265,6 +276,7 @@ fn pins_follow_workspaces_monitor_mru_and_live_colors() {
         let active=instance.displayed[0];
         assert_eq!(instance.buttons[&active].pin_test_state(),(vec![3,5,6],3,false));
         instance.buttons[&active].widget().clone().downcast::<gtk::Button>().unwrap().emit_clicked();
+        settle(); // Focus requests run on the worker; wait for the fixture response.
         assert_eq!(requests.lock().unwrap().last().unwrap(),&json!({"Action":{"FocusWindow":{"id":3}}}));
         for id in [3,5,6] {
             let changed=stream.with_event(niri_ipc::Event::WindowClosed{id}).unwrap();
@@ -280,4 +292,193 @@ fn pins_follow_workspaces_monitor_mru_and_live_colors() {
     }
     server.join().unwrap();std::fs::remove_file(socket).unwrap();
     std::fs::remove_dir_all(config_home).unwrap();
+}
+
+#[test]
+#[ignore = "requires an isolated GTK display"]
+fn repeated_window_cards_release_widgets_and_popovers() {
+    gtk::init().unwrap();
+    let state = State::new(Config::default());
+    let sample = snapshot();
+    let host = gtk::Window::new(gtk::WindowType::Toplevel);
+    let grid = gtk::Grid::new();
+    host.add(&grid);
+    host.show_all();
+    let mut weak_buttons = Vec::new();
+    let mut weak_popovers = Vec::new();
+    for round in 0..10 {
+        for _ in 0..50 {
+            let button = Button::new(&state, &sample[0]);
+            weak_buttons.push(button.widget().downgrade());
+            weak_popovers.push(button.hover_popup.borrow().as_ref().unwrap().downgrade());
+            grid.add(button.widget());
+            grid.show_all();
+            grid.remove(button.widget());
+            drop(button);
+        }
+        settle();
+        let alive_buttons = weak_buttons.iter().filter(|w| w.upgrade().is_some()).count();
+        let alive_popovers = weak_popovers.iter().filter(|w| w.upgrade().is_some()).count();
+        eprintln!("CARD_LIFETIME round={round} alive_buttons={alive_buttons} alive_popovers={alive_popovers}");
+        assert_eq!(alive_buttons, 0, "removed window cards retained GTK objects");
+        assert_eq!(alive_popovers, 0, "removed window cards retained popovers");
+    }
+    unsafe { host.destroy(); }
+}
+
+#[test]
+#[ignore = "requires an isolated GTK display"]
+fn sustained_ipc_flood_keeps_gtk_responsive_and_memory_bounded() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+    gtk::init().unwrap();
+    let path = std::env::temp_dir().join(format!("adws-flood-{}.sock", std::process::id()));
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let old_socket = std::env::var_os("NIRI_SOCKET");
+    unsafe { std::env::set_var("NIRI_SOCKET", &path); }
+    let seconds = std::env::var("ADWS_STRESS_SECONDS").ok().and_then(|v| v.parse().ok()).unwrap_or(30u64);
+    let stop = Arc::new(AtomicBool::new(false));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let done = stop.clone();
+    let produced = sent.clone();
+    let windows: Vec<_> = snapshot().iter().map(|w| serde_json::to_value(&**w).unwrap()).collect();
+    let server = std::thread::spawn(move || {
+        let mut jobs = Vec::new();
+        while !done.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((mut socket, _)) => {
+                    socket.set_write_timeout(Some(Duration::from_secs(1))).unwrap();
+                    socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                    let mut line = String::new();
+                    BufReader::new(socket.try_clone().unwrap()).read_line(&mut line).unwrap();
+                    if line.contains("EventStream") {
+                        writeln!(socket, "{}", json!({"Ok":"Handled"})).unwrap();
+                        writeln!(socket, "{}", json!({"WorkspacesChanged":{"workspaces":[{
+                            "id":10,"idx":1,"name":null,"output":"DP-1","is_urgent":false,
+                            "is_active":true,"is_focused":true,"active_window_id":2}]}})).unwrap();
+                        writeln!(socket, "{}", json!({"WindowsChanged":{"windows":windows}})).unwrap();
+                        let finished = done.clone(); let count = produced.clone();
+                        jobs.push(std::thread::spawn(move || {
+                            let until = Instant::now() + Duration::from_secs(seconds);
+                            while Instant::now() < until && !finished.load(Ordering::Relaxed) {
+                                let mut batch = String::new();
+                                for id in (1..=5).cycle().take(50) {
+                                    batch.push_str(&format!("{{\"WindowFocusChanged\":{{\"id\":{id}}}}}\n"));
+                                }
+                                if socket.write_all(batch.as_bytes()).is_err() { break; }
+                                count.fetch_add(50, Ordering::Relaxed);
+                                std::thread::sleep(Duration::from_millis(10));
+                            }
+                        }));
+                    } else {
+                        writeln!(socket, "{}", json!({"Ok":{"Outputs":{}}})).unwrap();
+                    }
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(2)),
+            }
+        }
+        for job in jobs { job.join().unwrap(); }
+    });
+    let config: Config = serde_json::from_value(json!({"notifications":{"enabled":false},"window_peek":false})).unwrap();
+    let grid = gtk::Grid::new();
+    let host = gtk::Window::new(gtk::WindowType::Toplevel);
+    host.add(&grid); host.show_all();
+    let task = MainContext::default().spawn_local(async move { Instance::new(State::new(config), grid).task().await; });
+    let gaps = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let readings = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let measured = gaps.clone(); let memory = readings.clone();
+    let mut previous = Instant::now(); let started = previous;
+    let heartbeat = gtk::glib::timeout_add_local(Duration::from_millis(20), move || {
+        let now = Instant::now();
+        if started.elapsed() > Duration::from_secs(3) { measured.borrow_mut().push(now.duration_since(previous).as_millis()); }
+        previous = now;
+        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+            if let Some(rss) = status.lines().find(|l| l.starts_with("VmRSS:"))
+                .and_then(|l| l.split_whitespace().nth(1)).and_then(|v| v.parse::<u64>().ok()) {
+                memory.borrow_mut().push((started.elapsed().as_secs(), rss));
+            }
+        }
+        gtk::glib::ControlFlow::Continue
+    });
+    MainContext::default().block_on(gtk::glib::timeout_future(Duration::from_secs(seconds + 2)));
+    stop.store(true, Ordering::Relaxed); task.abort(); heartbeat.remove(); server.join().unwrap();
+    let mut gaps = gaps.borrow().clone(); gaps.sort_unstable();
+    let memory = readings.borrow();
+    let early = memory.iter().find(|(at, _)| *at >= 5).unwrap().1;
+    let late = memory.last().unwrap().1;
+    let maximum = gaps.last().copied().unwrap_or(9999);
+    let p99 = gaps.get(gaps.len()*99/100).copied().unwrap_or(9999);
+    eprintln!("IPC_STRESS seconds={seconds} events={} heartbeats={} max_gap_ms={maximum} p99_gap_ms={p99} rss_after_warmup_kib={early} rss_final_kib={late}", sent.load(Ordering::Relaxed), gaps.len());
+    unsafe { host.destroy(); if let Some(v)=old_socket {std::env::set_var("NIRI_SOCKET",v);} else {std::env::remove_var("NIRI_SOCKET");} }
+    let _ = std::fs::remove_file(path);
+    assert!(sent.load(Ordering::Relaxed) > 10_000);
+    assert!(maximum < 700, "event flood reproduced the taskbar heartbeat stall");
+    assert!(p99 < 100, "GTK repeatedly starved under window events");
+    assert!(late.saturating_sub(early) < 32*1024, "memory kept growing after warmup");
+}
+
+#[test]
+#[ignore = "requires an isolated GTK display"]
+fn lyric_width_changes_do_not_reload_unchanged_icons() {
+    gtk::init().unwrap();
+    for vertical in [false,true] {
+        let config=serde_json::from_value(json!({"vertical":vertical})).unwrap();
+        let state=State::new(config);
+        let button=Button::new(&state,&snapshot()[0]);
+        let host=gtk::Window::new(gtk::WindowType::Toplevel);
+        host.add(button.widget());host.show_all();settle();
+        let icon=button.widget().image().unwrap().downcast::<gtk::Overlay>().unwrap();
+        let changes=std::rc::Rc::new(std::cell::Cell::new(0));
+        let count=changes.clone();
+        icon.connect_add(move |_,_|count.set(count.get()+1));
+        let height=button.widget().allocated_height();
+        let width=button.widget().allocated_width();
+        for extra in [10,30,70,120,60,20,0] {
+            button.widget().size_allocate(&gtk::Allocation::new(0,0,
+                width+if vertical {0}else{extra},height+if vertical {extra}else{0}));
+            settle();
+        }
+        eprintln!("ICON_WIDTH_CHURN vertical={vertical} reloads={}",changes.get());
+        assert_eq!(changes.get(),0,"long-axis changes redecoded the same icon");
+        // A real thickness change must still resize the icon.
+        button.widget().size_allocate(&gtk::Allocation::new(0,0,
+            if vertical {24}else{width},if vertical {height}else{24}));
+        settle();
+        assert!(changes.get()>0,"thickness changes must update icon pixels");
+        unsafe {host.destroy();}
+    }
+}
+
+#[test]
+#[ignore = "requires an isolated GTK display"]
+fn repeated_group_snapshots_preserve_focused_style() {
+    use std::{cell::Cell, rc::Rc};
+    gtk::init().unwrap();
+    let state=State::new(serde_json::from_value(json!({"group_windows":true,"window_animations":false})).unwrap());
+    let grid=gtk::Grid::new();
+    let window=gtk::Window::new(gtk::WindowType::Toplevel);
+    window.add(&grid);window.show_all();
+    let mut instance=Instance::new(state,grid);
+    instance.pins.clear();
+    let filter=Arc::new(Mutex::new(output::Filter::Only("DP-1".into())));
+    let main=gtk::glib::MainContext::default();
+    main.block_on(instance.process_window_snapshot(snapshot(),filter.clone()));
+    settle();
+    let context=instance.buttons[&1].widget().style_context();
+    assert!(context.has_class("focused"));
+    let changes=Rc::new(Cell::new(0));let count=changes.clone();
+    let handler=context.connect_changed(move |_|count.set(count.get()+1));
+    let began=std::time::Instant::now();
+    for _ in 0..100 {
+        main.block_on(instance.process_window_snapshot(snapshot(),filter.clone()));
+        let _=context.color(gtk::StateFlags::NORMAL);
+        while gtk::events_pending(){gtk::main_iteration();}
+    }
+    eprintln!("100 identical grouped snapshots: {:?}, style invalidations: {}",began.elapsed(),changes.get());
+    assert_eq!(changes.get(),0,"unchanged grouped focus restarted style work");
+    assert!(context.has_class("focused"));
+    context.disconnect(handler);
+    unsafe {window.destroy();}
 }

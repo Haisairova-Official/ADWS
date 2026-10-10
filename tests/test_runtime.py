@@ -13,6 +13,18 @@ class RuntimeTests(unittest.TestCase):
         mock = patch('adws_oobe.launch')
         mock.start()
         self.addCleanup(mock.stop)
+    def test_x11_start_and_restart_do_not_stop_or_spawn_components(self):
+        import os
+        with patch.dict(os.environ, {'XDG_SESSION_TYPE':'x11','NIRI_SOCKET':'stale','WAYLAND_DISPLAY':'stale'}), patch.object(runtime,'pids') as pids, patch.object(runtime.subprocess,'Popen') as spawn:
+            for component in ('desktop','taskbar'):
+                for operation in ('--start','--restart','--debug'):
+                    self.assertEqual(runtime.main([component,operation]),1)
+            pids.assert_not_called();spawn.assert_not_called()
+
+    def test_x11_ignores_inherited_wayland_compositor_sockets(self):
+        from adws_display import detect_session
+        self.assertIsNone(detect_session({'XDG_SESSION_TYPE':'x11','XDG_CURRENT_DESKTOP':'niri','NIRI_SOCKET':'stale','HYPRLAND_INSTANCE_SIGNATURE':'stale'}))
+
     def test_taskbar_inherits_own_niri_session_locale(self):
         import tempfile
         from adws_i18n import chinese
@@ -81,7 +93,7 @@ class RuntimeTests(unittest.TestCase):
                 (folder / name).touch()
             for component in ('desktop', 'taskbar'):
                 for flag in ('--debug', '-d'):
-                    with patch.object(runtime, 'pids', side_effect=[[123], [123], []]), patch.object(runtime.os, 'kill') as kill, patch.object(runtime.os, 'execvpe') as execute, patch.object(runtime.Path, 'home', return_value=home):
+                    with patch.object(runtime, 'pids', side_effect=[[123], [123], []]), patch.object(runtime.os, 'kill') as kill, patch.object(runtime.os, 'execvpe') as execute, patch.object(runtime.Path, 'home', return_value=home), patch.dict(runtime.os.environ, {'XDG_CONFIG_HOME': str(home / '.config')}):
                         self.assertEqual(runtime.main([component, flag]), 0)
                         kill.assert_called_once_with(123, signal.SIGTERM)
                         program, command, env = execute.call_args.args
@@ -113,7 +125,7 @@ class RuntimeTests(unittest.TestCase):
                 (folder / name).touch()
             for component in ('desktop', 'taskbar'):
                 for level in range(1, 7):
-                    with self.subTest(component=component, level=level), patch.object(runtime, 'pids', return_value=[]), patch.object(runtime.os, 'execvpe') as execute, patch.object(runtime.Path, 'home', return_value=home):
+                    with self.subTest(component=component, level=level), patch.object(runtime, 'pids', return_value=[]), patch.object(runtime.os, 'execvpe') as execute, patch.object(runtime.Path, 'home', return_value=home), patch.dict(runtime.os.environ, {'XDG_CONFIG_HOME': str(home / '.config')}):
                         self.assertEqual(runtime.main([component, '-d', f'-{level}']), 0)
                         program, command, env = execute.call_args.args
                         self.assertEqual(env['ADWS_LOG_LEVEL'], str(level))

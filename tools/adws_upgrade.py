@@ -50,20 +50,32 @@ def atomic_copy(source, target):
         Path(name).unlink(missing_ok=True)
 
 
-def download(url, target, use_proxy, digest=None):
+def download(url, target, use_proxy, digest=None, progress=None):
     errors = []
     for candidate in github_urls(url, use_proxy):
         try:
             request = urllib.request.Request(candidate, headers={'User-Agent': 'ADWS-update'})
             count = 0
+            last_report = 0.0
             checksum = hashlib.sha256()
             with urllib.request.urlopen(request, timeout=30) as response, target.open('wb') as stream:
-                while chunk := response.read(1024 * 1024):
+                length = getattr(response, 'headers', {}).get('Content-Length')
+                total = int(length) if length and str(length).isdigit() else None
+                if total and total > MAX_DOWNLOAD:
+                    raise ValueError(_tr('更新包超过大小限制。'))
+                if progress: progress(0, total)
+                while chunk := response.read(64 * 1024):
                     count += len(chunk)
                     if count > MAX_DOWNLOAD:
                         raise ValueError(_tr('更新包超过大小限制。'))
                     checksum.update(chunk)
                     stream.write(chunk)
+                    now = time.monotonic()
+                    if progress and now - last_report >= .1:
+                        progress(count, total)
+                        last_report = now
+                if total is not None and count != total:
+                    raise ValueError(_tr('更新包下载不完整。'))
             if digest and checksum.hexdigest() != digest:
                 raise ValueError(_tr('更新包校验失败。'))
             # Check ZIP CRC here, so a broken proxy response can fall back to GitHub.
@@ -72,6 +84,7 @@ def download(url, target, use_proxy, digest=None):
                     raise ValueError(_tr('更新包超过大小限制。'))
                 if archive.testzip() is not None:
                     raise ValueError(_tr('更新包校验失败。'))
+            if progress: progress(count, count)
             return
         except (OSError, ValueError, zipfile.BadZipFile) as error:
             target.unlink(missing_ok=True)
@@ -149,6 +162,10 @@ def run(command, cwd, log, env=None):
 
 def prepare_libraries(root, prebuilt, log):
     run([sys.executable, '-m', 'compileall', '-q', str(root / 'tools'), str(root / 'src/niri-desktop-layer/desktop_layer')], root, log)
+    runner = None
+    menu = None
+    has_menu = (root / 'src/adws-start-menu/Cargo.toml').is_file()
+    has_runtime = (root / 'src/adws-runtime/Cargo.toml').is_file()
     if prebuilt:
         manifest = json.loads((root / 'prebuilt/manifest.json').read_text())
         if not isinstance(manifest, dict):
@@ -157,7 +174,14 @@ def prepare_libraries(root, prebuilt, log):
                 or version_key(manifest.get('version', '')) != installed_version(root)):
             raise ValueError(_tr('安装包版本与所选更新不一致。'))
         paths = {name: Path('prebuilt') / name for name in LIBRARIES}
-        for name, path in paths.items():
+        verified = dict(paths)
+        if has_runtime:
+            runner = Path('prebuilt/adws-plugin-runner')
+            verified['adws-plugin-runner'] = runner
+        if has_menu:
+            menu = Path('prebuilt/adws-start-menu')
+            verified['adws-start-menu'] = menu
+        for name, path in verified.items():
             if hashlib.sha256((root / path).read_bytes()).hexdigest() != manifest.get('sha256', {}).get(name):
                 raise ValueError(_tr('更新包校验失败。'))
     else:
@@ -166,6 +190,14 @@ def prepare_libraries(root, prebuilt, log):
         if missing:
             raise RuntimeError(_tr('缺少构建依赖：%s。请安装后重试，当前版本未修改。') % ', '.join(missing))
         run(['cargo', 'build', '--release', '--locked', '--manifest-path', str(root / 'src/niri-taskbar/Cargo.toml')], root, log, env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
+        if has_runtime:
+            run(['cargo', 'build', '--release', '--locked', '--manifest-path', str(root / 'src/adws-runtime/Cargo.toml')], root, log,
+                env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
+            runner = Path('src/adws-runtime/target/release/adws-plugin-runner')
+        if has_menu:
+            run(['cargo', 'build', '--release', '--locked', '--manifest-path', str(root / 'src/adws-start-menu/Cargo.toml')], root, log,
+                env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
+            menu = Path('src/adws-start-menu/target/release/adws-start-menu')
         run(['make', '-B', '-C', str(root / 'src/panel-rows')], root, log)
         flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk+-3.0', 'gtk-layer-shell-0'], text=True)
         output = root / 'src/niri-desktop-layer/integration/libwaybar-space.so'
@@ -174,13 +206,19 @@ def prepare_libraries(root, prebuilt, log):
         paths = {'libniri_taskbar.so': Path('src/niri-taskbar/target/release/libniri_taskbar.so'),
                  'libadws_panel.so': Path('src/panel-rows/libadws_panel.so'),
                  'libwaybar-space.so': Path('src/niri-desktop-layer/integration/libwaybar-space.so')}
-    for path in paths.values():
+    for path in [*paths.values(), *([runner] if runner else []), *([menu] if menu else [])]:
         if not (root / path).is_file():
             raise ValueError(_tr('更新包缺少原生组件。'))
         if shutil.which('ldd'):
             result = subprocess.run(['ldd', str(root / path)], capture_output=True, text=True, env={**os.environ, 'LC_ALL': 'C'})
             if result.returncode or 'not found' in result.stdout:
                 raise RuntimeError(_tr('更新组件与当前系统不兼容：%s') % (result.stdout + result.stderr))
+    if runner:
+        from adws_setup import atomic_install
+        atomic_install(root / runner, root / 'libexec/adws-plugin-runner', mode=0o755)
+    if menu:
+        from adws_setup import atomic_install
+        atomic_install(root / menu, root / 'libexec/adws-start-menu', mode=0o755)
     return paths
 
 
@@ -219,8 +257,10 @@ def replace_installation(root, prepared, libraries, log):
     data = json.loads(old_record) if old_record else {}
     if not isinstance(data, dict) or not isinstance(data.get('template_hashes', {}), dict):
         raise ValueError(_tr('安装记录无效，请重新安装 ADWS 后重试。'))
-    from adws_templates import hashes, preserve
+    from adws_templates import hashes, preserve, live_font_changes, apply_font_changes, restore_font_changes
     new_templates = hashes(prepared)
+    font_changes = live_font_changes(root)
+    fonts_changed = False
     if old_record is not None:
         shutil.copy2(record, backup / 'install-record.json')
     running = [component for component in ('desktop', 'taskbar') if pids(component)]
@@ -269,6 +309,11 @@ def replace_installation(root, prepared, libraries, log):
         temporary.chmod(record.stat().st_mode & 0o777 if old_record is not None else 0o600)
         record_changed = True
         atomic_copy(temporary, record)
+        if font_changes:
+            def publishing_fonts():
+                nonlocal fonts_changed
+                fonts_changed = True
+            apply_font_changes(font_changes, backup, publishing_fonts)
         for component in stopped:
             control(root, component, '--start', log)
             if not pids(component):
@@ -310,6 +355,11 @@ def replace_installation(root, prepared, libraries, log):
                     record.unlink(missing_ok=True)
         except Exception as error:
             failures.append(str(error))
+        if fonts_changed:
+            try:
+                restore_font_changes(font_changes)
+            except Exception as error:
+                failures.append(str(error))
         # Never launch a component against an incompletely restored set of files.
         if failures:
             raise RuntimeError(_tr('更新失败，恢复过程中也遇到问题。备份：%s') % backup + '\n' + '\n'.join(failures)) from original
@@ -335,7 +385,7 @@ def installed_version(root):
     return version_key(text)
 
 
-def install_update(result, progress=print):
+def install_update(result, progress=print, transfer_progress=None):
     release = result.get('release')
     if not result.get('available') or not isinstance(release, dict):
         raise ValueError(_tr('缺少已确认的更新版本，请重新检查更新。'))
@@ -360,7 +410,14 @@ def install_update(result, progress=print):
                 progress(_tr('正在下载更新…'))
                 url, digest, prebuilt = package(release)
                 archive = directory / 'update.zip'
-                download(url, archive, result.get('use_proxy', False), digest)
+                def downloaded(count, total):
+                    if transfer_progress:
+                        transfer_progress(count, total)
+                    else:
+                        amount = count / (1024 * 1024)
+                        progress((_tr('下载更新：%d%%（%.1f MiB）') % (min(100, count * 100 // total), amount))
+                                 if total else (_tr('下载更新：%.1f MiB') % amount))
+                download(url, archive, result.get('use_proxy', False), digest, downloaded)
                 prepared = extract(archive, directory / 'source')
                 if installed_version(prepared) != expected:
                     raise ValueError(_tr('安装包版本与所选更新不一致。'))

@@ -78,6 +78,7 @@ fn refresh_menu_palette() {
     let hover = pick(&colors, "surface_container", "#1e1f29");
     let outline = pick(&colors, "outline_variant", "#454651");
 
+    let radius = bar_radius();
     let font_family = read_font_family();
     let font_css = match font_family {
         Some(family) => format!("font-family: \"{}\";", family.replace('"', "")),
@@ -85,13 +86,16 @@ fn refresh_menu_palette() {
     };
 
     let css = format!(
-        "menu.adws-menu {{\n\
+        ".adws-tray-item, .adws-quick-button {{ background: transparent; border: none; padding: 3px; border-radius: {radius}; box-shadow: none; min-width: 0; min-height: 0; color: {foreground}; }}\n\
+         .adws-tray-item:hover, .adws-quick-button:hover {{ background: {hover}; }}\n\
+         popover.adws-tray-overflow {{ background: {background}; color: {foreground}; border: 1px solid {outline}; border-radius: {radius}; }}\n\
+         menu.adws-menu {{\n\
              background-color: {background};\n\
              color: {foreground};\n\
              {font_css}\n\
              padding: 4px;\n\
              margin: 4px;\n\
-             border-radius: 9px;\n\
+             border-radius: {radius};\n\
              border: none;\n\
              box-shadow: none;\n\
              background-image: none;\n\
@@ -100,13 +104,13 @@ fn refresh_menu_palette() {
              color: {foreground};\n\
              padding: 5px 12px;\n\
              min-height: 16px;\n\
-             border-radius: 9px;\n\
+             border-radius: {radius};\n\
          }}\n\
          menu.adws-menu menuitem:hover,\n\
          menu.adws-menu menuitem:selected {{\n\
              background-color: {hover};\n\
              color: {foreground};\n\
-             border-radius: 9px;\n\
+             border-radius: {radius};\n\
          }}\n\
          menu.adws-menu separator {{\n\
              background-color: {outline};\n\
@@ -128,6 +132,15 @@ fn refresh_menu_palette() {
 }
 
 pub fn apply(menu: &gtk::Menu) {
+    use gtk::prelude::*;
+    for child in menu.children() {
+        if let Some(submenu)=child.downcast_ref::<gtk::MenuItem>().and_then(|i|i.submenu()).and_then(|w|w.downcast::<gtk::Menu>().ok()) {
+            apply(&submenu);
+        }
+    }
+    if !menu.is_realized() {
+        if let Some(visual)=menu.screen().and_then(|s|s.rgba_visual()) { menu.set_visual(Some(&visual)); }
+    }
     refresh_menu_palette();
     // Screen-scoped selectors also reach menu items and the popup decoration;
     // a provider attached to the menu widget alone does not style those nodes.
@@ -199,6 +212,10 @@ pub fn watch_palette() {
 mod tests {
     use super::*;
     use gtk::prelude::*;
+    #[test]
+    fn radius_follows_final_appearance_override() {
+        assert_eq!(bar_radius_from_css("window#waybar > box {border-radius:0.7em;} window#waybar > box {border-radius:18px;}"),"18px");
+    }
     use std::time::{Duration, Instant};
     fn settle() {
         let until = Instant::now() + Duration::from_millis(650);
@@ -299,4 +316,29 @@ mod tests {
         }
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+/// Local provider keeps dangerous actions distinct without changing normal close.
+pub fn destructive(item: &gtk::MenuItem, animations: bool, duration: u32) {
+    item.style_context().add_class("adws-destructive");
+    let provider = CssProvider::new();
+    let transition = if animations { format!("background-color {}ms ease-in-out, color {}ms ease-in-out",duration,duration) } else { "none".into() };
+    let css = format!("menuitem {{ transition:{transition}; }} menuitem.adws-destructive:hover, menuitem.adws-destructive:selected {{ background-image:none; background-color:#c62828; color:#ffffff; }}");
+    if provider.load_from_data(css.as_bytes()).is_ok() {
+        item.style_context().add_provider(&provider,gtk::STYLE_PROVIDER_PRIORITY_USER+1);
+    }
+
+}
+
+// GTK3 does not expose computed corner radii through get_property. Use the
+// same final bar rule as the appearance settings, retaining em units.
+pub fn bar_radius() -> String {
+    let Some(path)=waybar_config_file("style-bottom.css") else {return "12px".into();};
+    let Ok(css)=std::fs::read_to_string(path) else {return "12px".into();};
+    bar_radius_from_css(&css)
+}
+fn bar_radius_from_css(css: &str) -> String {
+    static BLOCK: LazyLock<Regex> = LazyLock::new(||Regex::new(r"(?s)window#waybar\s*>\s*box\s*\{([^}]*)\}").unwrap());
+    static RADIUS: LazyLock<Regex> = LazyLock::new(||Regex::new(r"border-radius\s*:\s*([0-9.]+(?:px|em|rem)?(?:\s+[0-9.]+(?:px|em|rem)?){0,3})\s*;").unwrap());
+    BLOCK.captures_iter(css).filter_map(|b| RADIUS.captures(&b[1]).map(|c|c[1].to_string())).last().unwrap_or_else(||"12px".into())
 }

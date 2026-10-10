@@ -1,4 +1,4 @@
-use waybar_cffi::gtk::prelude::ContainerExtManual;
+use waybar_cffi::gtk::prelude::{ContainerExtManual, ObjectExt};
 mod i18n;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, btree_map::Entry},
@@ -28,6 +28,8 @@ use waybar_cffi::{
 };
 
 mod button;
+mod controls;
+mod tray;
 mod grouping;
 mod pins;
 mod config;
@@ -38,17 +40,19 @@ mod niri;
 mod notify;
 mod output;
 mod panel;
+mod watchdog;
 mod preview;
 mod hover;
 mod process;
 mod state;
 mod scroll;
+mod tasks;
 #[cfg(test)]
 mod panel_tests;
 
 static TRACING: LazyLock<()> = LazyLock::new(|| {
     if let Err(e) = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")))
         .with_span_events(FmtSpan::CLOSE)
         .try_init()
     {
@@ -56,7 +60,7 @@ static TRACING: LazyLock<()> = LazyLock::new(|| {
     }
 });
 
-struct TaskbarModule {}
+struct TaskbarModule { _tasks: tasks::Tasks, _controls: Option<std::rc::Rc<controls::Controls>>, _tray: Option<std::rc::Rc<tray::Tray>> }
 
 impl Module for TaskbarModule {
     type Config = Config;
@@ -65,17 +69,28 @@ impl Module for TaskbarModule {
         // Ensure tracing-subscriber is initialised.
         *TRACING;
 
-        let module = Self {};
+        let mut module = Self { _tasks: tasks::Tasks::default(), _controls:None, _tray:None };
+        if config.component()=="tray" {
+            module._tray=Some(tray::Tray::new(&info.get_root_widget(),&config)); return module;
+        }
+        if config.component()=="sidebar" {
+            controls::sidebar(&info.get_root_widget(), &config); return module;
+        }
+        if matches!(config.component(),"sound"|"brightness") {
+            module._controls=Some(controls::Controls::new(&info.get_root_widget(),&config)); return module;
+        }
         let state = State::new(config);
 
         let context = MainContext::default();
-        if let Err(e) = context.block_on(init(info, state)) {
-            tracing::error!(%e, "Niri taskbar module init failed");
-            if std::env::var("ADWS_LOG_LEVEL").as_deref() == Ok("1") {
-                eprintln!("CRITICAL: Niri taskbar module init failed: {e}");
+        match context.block_on(init(info, state)) {
+            Ok(task) => module._tasks.0.push(task),
+            Err(e) => {
+                tracing::error!(%e, "Niri taskbar module init failed");
+                if std::env::var("ADWS_LOG_LEVEL").as_deref() == Ok("1") {
+                    eprintln!("CRITICAL: Niri taskbar module init failed: {e}");
+                }
             }
         }
-
         module
     }
 }
@@ -83,7 +98,7 @@ impl Module for TaskbarModule {
 waybar_module!(TaskbarModule);
 
 #[tracing::instrument(level = "DEBUG", skip_all, err)]
-async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<(), Error> {
+async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<gtk::glib::JoinHandle<()>, Error> {
     // Set up the box that we'll use to contain the actual window buttons.
     menu_style::watch_palette();
     let root = info.get_root_widget();
@@ -104,19 +119,21 @@ async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<(), Error> {
     // 图标/时钟之外的底栏空白处右键 → ADWS-Config 菜单。
     // 菜单挂在 waybar 顶层窗口上，任务栏本身保持简单布局，避免挤压窗口图标。
     let panel_root = container.clone();
+    let clock_helper = state.config().clock_control_helper().to_owned();
+    let clock_edge = state.config().position().to_owned();
+    let clock_thickness = state.config().thickness();
     gtk::glib::source::idle_add_local_once(move || {
         if let Some(toplevel) = panel_root.toplevel() {
             panel::connect_panel_menu(&toplevel);
+            controls::connect_clock_control_center(&toplevel, &clock_helper, &clock_edge, clock_thickness);
         }
     });
 
     // We need to spawn a task to receive the window snapshots and update the container.
     let context = MainContext::default();
-    context.spawn_local(async move {
+    Ok(context.spawn_local(async move {
         Instance::new(state, container).task().await
-    });
-
-    Ok(())
+    }))
 }
 
 struct Instance {
@@ -152,10 +169,11 @@ impl Instance {
     }
 
     pub async fn task(&mut self) {
+        let startup = std::time::Instant::now();
+        let timing = std::env::var_os("ADWS_TASKBAR_TIMING").is_some();
+        let mut first_snapshot = true;
         // We have to build the output filter here, because until the Glib event loop has run the
         // container hasn't been realised, which means we can't figure out which output we're on.
-        let output_filter = Arc::new(Mutex::new(self.build_output_filter().await));
-
         let mut stream = match self.state.event_stream() {
             Ok(stream) => Box::pin(stream),
             Err(e) => {
@@ -163,12 +181,18 @@ impl Instance {
                 return;
             }
         };
+        let output_filter = Arc::new(Mutex::new(self.build_output_filter().await));
+        if timing { eprintln!("ADWS_TASKBAR_TIMING outputs_ready_ms={}", startup.elapsed().as_millis()); }
         while let Some(event) = stream.next().await {
             match event {
                 Event::Notification(notification) => self.process_notification(notification).await,
                 Event::WindowSnapshot(windows) => {
                     self.process_window_snapshot(windows, output_filter.clone())
-                        .await
+                        .await;
+                    if first_snapshot {
+                        if timing { eprintln!("ADWS_TASKBAR_TIMING cards_ready_ms={}", startup.elapsed().as_millis()); }
+                        first_snapshot = false;
+                    }
                 }
                 Event::PinsChanged(pins) => {
                     self.pins=pins;
@@ -423,6 +447,7 @@ impl Instance {
         windows: Snapshot,
         filter: Arc<Mutex<output::Filter>>,
     ) {
+        let update_started = std::time::Instant::now();
         // We need to track which, if any, windows are no longer present.
         let mut omitted = self.buttons.keys().copied().collect::<BTreeSet<_>>();
 
@@ -445,7 +470,8 @@ impl Instance {
             };
 
             // Update the window properties.
-            button.set_focus(window.is_focused);
+            // Focus is a group property. Toggling the representative off here
+            // and back on below restarts its CSS animation on every IPC update.
             button.set_title(window.title.as_deref());
 
             // Ensure we don't remove this button from the container.
@@ -463,6 +489,7 @@ impl Instance {
                 if button.widget().parent().is_some() { self.container.remove(button.widget()); }
             }
         }
+        let properties_done = std::time::Instant::now();
 
         // Never borrow windows from another monitor while output discovery is unresolved.
         let on_output = |w: &Window| match &*filter.lock().expect("output filter lock") {
@@ -519,7 +546,9 @@ impl Instance {
                 button.set_focus(visible.iter().any(|w|group.contains(&w.id) && w.is_focused));
             }
         }
-        if displayed != self.displayed || pinned_displayed != self.pinned_displayed {
+        let groups_done = std::time::Instant::now();
+        let layout_changed = displayed != self.displayed || pinned_displayed != self.pinned_displayed;
+        if layout_changed {
             // Close previews before their anchors move. Keep surviving widgets mapped:
             // rebuilding the whole grid synthesizes crossing events and reloads icons.
             for button in self.buttons.values().chain(self.pinned_buttons.values()) {
@@ -561,10 +590,34 @@ impl Instance {
             self.pinned_displayed=pinned_displayed;
             self.displayed = displayed;
         }
-        self.container.show_all();
+        let layout_done = std::time::Instant::now();
+        if layout_changed || !self.container.is_visible() { self.container.show_all(); }
+        if let Some(top)=self.container.toplevel() {
+            let style=top.style_context();
+            let tiled_windows = windows.iter().filter(|w| w.blocks_auto_dock() && on_output(w)).count();
+            let occupied = tiled_windows > 0;
+            let changed = style.has_class("adws-has-windows") != occupied;
+            if occupied { style.add_class("adws-has-windows"); }
+            else { style.remove_class("adws-has-windows"); }
+            if changed {
+                tracing::info!(occupied, tiled_windows, visible_windows=windows.iter().filter(|w| on_output(w) && w.workspace_active()).count(), "Taskbar auto-dock state changed");
+                if gtk::glib::subclass::SignalId::lookup("adws-windows-changed", top.type_()).is_some() {
+                    top.emit_by_name::<()>("adws-windows-changed", &[]);
+                }
+            }
+        }
 
         // Update the last snapshot.
         self.last_snapshot = Some(windows);
+        let elapsed = update_started.elapsed();
+        if elapsed > std::time::Duration::from_millis(50) {
+            tracing::warn!(elapsed_ms=elapsed.as_millis(), windows=self.buttons.len(),
+                properties_ms=properties_done.duration_since(update_started).as_millis(),
+                groups_ms=groups_done.duration_since(properties_done).as_millis(),
+                layout_ms=layout_done.duration_since(groups_done).as_millis(),
+                finishing_ms=layout_done.elapsed().as_millis(),
+                "ADWS taskbar window snapshot rendering delayed");
+        }
     }
 }
 
