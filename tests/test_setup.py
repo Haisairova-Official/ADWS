@@ -9,6 +9,23 @@ from adws_i18n import tr as _tr
 
 
 class SetupTests(unittest.TestCase):
+    def test_build_environment_rejects_old_system_and_uses_rustup(self):
+        import os, subprocess
+        def version(command, **kwargs):
+            modern = '/.cargo/bin/' in command[0]
+            name = Path(command[0]).name
+            return subprocess.CompletedProcess(command, 0, name + (' 1.87.0' if modern else ' 1.75.0'), '')
+        def which(name, path=None):
+            return ('/home/test/.cargo/bin/' if path.startswith('/home/test/.cargo/bin:') else '/usr/bin/') + name
+        with patch.dict(os.environ, {'PATH':'/usr/bin', 'CARGO_HOME':'/home/test/.cargo'}), patch.object(setup.shutil, 'which', side_effect=which), patch.object(setup.subprocess, 'run', side_effect=version):
+            self.assertTrue(setup.build_environment()['PATH'].startswith('/home/test/.cargo/bin:'))
+
+    def test_build_environment_reports_missing_supported_toolchain(self):
+        import subprocess
+        with patch.object(setup.shutil, 'which', return_value='/bin/old'), patch.object(setup.subprocess, 'run', return_value=subprocess.CompletedProcess([],0,'rustc 1.75.0','')):
+            with self.assertRaisesRegex(RuntimeError, '1.87'):
+                setup.build_environment()
+
     def test_decline_does_not_install(self):
         with patch.object(setup.shutil, 'which', return_value='/bin/tool'), patch.object(setup, 'confirm', return_value=False), patch.object(setup.subprocess, 'run') as run:
             with self.assertRaises(RuntimeError):

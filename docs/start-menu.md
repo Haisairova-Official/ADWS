@@ -149,3 +149,11 @@ isolated tests; `--exit` stops the cached process.
 
 开始菜单关闭后短时保留界面，闲置三分钟后退出。重复打开使用当前按钮的位置；
 配置、固定应用或应用列表变化会刷新。隐藏时停止配色扫描，重新打开立即读取新配色。
+
+### 动画绘制 / Animation rendering
+
+Wayland 下全屏透明点击层保持静止，动画仅更新菜单大小的独立表面。开关动画保持控件布局和输入表面固定，在 Rust 中临时缓存菜单区域，按显示帧进行淡入淡出与像素对齐的位移；不再每帧修改边距。动画结束或销毁时释放画面缓存，反向开关复用同一张画面。首页快捷应用优先显示，完整应用列表在动效结束后分批填充。动画从首个显示帧开始计时；关闭有独立超时收尾，避免合成器停止提供帧回调后留下输入遮罩。
+
+On Wayland, a static outside-click catcher is separate from the small animated menu surface; hiding or destroying the menu also removes the catcher. Motion uses a menu-sized render cache in Rust instead of changing widget margins each frame. Layout and input geometry stay fixed; the cache is released on completion or destruction and reused on reversal. Home shortcuts load first; full catalog population pauses during motion. Timing starts at the first display frame, with an independent deadline to release the closing input surface even when frame callbacks stop.
+
+`ADWS_MENU_TIMING=1 adws start-menu` additionally reports snapshot cost and animation frame intervals. These diagnostics are disabled normally.

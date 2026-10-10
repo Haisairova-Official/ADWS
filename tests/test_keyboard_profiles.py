@@ -25,6 +25,8 @@ class KeyboardProfiles(unittest.TestCase):
         import shutil
         if not shutil.which('niri'):
             self.skipTest('Niri not installed')
+        if not keys.modifier_taps_supported():
+            self.skipTest('Niri does not support modifier taps')
         old_binds = self.binds.read_bytes()
         for profile in ['traditional', 'reversed', 'waylander']:
             keys.apply_profile(profile, self.config)

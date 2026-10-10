@@ -294,15 +294,9 @@ class DisplaySettingsPage(Gtk.Box):
         self.details.pack_start(self.monitor_title, False, False, 0)
         self.monitor_description = caption('', 'settings-caption')
         self.details.pack_start(self.monitor_description, False, False, 0)
-        self.resolution = Gtk.MenuButton()
+        self.resolution = Gtk.ComboBoxText()
         self.resolution.set_size_request(170, -1)
-        self.resolution_popover = Gtk.Popover.new(self.resolution)
-        self.resolution_popover.get_style_context().add_class('adws-settings-popover')
-        self.resolution.set_popover(self.resolution_popover)
-        self.resolution_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        scroll = Gtk.ScrolledWindow(); scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_max_content_height(300); scroll.set_propagate_natural_height(True)
-        scroll.add(self.resolution_list); self.resolution_popover.add(scroll)
+        self.resolution.connect('changed', self.resolution_selected)
         self.add_row('分辨率', self.resolution)
         self.refresh_rate = NumericChoice('Hz', .001, 2000, available_only=True)
         self.refresh_rate.connect('input-changed', self.numeric_changed, 'refresh')
@@ -423,19 +417,18 @@ class DisplaySettingsPage(Gtk.Box):
 
     def populate_modes(self, monitor):
         width, height, refresh = backend.parse_mode(monitor['mode'])
-        self.resolution.set_label(f'{width} × {height}  ▾')
         modes = [backend.parse_mode(m) for m in monitor['modes']]
-        for child in self.resolution_list.get_children():
-            child.destroy()
-        for w, h in sorted({(m[0], m[1]) for m in modes}, key=lambda pair: pair[0]*pair[1], reverse=True):
-            button = Gtk.Button(label=f'{w} × {h}')
-            if (w, h) == (width, height):
-                button.get_style_context().add_class('suggested-action')
-            button.connect('clicked', self.resolution_changed, w, h)
-            self.resolution_list.pack_start(button, False, False, 0)
-        self.resolution_list.show_all()
+        self.resolution.remove_all()
+        for w, h in sorted({m[:2] for m in modes}, key=lambda pair: pair[0]*pair[1], reverse=True):
+            self.resolution.append(f'{w}x{h}', f'{w} × {h}')
+        self.resolution.set_active_id(f'{width}x{height}')
         self.refresh_rate.set_presets(sorted({m[2] for m in modes if m[:2] == (width, height)}, reverse=True))
         self.refresh_rate.set_value(refresh)
+
+    def resolution_selected(self, control):
+        identity = control.get_active_id()
+        if not self.loading and identity:
+            self.resolution_changed(control, *map(int, identity.split('x')))
 
     def resolution_changed(self, _, width, height):
         monitor = self.current()
@@ -443,9 +436,10 @@ class DisplaySettingsPage(Gtk.Box):
             return
         previous_rate = backend.parse_mode(monitor['mode'])[2]
         options = [m for m in monitor['modes'] if backend.parse_mode(m)[:2] == (width, height)]
+        if not options:
+            return
         monitor['mode'] = min(options, key=lambda m: abs(backend.parse_mode(m)[2] - previous_rate))
         self.input_drafts.pop((self.selected, 'refresh'), None)
-        self.resolution_popover.popdown()
         self.select_monitor(self.selected); self.update_dirty()
 
     def numeric_changed(self, control, field):

@@ -257,8 +257,10 @@ def replace_installation(root, prepared, libraries, log):
     data = json.loads(old_record) if old_record else {}
     if not isinstance(data, dict) or not isinstance(data.get('template_hashes', {}), dict):
         raise ValueError(_tr('安装记录无效，请重新安装 ADWS 后重试。'))
-    from adws_templates import hashes, preserve
+    from adws_templates import hashes, preserve, live_font_changes, apply_font_changes, restore_font_changes
     new_templates = hashes(prepared)
+    font_changes = live_font_changes(root)
+    fonts_changed = False
     if old_record is not None:
         shutil.copy2(record, backup / 'install-record.json')
     running = [component for component in ('desktop', 'taskbar') if pids(component)]
@@ -307,6 +309,11 @@ def replace_installation(root, prepared, libraries, log):
         temporary.chmod(record.stat().st_mode & 0o777 if old_record is not None else 0o600)
         record_changed = True
         atomic_copy(temporary, record)
+        if font_changes:
+            def publishing_fonts():
+                nonlocal fonts_changed
+                fonts_changed = True
+            apply_font_changes(font_changes, backup, publishing_fonts)
         for component in stopped:
             control(root, component, '--start', log)
             if not pids(component):
@@ -348,6 +355,11 @@ def replace_installation(root, prepared, libraries, log):
                     record.unlink(missing_ok=True)
         except Exception as error:
             failures.append(str(error))
+        if fonts_changed:
+            try:
+                restore_font_changes(font_changes)
+            except Exception as error:
+                failures.append(str(error))
         # Never launch a component against an incompletely restored set of files.
         if failures:
             raise RuntimeError(_tr('更新失败，恢复过程中也遇到问题。备份：%s') % backup + '\n' + '\n'.join(failures)) from original

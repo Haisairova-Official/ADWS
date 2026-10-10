@@ -22,3 +22,10 @@ src/panel-rows/test-vertical
 /libexec/adws-start-menu
 
 src/panel-rows/test-start-instances
+
+# Local release outputs and recovery snapshots
+.adws-backup-*/
+/dist/
+/docs/checkpoints/
+*.backup-*
+/omp.cache

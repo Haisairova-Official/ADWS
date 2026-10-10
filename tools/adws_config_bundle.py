@@ -16,7 +16,7 @@ def locations(desktop_state=None):
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')
     state = Path(os.environ.get('XDG_STATE_HOME') or Path.home()/'.local/state')
     result = {name: config/name for name in (
-        'adws/default-terminal.json', 'adws/power-policy.json', 'adws/taskbar-layout.json', 'adws/taskbar-pins.json', 'adws/setup.json', 'adws/wallpaper.json', 'adws/wallpaper-library.json',
+        'adws/sidebar.json', 'adws/default-terminal.json', 'adws/power-policy.json', 'adws/taskbar-layout.json', 'adws/taskbar-pins.json', 'adws/setup.json', 'adws/wallpaper.json', 'adws/wallpaper-library.json',
         'niri-desktop-layer/config.toml', 'mimeapps.list',
         'waybar/config-bottom.jsonc', 'waybar/style-bottom.css',
         'waybar/modules.jsonc', 'waybar/colors.css')}

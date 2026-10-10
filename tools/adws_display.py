@@ -10,6 +10,8 @@ TRANSFORMS = ('normal', '90', '180', '270', 'flipped', 'flipped-90', 'flipped-18
 
 def detect_session(env=None):
     env = os.environ if env is None else env
+    if env.get('XDG_SESSION_TYPE', '').casefold() == 'x11':
+        return None  # Ignore inherited sockets from an earlier Wayland session.
     desktop = env.get('XDG_CURRENT_DESKTOP', '').casefold().split(':')
     # An inherited socket from another compositor must not override the active desktop.
     if 'hyprland' in desktop and env.get('HYPRLAND_INSTANCE_SIGNATURE'):
@@ -43,6 +45,9 @@ def outputs(session):
             if index is None or not logical:
                 continue  # Never offer an unsafe enable/disable action on this screen.
             result.append(dict(name=name, description=' '.join((output.get('make', ''), output.get('model', ''))).strip(), modes=modes, mode=modes[index], scale=logical['scale'], x=logical['x'], y=logical['y'], transform=TRANSFORMS.index(logical['transform'].casefold().replace('flipped90', 'flipped-90').replace('flipped180', 'flipped-180').replace('flipped270', 'flipped-270').lstrip('_').replace('_', '-'))))
+        for monitor in result:
+            geometry = raw[monitor['name']]['logical']
+            monitor['logical_geometry'] = [monitor['mode'], monitor['scale'], monitor['transform'], geometry.get('width'), geometry.get('height')]
         return result
     if session == 'hyprland':
         raw = json.loads(run(['hyprctl', '-j', 'monitors']))
@@ -115,13 +120,16 @@ def parse_mode(mode):
 
 def logical_size(output):
     """Size of a monitor in compositor coordinates, including scale/rotation."""
+    known = output.get('logical_geometry')
+    if known and known[:3] == [output['mode'], output['scale'], output['transform']] and all(isinstance(n, int) and n > 0 for n in known[3:]):
+        return tuple(known[3:])
     width, height, _ = parse_mode(output['mode'])
     if int(output['transform']) % 2:
         width, height = height, width
     scale = float(output['scale'])
     if not math.isfinite(scale) or scale <= 0:
         raise ValueError('Invalid display scale')
-    return max(1, round(width / scale)), max(1, round(height / scale))
+    return max(1, math.floor(width / scale)), max(1, math.floor(height / scale))
 
 
 def layout_bounds(monitors):
@@ -143,10 +151,18 @@ def snapped_position(monitor, others, x, y, threshold=24):
             continue
         ow, oh = logical_size(other)
         ox, oy = other['x'], other['y']
+        # Only adjoining edges attract. Origin/end alignment is useful on
+        # the perpendicular axis, but must not snap a monitor inside another.
+        beside = min(abs(x + width - ox), abs(x - ox - ow)) <= threshold
+        above = min(abs(y + height - oy), abs(y - oy - oh)) <= threshold
         if y <= oy + oh + threshold and y + height >= oy - threshold:
-            snap_x.extend((ox - width, ox, ox + ow - width, ox + ow))
+            snap_x.extend((ox - width, ox + ow))
         if x <= ox + ow + threshold and x + width >= ox - threshold:
-            snap_y.extend((oy - height, oy, oy + oh - height, oy + oh))
+            snap_y.extend((oy - height, oy + oh))
+        if beside:
+            snap_y.extend((oy, oy + oh - height, oy + (oh-height)/2))
+        if above:
+            snap_x.extend((ox, ox + ow - width, ox + (ow-width)/2))
     def nearest(value, candidates):
         if candidates:
             result = min(candidates, key=lambda p: abs(p - value))

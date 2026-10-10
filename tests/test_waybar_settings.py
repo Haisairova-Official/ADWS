@@ -102,7 +102,7 @@ class WaybarTests(unittest.TestCase):
    other={'pid':11,'start':'124','config':root/'other.jsonc'}
    import subprocess,time,shutil
    for snapshots,expected_kills in [([[],[]],0),([[previous,other],[previous,other],[other]],1)]:
-    with mock.object(bar,'processes',side_effect=snapshots),mock.object(bar.os,'kill') as kill,mock.object(shutil,'which',return_value='/usr/bin/waybar'),mock.object(subprocess,'Popen') as spawn,mock.object(time,'sleep'):
+    with mock.object(bar,'processes',side_effect=snapshots),mock.object(bar.os,'kill') as kill,mock('adws_waybar_compat.resolve_waybar',return_value='/usr/bin/waybar'),mock.object(subprocess,'Popen') as spawn,mock.object(time,'sleep'):
      spawn.return_value.poll.return_value=None;spawn.return_value.pid=99
      self.assertEqual(bar.restart(config,style)['pid'],99)
      self.assertEqual(kill.call_count,expected_kills)

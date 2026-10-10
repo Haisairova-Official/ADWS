@@ -120,10 +120,10 @@ def definition(options, base, project_root, instance=None):
                    'on-click-copy': False, 'menu': None,
                    'on-click-release': '', 'on-click-right-release': '',
                    'interval': 1 if '%S' in pattern.replace('%%', '') else 60,
-                   'on-click': '',
+                   'on-click': shlex.join([sys.executable, str(Path(project_root) / 'tools/adws_control_center.py'), '--edge', str(options.get('position', 'bottom')), '--inset', str(int(options.get('thickness', 36)) + 10)]),
                    'on-click-right': shlex.join([sys.executable, str(Path(project_root) / 'tools/adws_clock.py'), '--launch', *(['--instance', instance] if instance else [])]),
                    'actions': None, 'max-length': None, 'rotate': 0, 'justify': 'center',
-                   'tooltip-format': '{:' + date_pattern(prefs) + ' %A}\n' + _tr('右键：时钟设置')})
+                   'tooltip-format': '{:' + date_pattern(prefs) + ' %A}\n' + _tr('左键：控制中心') + '\n' + _tr('右键：时钟设置')})
     return result
 
 

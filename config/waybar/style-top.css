@@ -8,13 +8,13 @@
 }
 window#waybar { background: transparent; color: @on_surface; box-shadow: none; }
 window#waybar decoration { background: transparent; border: none; box-shadow: none; }
-label.module { padding: 0 9px; font-family: "JetBrainsMono Nerd Font Propo"; font-size: 16.6px; }
+label.module { padding: 0 9px; font-family: "JetBrainsMono Nerd Font Propo", "Symbols Nerd Font", "Symbols Nerd Font Mono"; font-size: 16.6px; }
 #window, #clock, tooltip label { font-family: inherit; font-size: inherit; }
 #custom-actions, #custom-settings, #custom-screenshot, #custom-clipboard,
 #custom-cava { background: @surface_container_high; color: @secondary; }
 #workspaces { background: @surface; color: @secondary; }
 #workspaces button {
-  font-family: "JetBrainsMono Nerd Font Propo"; font-size: 16.6px;
+  font-family: "JetBrainsMono Nerd Font Propo", "Symbols Nerd Font", "Symbols Nerd Font Mono"; font-size: 16.6px;
   padding: 0 9px; background: transparent; color: @secondary;
   box-shadow: none; text-shadow: none;
 }

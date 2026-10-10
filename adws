@@ -29,6 +29,7 @@ esac
 if [[ "${2:-}" == "-h" || "${2:-}" == "--help" || "${2:-}" == "-?" ]]; then
     case "${1:-}" in
         check) shift; exec python3 "$ROOT/tools/adws_health.py" "$@" ;;
+        sidebar) shift; exec python3 "$ROOT/tools/adws_sidebar.py" "$@" ;;
         niri-compat) exec python3 "$ROOT/tools/adws_niri_compat.py" --help ;;
         desktop|taskbar) exec python3 "$ROOT/tools/adws_runtime.py" "$1" --help ;;
         *) usage; exit 0 ;;
@@ -36,6 +37,10 @@ if [[ "${2:-}" == "-h" || "${2:-}" == "--help" || "${2:-}" == "-?" ]]; then
 fi
 
 case "${1:-help}" in
+    sidebar)
+        shift
+        exec python3 "$ROOT/tools/adws_sidebar.py" "$@"
+        ;;
     niri-compat)
         shift
         exec python3 "$ROOT/tools/adws_niri_compat.py" "$@"
@@ -71,7 +76,8 @@ case "${1:-help}" in
         ;;
     build-taskbar)
         cd "$ROOT/src/niri-taskbar"
-        cargo build --release --locked
+        taskbar_build_path="$(python3 "$ROOT/tools/adws_setup.py" --build-path)"
+        PATH="$taskbar_build_path" python3 "$ROOT/tools/adws_setup.py" --cargo-build
         mkdir -p "$HOME/.local/lib/waybar"
         taskbar_library_tmp="$(mktemp "$HOME/.local/lib/waybar/.libniri_taskbar.XXXXXX")"
         trap 'rm -f "$taskbar_library_tmp"' EXIT

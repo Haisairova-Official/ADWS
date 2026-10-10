@@ -319,6 +319,32 @@ class InstallTests(unittest.TestCase):
             with self.assertRaises(ValueError):upgrade.prepare_libraries(self.root,True,log)
 
 
+    def test_live_style_migrates_with_backup_and_preserves_symlink(self):
+        config=self.home/'config';folder=config/'waybar';folder.mkdir(parents=True)
+        target=folder/'theme.css';original=b'label {color: red; font-family: "Custom; Font", sans-serif;}'
+        target.write_bytes(original);link=folder/'style-bottom.css';link.symlink_to(target)
+        with patch.dict(os.environ,{'XDG_CONFIG_HOME':str(config)}):
+            upgrade.install_update(self.result,lambda _:None)
+        self.assertTrue(link.is_symlink());self.assertIn(b'Symbols Nerd Font',target.read_bytes())
+        self.assertIn(b'color: red',target.read_bytes());self.assertIn(b'"Custom; Font"',target.read_bytes())
+        backup=Path(json.loads(self.record.read_text())['last_update_backup'])
+        self.assertEqual((backup/'waybar-font-styles/0.css').read_bytes(),original)
+
+    def test_failed_restart_restores_live_font_style(self):
+        config=self.home/'config';folder=config/'waybar';folder.mkdir(parents=True)
+        target=folder/'style-bottom.css';original=b'label {font-family: "Custom Text";}'
+        target.write_bytes(original)
+        def control(root,component,operation,log):
+            if operation=='--start' and json.loads((root/'build-info.json').read_text())['display_version']=='1.28-A':
+                self.assertIn(b'Symbols Nerd Font',target.read_bytes())
+                raise RuntimeError('new component failed')
+            self.change_process_state(root,component,operation,log)
+        self.control.side_effect=control
+        with patch.dict(os.environ,{'XDG_CONFIG_HOME':str(config)}):
+            with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
+        self.assertEqual(target.read_bytes(),original);self.verify_old()
+
+
 class NativeSupervisorUpgradeTests(unittest.TestCase):
     def test_prebuilt_runner_is_verified_and_staged_executable(self):
         with tempfile.TemporaryDirectory() as directory:

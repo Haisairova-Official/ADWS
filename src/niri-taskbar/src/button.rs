@@ -25,6 +25,7 @@ pub struct Button {
     state: State,
     members: Rc<RefCell<Vec<(u64, String)>>>,
     hover: Rc<RefCell<Option<Rc<crate::hover::HoverPreview>>>>,
+    styled_title: RefCell<Option<String>>,
 }
 
 impl Debug for Button {
@@ -145,6 +146,7 @@ impl Button {
             icon,
             state,
             members: Rc::new(RefCell::new(vec![(window_id, title)])),
+            styled_title: RefCell::new(None),
         };
 
         // Set up our event handlers. It's easier to do this with self already available.
@@ -180,6 +182,7 @@ impl Button {
     }
 
     pub fn set_dots(&self, dots: bool) {
+        if self.dots.get() == dots && self.badge.is_visible() == (dots || self.count.get()>1) { return; }
         self.dots.set(dots);
         self.badge.set_visible(dots || self.count.get()>1);
         self.badge.queue_draw();
@@ -189,36 +192,34 @@ impl Button {
     #[tracing::instrument(level = "TRACE")]
     pub fn set_focus(&self, focus: bool) {
         let context = self.button.style_context();
-
-        if focus {
-            context.add_class("focused");
+        if context.has_class("focused") != focus {
+            if focus { context.add_class("focused"); }
+            else { context.remove_class("focused"); }
+        }
+        if focus && context.has_class("urgent") {
             context.remove_class("urgent");
-        } else {
-            context.remove_class("focused");
         }
     }
 
     /// Sets the window title.
     #[tracing::instrument(level = "TRACE")]
     pub fn set_title(&self, title: Option<&str>) {
-        self.button.set_has_tooltip(false);
+        let title = title.unwrap_or_default();
+        if self.styled_title.borrow().as_deref() == Some(title) { return; }
+        *self.styled_title.borrow_mut() = Some(title.to_owned());
 
         // Apply any app styling rules.
         if let Some(app_id) = &self.app_id {
-            if let Some(title) = title {
                 let config = self.state.config();
                 let context = self.button.style_context();
-
-                // First, remove all the possible classes for this app.
+                let matching: Vec<_> = config.app_matches(app_id, title).collect();
                 for class in config.app_classes(app_id) {
-                    context.remove_class(class);
+                    let wanted = matching.contains(&class);
+                    if context.has_class(class) != wanted {
+                        if wanted { context.add_class(class); }
+                        else { context.remove_class(class); }
+                    }
                 }
-
-                // Now add the classes that actually do match.
-                for class in config.app_matches(app_id, title) {
-                    context.add_class(class);
-                }
-            }
         }
     }
 

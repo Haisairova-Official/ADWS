@@ -73,6 +73,9 @@ impl Module for TaskbarModule {
         if config.component()=="tray" {
             module._tray=Some(tray::Tray::new(&info.get_root_widget(),&config)); return module;
         }
+        if config.component()=="sidebar" {
+            controls::sidebar(&info.get_root_widget(), &config); return module;
+        }
         if matches!(config.component(),"sound"|"brightness") {
             module._controls=Some(controls::Controls::new(&info.get_root_widget(),&config)); return module;
         }
@@ -116,9 +119,13 @@ async fn init(info: &waybar_cffi::InitInfo, state: State) -> Result<gtk::glib::J
     // 图标/时钟之外的底栏空白处右键 → ADWS-Config 菜单。
     // 菜单挂在 waybar 顶层窗口上，任务栏本身保持简单布局，避免挤压窗口图标。
     let panel_root = container.clone();
+    let clock_helper = state.config().clock_control_helper().to_owned();
+    let clock_edge = state.config().position().to_owned();
+    let clock_thickness = state.config().thickness();
     gtk::glib::source::idle_add_local_once(move || {
         if let Some(toplevel) = panel_root.toplevel() {
             panel::connect_panel_menu(&toplevel);
+            controls::connect_clock_control_center(&toplevel, &clock_helper, &clock_edge, clock_thickness);
         }
     });
 
@@ -463,7 +470,8 @@ impl Instance {
             };
 
             // Update the window properties.
-            button.set_focus(window.is_focused);
+            // Focus is a group property. Toggling the representative off here
+            // and back on below restarts its CSS animation on every IPC update.
             button.set_title(window.title.as_deref());
 
             // Ensure we don't remove this button from the container.
@@ -481,6 +489,7 @@ impl Instance {
                 if button.widget().parent().is_some() { self.container.remove(button.widget()); }
             }
         }
+        let properties_done = std::time::Instant::now();
 
         // Never borrow windows from another monitor while output discovery is unresolved.
         let on_output = |w: &Window| match &*filter.lock().expect("output filter lock") {
@@ -537,7 +546,9 @@ impl Instance {
                 button.set_focus(visible.iter().any(|w|group.contains(&w.id) && w.is_focused));
             }
         }
-        if displayed != self.displayed || pinned_displayed != self.pinned_displayed {
+        let groups_done = std::time::Instant::now();
+        let layout_changed = displayed != self.displayed || pinned_displayed != self.pinned_displayed;
+        if layout_changed {
             // Close previews before their anchors move. Keep surviving widgets mapped:
             // rebuilding the whole grid synthesizes crossing events and reloads icons.
             for button in self.buttons.values().chain(self.pinned_buttons.values()) {
@@ -579,7 +590,8 @@ impl Instance {
             self.pinned_displayed=pinned_displayed;
             self.displayed = displayed;
         }
-        self.container.show_all();
+        let layout_done = std::time::Instant::now();
+        if layout_changed || !self.container.is_visible() { self.container.show_all(); }
         if let Some(top)=self.container.toplevel() {
             let style=top.style_context();
             let tiled_windows = windows.iter().filter(|w| w.blocks_auto_dock() && on_output(w)).count();
@@ -600,6 +612,10 @@ impl Instance {
         let elapsed = update_started.elapsed();
         if elapsed > std::time::Duration::from_millis(50) {
             tracing::warn!(elapsed_ms=elapsed.as_millis(), windows=self.buttons.len(),
+                properties_ms=properties_done.duration_since(update_started).as_millis(),
+                groups_ms=groups_done.duration_since(properties_done).as_millis(),
+                layout_ms=layout_done.duration_since(groups_done).as_millis(),
+                finishing_ms=layout_done.elapsed().as_millis(),
                 "ADWS taskbar window snapshot rendering delayed");
         }
     }

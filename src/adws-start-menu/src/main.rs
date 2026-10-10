@@ -27,6 +27,7 @@ extern "C" {
     fn gtk_layer_set_monitor(window: *mut gtk::ffi::GtkWindow, monitor: *mut gdk::ffi::GdkMonitor);
     fn gtk_layer_set_layer(window: *mut gtk::ffi::GtkWindow, layer: i32);
     fn gtk_layer_set_anchor(window: *mut gtk::ffi::GtkWindow, edge: i32, anchor: i32);
+    fn gtk_layer_set_margin(window: *mut gtk::ffi::GtkWindow, edge: i32, margin: i32);
     fn gtk_layer_set_exclusive_zone(window: *mut gtk::ffi::GtkWindow, zone: i32);
     fn gtk_layer_set_keyboard_mode(window: *mut gtk::ffi::GtkWindow, mode: i32);
     fn gtk_layer_set_namespace(window: *mut gtk::ffi::GtkWindow, name: *const std::ffi::c_char);
@@ -311,7 +312,9 @@ fn dismiss(application: &gtk::Application) {
 }
 struct Motion {
     menu: gtk::EventBox,
+    stage: gtk::Box,
     window: gtk::ApplicationWindow,
+    backdrop: Option<gtk::ApplicationWindow>,
     one_shot: bool,
     hidden_at: std::cell::Cell<std::time::Instant>,
     application: gtk::Application,
@@ -319,38 +322,103 @@ struct Motion {
     duration: f64,
     progress: std::cell::Cell<f64>,
     tick: RefCell<Option<gtk::TickCallbackId>>,
+    deadline: RefCell<Option<glib::SourceId>>,
+    snapshot: RefCell<Option<((i32, i32, i32), gtk::cairo::ImageSurface)>>,
+    busy: Rc<std::cell::Cell<bool>>,
     closing: std::cell::Cell<bool>,
 }
 impl Motion {
+    fn bind(self: &Rc<Self>) {
+        // The layout and input surface stay fixed. Render only the menu-sized
+        // subtree once, then composite it during motion instead of reallocating
+        // every row, icon and label on every frame.
+        self.menu.set_margin_start(8);
+        self.menu.set_margin_end(8);
+        self.menu.set_margin_top(8);
+        self.menu.set_margin_bottom(8);
+        let weak = Rc::downgrade(self);
+        self.stage.connect_draw(move |stage, cr| {
+            let Some(this) = weak.upgrade() else { return glib::Propagation::Proceed; };
+            let value = this.progress.get();
+            if value >= 1. { return glib::Propagation::Proceed; }
+            if value <= 0. { return glib::Propagation::Stop; }
+            let key = (stage.allocated_width(), stage.allocated_height(), stage.scale_factor().max(1));
+            if this.snapshot.borrow().as_ref().is_none_or(|(old, _)| *old != key) {
+                let began = std::time::Instant::now();
+                let Ok(surface) = gtk::cairo::ImageSurface::create(
+                    gtk::cairo::Format::ARgb32, key.0.max(1) * key.2, key.1.max(1) * key.2)
+                    else { return glib::Propagation::Proceed; };
+                surface.set_device_scale(key.2 as f64, key.2 as f64);
+                let Ok(context) = gtk::cairo::Context::new(&surface)
+                    else { return glib::Propagation::Proceed; };
+                stage.propagate_draw(&this.menu, &context);
+                this.snapshot.replace(Some((key, surface)));
+                if std::env::var_os("ADWS_MENU_TIMING").is_some() {
+                    eprintln!("ADWS menu: motion snapshot {} us", began.elapsed().as_micros());
+                }
+            }
+            let snapshot = this.snapshot.borrow();
+            let (_, surface) = snapshot.as_ref().unwrap();
+            let offset = ((1. - value) * 8. * key.2 as f64).round() / key.2 as f64;
+            let (x, y) = match this.edge.as_str() {
+                "top" => (0., -offset), "left" => (-offset, 0.),
+                "right" => (offset, 0.), _ => (0., offset),
+            };
+            let _ = cr.save();
+            let _ = cr.set_source_surface(surface, x, y);
+            cr.source().set_filter(gtk::cairo::Filter::Nearest);
+            let _ = cr.paint_with_alpha(value);
+            let _ = cr.restore();
+            glib::Propagation::Stop
+        });
+        let weak = Rc::downgrade(self);
+        self.window.connect_destroy(move |_| {
+            if let Some(this) = weak.upgrade() { this.cancel(); }
+        });
+    }
+    fn cancel(&self) {
+        if let Some(tick) = self.tick.borrow_mut().take() { tick.remove(); }
+        if let Some(deadline) = self.deadline.borrow_mut().take() { deadline.remove(); }
+        self.snapshot.borrow_mut().take();
+        self.busy.set(false);
+    }
+    fn arm_deadline(self: &Rc<Self>, target: f64, wait: u64) {
+        if let Some(deadline) = self.deadline.borrow_mut().take() { deadline.remove(); }
+        let weak = Rc::downgrade(self);
+        self.deadline.replace(Some(glib::timeout_add_local_once(Duration::from_millis(wait), move || {
+            if let Some(this) = weak.upgrade() {
+                this.deadline.borrow_mut().take();
+                if let Some(tick) = this.tick.borrow_mut().take() { tick.remove(); }
+                this.set(target);
+                this.busy.set(false);
+                if target == 0. { this.finish_close(); }
+            }
+        })));
+    }
     fn finish_close(&self) {
         if self.one_shot { self.application.quit(); }
         else {
             unsafe { if gtk_layer_is_supported() != 0 { gtk_layer_set_keyboard_mode(self.window.upcast_ref::<gtk::Window>().to_glib_none().0, 0); } }
             self.hidden_at.set(std::time::Instant::now());
             self.window.hide();
+            if let Some(backdrop) = &self.backdrop { backdrop.hide(); }
         }
     }
     fn set(&self, value: f64) {
         if self.progress.get() == 0. && value > 0. { timing("animation visible"); }
         self.progress.set(value);
-        self.menu.set_opacity(value);
-        let offset = ((1. - value) * 8.).round() as i32;
-        let (x, y) = match self.edge.as_str() {
-            "top" => (0, -offset),
-            "left" => (-offset, 0),
-            "right" => (offset, 0),
-            _ => (0, offset),
-        };
-        self.menu.set_margin_start(8 + x);
-        self.menu.set_margin_end(8 - x);
-        self.menu.set_margin_top(8 + y);
-        self.menu.set_margin_bottom(8 - y);
+        if value == 0. || value == 1. {
+            self.snapshot.borrow_mut().take();
+        }
+        self.stage.queue_draw();
     }
     fn animate(self: &Rc<Self>, target: f64) {
         if let Some(tick) = self.tick.borrow_mut().take() {
             tick.remove();
         }
+        if let Some(deadline) = self.deadline.borrow_mut().take() { deadline.remove(); }
         if self.duration <= 0. {
+            self.busy.set(false);
             self.set(target);
             if target == 0. {
                 self.finish_close();
@@ -358,20 +426,42 @@ impl Motion {
             return;
         }
         let from = self.progress.get();
-        let start = glib::monotonic_time();
+        self.busy.set(true);
+        // Mapping/configuring the layer surface is not part of the animation.
+        // Starting before map skipped its first frames on cold opens.
+        let start = std::cell::Cell::new(None);
+        let wait = (self.duration * (target - from).abs().max(0.01) / 1000.).ceil() as u64 + 80;
+        let measure = std::env::var_os("ADWS_MENU_TIMING").is_some();
+        let frames = RefCell::new(Vec::new());
         let weak = Rc::downgrade(self);
         let tick = self.menu.add_tick_callback(move |_, clock| {
             let Some(this) = weak.upgrade() else {
                 return glib::ControlFlow::Break;
             };
             let now = clock.frame_time();
-            let t = ((now - start) as f64 / (this.duration * (target - from).abs().max(0.01)))
+            let began = match start.get() {
+                Some(value) => value,
+                None => { start.set(Some(now)); this.arm_deadline(target, wait); now },
+            };
+            if measure { frames.borrow_mut().push(now); }
+            let t = ((now - began) as f64 / (this.duration * (target - from).abs().max(0.01)))
                 .clamp(0., 1.);
             // Reveal promptly, then settle; closing retains a smooth fade.
             let eased = if target > from { 1. - (1. - t).powi(3) } else { t * t * (3. - 2. * t) };
             this.set(from + (target - from) * eased);
             if t >= 1. {
+                this.busy.set(false);
+                if measure {
+                    let frames = frames.borrow();
+                    let mut gaps: Vec<_> = frames.windows(2).map(|pair| pair[1] - pair[0]).collect();
+                    gaps.sort_unstable();
+                    if !gaps.is_empty() {
+                        eprintln!("ADWS menu: motion target={target} frames={} median_us={} max_us={}",
+                            frames.len(), gaps[gaps.len()/2], gaps[gaps.len()-1]);
+                    }
+                }
                 this.tick.borrow_mut().take();
+                if let Some(deadline) = this.deadline.borrow_mut().take() { deadline.remove(); }
                 if target == 0. {
                     this.finish_close();
                 }
@@ -381,6 +471,9 @@ impl Motion {
             }
         });
         self.tick.replace(Some(tick));
+        // A covered Wayland surface can stop receiving frame callbacks. Never
+        // leave a closing fullscreen input surface waiting on the compositor.
+        self.arm_deadline(target, wait);
     }
 }
 // Discovery and parsing happen off the GTK thread; only small batches create
@@ -395,6 +488,7 @@ fn load_catalog(
     status: &gtk::Label,
     empty: &gtk::Label,
     text: &Text,
+    motion_busy: Rc<std::cell::Cell<bool>>,
 ) {
     let (send, recv) = std::sync::mpsc::sync_channel(1);
     let favorite_count = if theme == "kde" { 9 } else { 8 };
@@ -441,6 +535,10 @@ fn load_catalog(
                 }
             }
         }
+        // Home shortcuts are available first. Building the full catalog can
+        // invalidate hundreds of rows and load icons; keep that work out of
+        // the opening/closing animation's frame budget.
+        if motion_busy.get() { return glib::ControlFlow::Continue; }
         let began = std::time::Instant::now();
         let queue = pending.as_mut().unwrap();
         for _ in 0..12 {
@@ -551,7 +649,6 @@ async fn taskbar_anchor() -> Option<Value> {
 struct CachedMenu {
     window: gtk::ApplicationWindow,
     motion: Rc<Motion>,
-    stage: gtk::Box,
     search: gtk::SearchEntry,
     pages: gtk::Stack,
     power: Rc<power::PowerMenu>,
@@ -572,9 +669,11 @@ impl CachedMenu {
                     if let Some(monitor) = anchor["monitor"].as_i64().and_then(|i| display.monitor(i as i32)) {
                         let area = monitor.geometry();
                         let (x, y) = menu_origin(anchor, self.width, self.height, area.width(), area.height());
-                        self.stage.set_margin_start(x); self.stage.set_margin_top(y);
-                        self.stage.set_margin_end(0); self.stage.set_margin_bottom(0);
-                        self.stage.set_halign(gtk::Align::Start); self.stage.set_valign(gtk::Align::Start);
+                        unsafe {
+                            let ptr = self.window.upcast_ref::<gtk::Window>().to_glib_none().0;
+                            gtk_layer_set_margin(ptr, 0, x);
+                            gtk_layer_set_margin(ptr, 2, y);
+                        }
                     }
                 }
             }
@@ -590,6 +689,7 @@ impl CachedMenu {
         self.search.set_text("");
         self.motion.closing.set(false);
         self.motion.menu.set_sensitive(true);
+        if let Some(backdrop) = &self.motion.backdrop { backdrop.show_all(); }
         self.window.show();
         self.motion.animate(1.);
         if !self.xp { self.search.grab_focus(); }
@@ -746,13 +846,9 @@ fn build(
         .as_ref()
         .map(|g| (g.width() - 40).clamp(300, if grid_theme(theme) { 680 } else { 500 }))
         .unwrap_or(600);
+    window.set_default_size(width, height);
     if layered {
-        // GtkOverlay excludes overlay children from its natural size. A zero-size
-        // main child otherwise leaves the layer surface at 1x1 before configure.
         window.set_resizable(true);
-        if let Some(area) = geometry.as_ref() {
-            window.set_default_size(area.width(), area.height());
-        }
         // SAFETY: borrowed GTK objects remain live; calls happen before realization.
         unsafe {
             let ptr = window.upcast_ref::<gtk::Window>().to_glib_none().0;
@@ -764,24 +860,52 @@ fn build(
             gtk_layer_set_namespace(ptr, c"adws-start-menu".as_ptr());
             gtk_layer_set_exclusive_zone(ptr, -1);
             gtk_layer_set_keyboard_mode(ptr, 1);
-            for edge in 0..4 {
-                gtk_layer_set_anchor(ptr, edge, 1);
-            }
+            gtk_layer_set_anchor(ptr, 0, 1);
+            gtk_layer_set_anchor(ptr, 2, 1);
         }
     } else {
         window.set_default_size(width, height);
         window.set_position(gtk::WindowPosition::Center);
         window.set_keep_above(true);
     }
-    let overlay = gtk::Overlay::new();
-    window.add(&overlay);
-    let background = gtk::EventBox::new();
-    background.set_visible_window(false);
-    overlay.add(&background);
-    let app = application.clone();
-    background.connect_button_press_event(move |_, _| {
-        dismiss(&app);
-        glib::Propagation::Stop
+    // A static click catcher may cover the monitor, but animated pixels must
+    // only allocate a menu-sized Wayland buffer (especially at HiDPI/4K).
+    let backdrop = layered.then(|| {
+        let catcher = gtk::ApplicationWindow::new(application);
+        catcher.set_decorated(false);
+        catcher.set_app_paintable(true);
+        add_class(&catcher, "adws-start-overlay");
+        if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&catcher) {
+            if let Some(visual) = screen.rgba_visual() { catcher.set_visual(Some(&visual)); }
+        }
+        if let Some(area) = &geometry { catcher.set_default_size(area.width(), area.height()); }
+        unsafe {
+            let ptr = catcher.upcast_ref::<gtk::Window>().to_glib_none().0;
+            gtk_layer_init_for_window(ptr);
+            if let Some(monitor) = &monitor { gtk_layer_set_monitor(ptr, monitor.to_glib_none().0); }
+            gtk_layer_set_layer(ptr, 2);
+            gtk_layer_set_namespace(ptr, c"adws-start-dismiss".as_ptr());
+            gtk_layer_set_exclusive_zone(ptr, -1);
+            gtk_layer_set_keyboard_mode(ptr, 0);
+            for edge in 0..4 { gtk_layer_set_anchor(ptr, edge, 1); }
+        }
+        let background = gtk::EventBox::new();
+        background.set_visible_window(false);
+        catcher.add(&background);
+        let app = application.clone();
+        background.connect_button_press_event(move |_, _| {
+            dismiss(&app);
+            glib::Propagation::Stop
+        });
+        let cleanup = catcher.clone();
+        window.connect_destroy(move |_| unsafe { cleanup.destroy(); });
+        // Power actions temporarily hide the menu and may restore it on error.
+        // The click catcher must follow those paths too, not just Motion.
+        let hidden = catcher.clone();
+        window.connect_hide(move |_| hidden.hide());
+        let shown = catcher.clone();
+        window.connect_show(move |_| shown.show_all());
+        catcher
     });
     let menu = gtk::EventBox::new();
     add_class(&menu, "adws-start-menu");
@@ -793,31 +917,21 @@ fn build(
     if layered {
         let position = options["position"].as_str().unwrap_or("bottom");
         let margin = (options["thickness"].as_i64().unwrap_or(36).clamp(20, 160) + 16) as i32;
-        stage.set_halign(if position == "right" {
-            gtk::Align::End
-        } else {
-            gtk::Align::Start
-        });
-        stage.set_valign(if position == "bottom" {
-            gtk::Align::End
-        } else {
-            gtk::Align::Start
-        });
-        stage.set_margin_start(if position == "left" { margin } else { 12 });
-        stage.set_margin_end(if position == "right" { margin } else { 12 });
-        stage.set_margin_top(if position == "top" { margin } else { 12 });
-        stage.set_margin_bottom(if position == "bottom" { margin } else { 12 });
-        if let (Some(anchor), Some(area)) = (anchor.as_ref(), geometry.as_ref()) {
-            let (x, y) = menu_origin(anchor, width, height, area.width(), area.height());
-            stage.set_halign(gtk::Align::Start);
-            stage.set_valign(gtk::Align::Start);
-            stage.set_margin_start(x);
-            stage.set_margin_top(y);
-            stage.set_margin_end(0);
-            stage.set_margin_bottom(0);
+        if let Some(area) = &geometry {
+            let (x, y) = if let Some(anchor) = &anchor {
+                menu_origin(anchor, width, height, area.width(), area.height())
+            } else {
+                (if position == "right" { (area.width()-width-margin).max(0) } else if position == "left" { margin } else { 12 },
+                 if position == "bottom" { (area.height()-height-margin).max(0) } else if position == "top" { margin } else { 12 })
+            };
+            unsafe {
+                let ptr = window.upcast_ref::<gtk::Window>().to_glib_none().0;
+                gtk_layer_set_margin(ptr, 0, x);
+                gtk_layer_set_margin(ptr, 2, y);
+            }
         }
     }
-    overlay.add_overlay(&stage);
+    window.add(&stage);
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let menu_pages = gtk::Stack::new();
     menu_pages.set_transition_type(gtk::StackTransitionType::Crossfade);
@@ -1222,6 +1336,7 @@ fn build(
             launch(&app.info, &a, &error);
         }
     });
+    let motion_busy = Rc::new(std::cell::Cell::new(false));
     load_catalog(
         &list,
         &favorites,
@@ -1231,6 +1346,7 @@ fn build(
         &status,
         &empty,
         &text,
+        motion_busy.clone(),
     );
     let a = application.clone();
     let error = status.clone();
@@ -1390,7 +1506,9 @@ fn build(
     }
     let motion = Rc::new(Motion {
         menu: menu.clone(),
+        stage: stage.clone(),
         window: window.clone(),
+        backdrop: backdrop.clone(),
         one_shot,
         hidden_at: std::cell::Cell::new(std::time::Instant::now()),
         application: application.clone(),
@@ -1408,8 +1526,12 @@ fn build(
         },
         progress: std::cell::Cell::new(0.),
         tick: RefCell::new(None),
+        deadline: RefCell::new(None),
+        snapshot: RefCell::new(None),
+        busy: motion_busy,
         closing: std::cell::Cell::new(false),
     });
+    motion.bind();
     let close = motion.clone();
     CLOSE.with(|slot| {
         slot.replace(Some(Rc::new(move || {
@@ -1434,6 +1556,7 @@ fn build(
         glib::Propagation::Proceed
     });
     motion.set(0.);
+    if let Some(backdrop) = &backdrop { backdrop.show_all(); }
     window.show_all();
     motion.animate(1.);
     if !xp_theme {
@@ -1483,7 +1606,7 @@ fn build(
             });
         });
     }
-    CachedMenu { window, motion, stage, search, pages: menu_pages, power,
+    CachedMenu { window, motion, search, pages: menu_pages, power,
                  width, height, layered, xp: xp_theme, reload, home: stack, category, list }
 }
 
@@ -1495,16 +1618,23 @@ mod tests {
     fn motion_reverses_without_resizing_the_input_surface() {
         gtk::init().unwrap();
         let app = gtk::Application::new(None, gio::ApplicationFlags::NON_UNIQUE);
+        app.register(None::<&gio::Cancellable>).unwrap();
         let window = gtk::ApplicationWindow::new(&app);
         window.set_default_size(400, 300);
         let stage = gtk::Box::new(gtk::Orientation::Vertical, 0);
         window.add(&stage);
         let menu = gtk::EventBox::new();
-        menu.add(&gtk::Label::new(Some("Motion")));
+        let label = gtk::Label::new(Some("Motion"));
+        menu.add(&label);
         stage.pack_start(&menu, true, true, 0);
+        let allocations = Rc::new(std::cell::Cell::new(0));
+        let counted = allocations.clone();
+        menu.connect_size_allocate(move |_, _| counted.set(counted.get() + 1));
         let motion = Rc::new(Motion {
             menu,
+            stage: stage.clone(),
             window: window.clone(),
+            backdrop: None,
             one_shot: true,
             hidden_at: std::cell::Cell::new(std::time::Instant::now()),
             application: app,
@@ -1512,8 +1642,12 @@ mod tests {
             duration: 200_000.,
             progress: std::cell::Cell::new(0.),
             tick: RefCell::new(None),
+            deadline: RefCell::new(None),
+            snapshot: RefCell::new(None),
+            busy: Rc::new(std::cell::Cell::new(false)),
             closing: std::cell::Cell::new(false),
         });
+        motion.bind();
         fn drain(ms: u64) {
             let start = std::time::Instant::now();
             while start.elapsed() < Duration::from_millis(ms) {
@@ -1527,9 +1661,22 @@ mod tests {
         window.show_all();
         drain(30);
         let size = window.size();
+        allocations.set(0);
         motion.animate(1.);
         drain(95);
         assert!(motion.progress.get() > 0. && motion.progress.get() < 1.);
+        // Capture must contain actual menu pixels, remain the same buffer over
+        // successive frames and not invoke another widget-tree allocation.
+        let image = gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32, 400, 300).unwrap();
+        let cr = gtk::cairo::Context::new(&image).unwrap();
+        stage.draw(&cr);
+        let cached = motion.snapshot.borrow().as_ref().unwrap().1.clone();
+        let mut png = Vec::new();
+        cached.write_to_png(&mut png).unwrap();
+        let mut pixels = gtk::cairo::ImageSurface::create_from_png(&mut std::io::Cursor::new(png)).unwrap();
+        assert!(pixels.data().unwrap().iter().any(|byte| *byte != 0), "blank animation snapshot");
+        stage.draw(&cr);
+        assert_eq!(motion.snapshot.borrow().as_ref().unwrap().1.to_raw_none(), cached.to_raw_none());
         assert_eq!(window.size(), size);
         assert_eq!(motion.menu.margin_top() + motion.menu.margin_bottom(), 16);
         motion.animate(0.);
@@ -1538,10 +1685,93 @@ mod tests {
         drain(250);
         assert_eq!(motion.progress.get(), 1.);
         assert!(motion.tick.borrow().is_none());
+        assert!(motion.deadline.borrow().is_none());
+        assert!(motion.snapshot.borrow().is_none(), "snapshot retained after animation");
+        assert_eq!(allocations.get(), 0, "motion triggered widget reallocation");
         assert_eq!(window.size(), size);
+        // Fresh content must be rendered after completion, not an old snapshot.
+        label.set_text("Changed after animation");
+        drain(30);
+        allocations.set(0);
+        for _ in 0..8 {
+            motion.set(0.5);
+            stage.draw(&cr);
+            assert!(motion.snapshot.borrow().is_some());
+            motion.set(1.);
+            assert!(motion.snapshot.borrow().is_none());
+        }
+        assert_eq!(allocations.get(), 0);
+        // Exercise the no-frame deadline by explicitly suppressing the tick.
+        motion.animate(0.);
+        motion.tick.borrow_mut().take().unwrap().remove();
+        drain(310);
+        assert_eq!(motion.progress.get(), 0.);
+        assert!(motion.deadline.borrow().is_none());
         unsafe {
             window.destroy();
         }
+    }
+    #[test]
+    #[ignore = "requires an isolated GTK display, or a temporary Wayland session"]
+    fn themed_motion_reopens_and_releases_buffers() {
+        gtk::init().unwrap();
+        let app = gtk::Application::new(None, gio::ApplicationFlags::NON_UNIQUE);
+        app.register(None::<&gio::Cancellable>).unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
+        let options = serde_json::json!({"window_animations":true,"animation_duration":280,"position":"bottom"});
+        let menu = build(&app, root, "akiacg", None, &options, None,
+            MenuPlacement { layer_probe:true, anchor:None, one_shot:false });
+        fn isolate_input(menu: &CachedMenu) {
+            if menu.layered {
+                unsafe { gtk_layer_set_keyboard_mode(menu.window.upcast_ref::<gtk::Window>().to_glib_none().0, 0); }
+                // A real-session performance probe must not consume typing or
+                // be dismissed by unrelated clicks while it is measuring.
+                if let Some(backdrop) = &menu.motion.backdrop { backdrop.set_sensitive(false); }
+            }
+        }
+        isolate_input(&menu);
+        fn run_for(ms: u64) {
+            let main = glib::MainLoop::new(None, false);
+            let quit = main.clone();
+            glib::timeout_add_local_once(Duration::from_millis(ms), move || quit.quit());
+            main.run();
+        }
+        run_for(700);
+        for _ in 0..3 {
+            assert_eq!(menu.motion.progress.get(), 1.);
+            assert!(!menu.motion.busy.get());
+            assert!(menu.motion.snapshot.borrow().is_none());
+            dismiss(&app);
+            run_for(420);
+            assert!(!menu.window.is_visible());
+            assert!(menu.motion.backdrop.as_ref().is_none_or(|w| !w.is_visible()));
+            assert!(menu.motion.snapshot.borrow().is_none());
+            assert!(menu.motion.tick.borrow().is_none());
+            assert!(menu.motion.deadline.borrow().is_none());
+            menu.reopen(None);
+            isolate_input(&menu);
+            run_for(420);
+        }
+        if let Some(backdrop) = &menu.motion.backdrop {
+            assert!(backdrop.is_visible());
+            assert!(menu.window.allocated_width() < backdrop.allocated_width(), "animated surface still spans the monitor");
+            let child = backdrop.child().unwrap();
+            let event = gdk::Event::new(gdk::EventType::ButtonPress);
+            child.emit_by_name::<bool>("button-press-event", &[&event]);
+            run_for(420);
+            assert!(!menu.window.is_visible() && !backdrop.is_visible(), "outside click left an input surface mapped");
+            menu.reopen(None);
+            isolate_input(&menu);
+            run_for(420);
+            menu.window.hide();
+            assert!(!backdrop.is_visible(), "power-action hide left a catcher behind");
+            menu.window.show_all();
+            assert!(backdrop.is_visible(), "failed power action did not restore the catcher");
+        }
+        unsafe { menu.window.destroy(); }
+        CLOSE.with(|slot| { slot.borrow_mut().take(); });
+        assert!(menu.motion.snapshot.borrow().is_none());
+        assert!(menu.motion.deadline.borrow().is_none());
     }
     #[test]
     fn search_and_categories() {

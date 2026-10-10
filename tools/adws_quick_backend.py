@@ -11,6 +11,9 @@ import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+# Resolve PyGObject overrides before per-output workers can access the modules.
+# Concurrent first imports can expose the raw Variant/GError GI types.
+from gi.repository import Gio, GLib
 from adws_i18n import tr
 from adws_system_pages import command, audio_snapshot, audio_change
 
@@ -94,28 +97,28 @@ def ddc_args(device):
 def ddc_devices(force=False):
     path = cache_root()/'ddc.json'
     cached = read_json(path, {})
-    if not force and time.time()-cached.get('time', 0)<60: return cached.get('devices', {})
+    if not force and time.time()-cached.get('time', 0)<600: return cached.get('devices', {})
     devices = {}
     if shutil.which('ddcutil'):
         try:
-            raw = command(['ddcutil','detect','--terse'], timeout=8)
+            raw = command(['ddcutil','detect','--terse'], timeout=30)
             devices = parse_ddc(raw)
             buses = parse_ddc_buses(raw)
             devices = {name:{'display':index, 'bus':buses.get(name)} for name,index in devices.items()}
-        except (OSError, RuntimeError, subprocess.SubprocessError): pass
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            # Keep the last successful connector mapping during transient failures.
+            return cached.get('devices', {})
     write_json(path, {'time':time.time(),'devices':devices})
     return devices
 
 
 def gamma_call(path, method, args, interface='org.freedesktop.DBus.Properties'):
-    from gi.repository import Gio
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
     return bus.call_sync('rs.wl-gammarelay', path, interface, method, args, None,
                          Gio.DBusCallFlags.NO_AUTO_START, 1200, None)
 
 
 def gamma_state(output):
-    from gi.repository import GLib
     path = '/outputs/'+re.sub('[^A-Za-z0-9_]', '_', output)
     try:
         props = gamma_call(path,'GetAll',GLib.Variant('(s)',('rs.wl.gammarelay',))).unpack()[0]
@@ -137,7 +140,25 @@ def owned_night(record, output):
     except (OSError, KeyError, ValueError, IndexError): return False
 
 
+def cached_brightness(max_age=120):
+    """Fast initial view only; callers still refresh hardware in the background."""
+    snapshot = read_json(cache_root()/'brightness-snapshot.json', {})
+    if not isinstance(snapshot, dict): return None
+    stamp = snapshot.get('time')
+    if type(stamp) not in (int, float) or not 0 <= time.time()-stamp <= max_age: return None
+    items = snapshot.get('items')
+    if not isinstance(items, list) or not items: return None
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get('name'), str): return None
+        if not isinstance(item.get('description'), str): return None
+        value = item.get('value')
+        if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 100): return None
+        if not all(key in item for key in ('provider','temperature','night','color_provider')): return None
+    return items
+
+
 def brightness(force=False):
+    started=time.time()
     from adws_display import detect_session, outputs
     session = detect_session()
     try: displays = outputs(session) if session else []
@@ -170,8 +191,31 @@ def brightness(force=False):
             if gamma: entry.update(provider='gamma',value=gamma['brightness'])
         return entry
     with ThreadPoolExecutor(max_workers=3) as pool: result=list(pool.map(inspect, displays))
-    write_json(cache_root()/"brightness-snapshot.json", {"time":time.time(), "items":result})
+    snapshot=cache_root()/"brightness-snapshot.json"
+    # A slider/wheel edit made during the read is newer than this snapshot.
+    if read_json(snapshot, {}).get("time",0)<=started:
+        write_json(snapshot, {"time":time.time(), "items":result})
     return result
+
+
+def brightness_targets(items, output=None):
+    """Default controls affect every adjustable output; explicit output stays scoped."""
+    output = output or None
+    return [item for item in items if item.get('provider') and item.get('value') is not None
+            and (output is None or item.get('name') == output)]
+
+
+def brightness_all(items, value):
+    value = number(value, 5, 100)
+    errors = []
+    for item in brightness_targets(items):
+        try:
+            brightness_write(item, 'brightness', value)
+            item['value'] = value
+        except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as error:
+            errors.append(item['name']+': '+str(error))
+    if errors:
+        raise RuntimeError('\n'.join(errors))
 
 
 def brightness_write(entry, action, value):
@@ -189,7 +233,6 @@ def brightness_write(entry, action, value):
             if not re.fullmatch('[A-Za-z0-9_.-]+',device): raise ValueError('Invalid backlight device')
             command(['brightnessctl','--device',device,'set',f'{round(value)}%'])
         elif provider=='gamma':
-            from gi.repository import GLib
             gamma_call('/outputs/'+re.sub('[^A-Za-z0-9_]','_',output),'Set',GLib.Variant('(ssv)',('rs.wl.gammarelay','Brightness',GLib.Variant('d',value/100))))
         else: raise RuntimeError(tr('无可用配置'))
         snapshot=read_json(cache_root()/'brightness-snapshot.json',{})
@@ -202,7 +245,6 @@ def brightness_write(entry, action, value):
     temperature=int(number(value, 1000, 10000)) if action=='temperature' else (4500 if value is True else 6500)
     if action=='night' and type(value) is not bool: raise ValueError('Invalid night mode')
     if entry.get('color_provider')=='gamma':
-        from gi.repository import GLib
         gamma_call('/outputs/'+re.sub('[^A-Za-z0-9_]','_',output),'Set',GLib.Variant('(ssv)',('rs.wl.gammarelay','Temperature',GLib.Variant('q',temperature))))
     elif entry.get('color_provider')=='wlsunset':
         record=read_json(path,{})
@@ -245,6 +287,7 @@ def compose_brightness(pending,delta):
 
 def enqueue_brightness_step(delta,output=None):
     import fcntl
+    output = output or None
     if output is not None and not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}',output):raise ValueError('Invalid output')
     root=cache_root();queue=root/'brightness-pending.json'
     with (root/'brightness-queue.lock').open('w') as guard:
@@ -288,15 +331,16 @@ def brightness_step_worker(fd):
                 items=cached.get('items') if time.time()-cached.get('time',0)<3 else None
                 if not isinstance(items,list):items=brightness()
             for key,job in jobs.items():
-                item=next((i for i in items if i.get('name')==key and i.get('provider')),None) if key else next((i for i in items if i.get('provider')),None)
-                if not item or item.get('value') is None:continue
-                target=min(job['high'],max(job['low'],item['value']+job['shift']))
-                if abs(target-item['value'])<.001:continue
-                try:
-                    brightness_write(item,'brightness',target);item['value']=target
-                    write_json(root/'brightness-snapshot.json',{'time':time.time(),'items':items})
-                except (ValueError,OSError,RuntimeError,subprocess.SubprocessError) as error:
-                    print('Brightness scroll failed:',error,file=sys.stderr);items=None;break
+                failed=False
+                for item in brightness_targets(items, key or None):
+                    target=min(job['high'],max(job['low'],item['value']+job['shift']))
+                    if abs(target-item['value'])<.001:continue
+                    try:
+                        brightness_write(item,'brightness',target);item['value']=target
+                        write_json(root/'brightness-snapshot.json',{'time':time.time(),'items':items})
+                    except (ValueError,OSError,RuntimeError,subprocess.SubprocessError) as error:
+                        print('Brightness scroll failed:',item['name'],error,file=sys.stderr);failed=True
+                if failed:items=None;break
             # Hardware writes can themselves take hundreds of milliseconds. Merge
             # events received during each write instead of queuing every notch.
             time.sleep(.12)

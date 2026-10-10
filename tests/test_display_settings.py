@@ -275,3 +275,16 @@ class MonitorCanvasInteractionTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FractionalGeometryTests(unittest.TestCase):
+    def test_fractional_niri_coordinates_use_reported_size(self):
+        monitor = dict(name='DP-1', mode='3840x2160@144.000', scale=1.7, transform=0,
+                       logical_geometry=['3840x2160@144.000',1.7,0,2258,1270])
+        self.assertEqual(display.logical_size(monitor), (2258,1270))
+        monitor['scale'] = 2
+        self.assertEqual(display.logical_size(monitor), (1920,1080))
+    def test_snap_does_not_align_inside_other_display(self):
+        monitor=dict(name='one',mode='1920x1080@60.000',scale=1,transform=0,x=0,y=0)
+        other=dict(monitor,name='two')
+        self.assertEqual(display.snapped_position(monitor,[other],10,300,24),(10,300))

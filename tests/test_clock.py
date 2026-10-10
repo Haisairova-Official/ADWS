@@ -72,7 +72,7 @@ class ClockTests(unittest.TestCase):
                      'builtins': [{'id': 'clock', 'enabled': True, 'slot': 'right', 'order': 0}], 'plugins': []}
             result = layout.render_waybar_config(state, available=[], base={'include': ['modules.jsonc']}, config_path=root/'config.jsonc')['clock']
             self.assertEqual(result['format'], '<span size="large" weight="bold">{0:%H:%M}</span>\n<span size="small">{0:%Y-%m-%d}</span>')
-            self.assertEqual(result['on-click'], '')
+            self.assertIn('adws_control_center.py', result['on-click'])
             self.assertEqual(result['rotate'], 0)
             self.assertEqual(result['timezone'], 'UTC')
             for key in ('max-length', 'format-alt', 'actions', 'menu'): self.assertIsNone(result[key])

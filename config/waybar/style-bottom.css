@@ -4,7 +4,7 @@
 * {
     border: none;
     border-radius: 0;
-    font-family: "JetBrainsMono Nerd Font Propo", "LXGW WenKai Screen", "JetBrains Maple Mono", "Font Awesome 7 Free";
+    font-family: "JetBrainsMono Nerd Font Propo", "LXGW WenKai Screen", "JetBrains Maple Mono", "Font Awesome 7 Free", "Symbols Nerd Font", "Symbols Nerd Font Mono";
     font-size: 16.6px;
     opacity: 1;
 }
@@ -132,6 +132,6 @@ window#waybar > box {
 }
 
 window#waybar * {
-    font-family: "JetBrainsMono Nerd Font Propo", "LXGW WenKai Screen", "JetBrains Maple Mono", "Font Awesome 7 Free";
+    font-family: "JetBrainsMono Nerd Font Propo", "LXGW WenKai Screen", "JetBrains Maple Mono", "Font Awesome 7 Free", "Symbols Nerd Font", "Symbols Nerd Font Mono";
     font-size: 16.6px;
 }

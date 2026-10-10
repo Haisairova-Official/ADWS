@@ -1,0 +1,25 @@
+# ADWS 1.35 正式版
+
+内部版本 / Internal revision: **Q** · 构建日期 / Build date: **2026-10-10**
+
+1.30 之后累计更新：
+
+- 新增原生开始菜单与 KDE、Vista Aero、Windows XP、AkiACG 主题，支持搜索、命令、会话操作和自定义 CSS。
+- 新增独立系统设置，整合显示器、默认应用、网络、蓝牙、声音、账户与快捷键；补充应用独立缩放和桌面“用指定应用打开”。
+- 任务栏支持分体、吸附／悬浮、四种材质和组件拖动布局；新增托盘、声音与亮度面板，完善 Peek 与 Shift＋右键结束进程。
+- 新增可编辑侧边栏和时钟控制中心，提供日历、日程、通知、快捷开关、天气及免费潮汐预报；IP 定位需要单独同意。
+- 剪贴板支持固定记录、图片与内容预览、搜索、删除，以及可拖动的置顶窗口。
+- 新增 Waybar 配置页与四套预设，支持布局、字体、完整导入、备份恢复和自启；应用配置时重启所选栏。
+- 新增 Kitty／Alacritty 预设、默认终端和壁纸自动配色；修复 Ubuntu 中文路径，增加 Waybar 兼容修复与可选 Nerd Fonts 安装。
+- 更新器支持后台下载进度、校验和确认后安装；卸载保留已修改的系统配置。
+- 优化开始菜单与侧边栏启动和动效，复用界面、按显示帧推进；原生 Rust 入口与 C 模糊控制减少延迟和退出残留。
+- 修复任务栏悬停、聚焦样式累积及窗口切换积压造成的卡顿，完善吸附动画、字体回退和多屏显示配置。
+- 插件增加语言标签、单例声明与独立 Watchdog；NCMLyricsBar 1.1.0 按钮配色跟随任务栏。
+- 声音与亮度报错说明更清楚，点击和滚轮操作后刷新；无声音设备显示静音喇叭与右侧问号，其他异常使用角标。
+- 修复微信等托盘服务漏注册后图标消失的问题，自动恢复已有图标服务并避免重复显示。
+
+安装与升级前自动备份 ADWS 配置。Arch x86_64 提供预构建安装包；Ubuntu、Mint 等其他系统使用源码在目标系统构建，不能混用 Arch 原生组件。
+
+Native Start menu, independent system settings, configurable taskbar and Waybar, sidebar/control center, clipboard previews, weather and tide forecasts. Improve animation, startup and taskbar reliability; add plugin supervision, clearer device errors and recovery of missing tray icons.
+
+[安装说明](arch-install.md) · [Ubuntu 安装说明](ubuntu-install.md) · [完整更新历史](../CHANGELOG.md)

@@ -151,8 +151,14 @@ class PanelStyle(SettingsStyle):
         definitions = '\n'.join(f'@define-color {key} {roles[role]};' for key,role in aliases.items())
         material = material_css(options, base)
         radius = max(0, radius)
+        self.host.popup_corner_radius = radius
         return definitions + '\n' + STYLE + f"""
         window.adws-quick-panel {{ {material} border-radius: {radius:g}px; border: 1px solid alpha(@adws_settings_outline,.65); }}
         window.adws-quick-panel decoration {{ background: transparent; border-radius: {radius:g}px; }}
         window.adws-quick-panel > box {{ background: transparent; border-radius: {radius:g}px; }}
+        .adws-quick-panel label:disabled, .adws-quick-panel scale:disabled {{ color: #888888; }}
+        .adws-quick-panel scale:disabled trough highlight,
+        .adws-quick-panel scale:disabled slider,
+        .adws-quick-panel switch:disabled,
+        .adws-quick-panel switch:disabled slider {{ background-image: none; background-color: #888888; border-color: #888888; color: #888888; }}
         """

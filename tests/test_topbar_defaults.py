@@ -1,4 +1,4 @@
-import os,json,tempfile,sys,unittest
+import os,json,tempfile,sys,unittest,shlex
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
@@ -10,7 +10,7 @@ class DefaultTopbarTests(unittest.TestCase):
    text=(Path(name)/'config/waybar/config.jsonc').read_text();data=json.loads(text)
    self.assertNotIn('shorin',text.lower());self.assertNotIn('include',data)
    self.assertEqual(data['clock']['format'],'󰥔 {:%H:%M}')
-   self.assertIn("'",data['custom/settings']['on-click'])
+   self.assertEqual(shlex.split(data['custom/settings']['on-click']), ['bash', str(top.ROOT / 'adws'), 'config'])
    self.assertFalse(top.install_defaults())
  def test_original_powerline_and_icon_layout_is_retained(self):
   text,css=top.rendered();data=json.loads(text)

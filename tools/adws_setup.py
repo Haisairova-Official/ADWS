@@ -1,6 +1,7 @@
 """Interactive dependency repair and component build for installation."""
 from adws_i18n import tr as _tr
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -76,6 +77,48 @@ def atomic_install(source, target, mode=0o644):
             os.unlink(temporary)
 
 
+
+def build_environment():
+    """Use a supported Rust pair, including rustup absent from a GUI's PATH."""
+    base = dict(os.environ)
+    candidates = [base.get('PATH', os.defpath)]
+    cargo_home = Path(base.get('CARGO_HOME') or Path.home() / '.cargo')
+    candidates.append(str(cargo_home / 'bin') + os.pathsep + candidates[0])
+    for path in dict.fromkeys(candidates):
+        env = {**base, 'PATH': path}
+        rustc = shutil.which('rustc', path=path)
+        cargo = shutil.which('cargo', path=path)
+        if not rustc or not cargo:
+            continue
+        try:
+            compiler = subprocess.run([rustc, '--version'], capture_output=True, text=True, timeout=15, env=env)
+            driver = subprocess.run([cargo, '--version'], capture_output=True, text=True, timeout=15, env=env)
+            versions = [re.search(r'\b(?:rustc|cargo) (\d+)\.(\d+)\.(\d+)', result.stdout or '') for result in (compiler, driver)]
+            if all(result.returncode == 0 for result in (compiler, driver)) and all(
+                    version and tuple(map(int, version.groups())) >= (1, 87, 0) for version in versions):
+                return env
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    raise RuntimeError(_tr('构建需要 Rust / Cargo 1.87 或更新版本。请通过 rustup 安装或更新 stable 工具链后重试；Ubuntu / Mint 自带的旧版 Rust 不满足要求。'))
+
+
+def choose_build_mirror(env=None):
+    """Ask once, in Chinese environments only; never edit global Cargo settings."""
+    from adws_i18n import chinese
+    result = dict(os.environ if env is None else env)
+    if 'ADWS_BUILD_MIRROR' not in result:
+        result['ADWS_BUILD_MIRROR'] = '1' if chinese() and confirm('是否为本次构建使用国内 Rust 镜像源（RsProxy）？') else '0'
+    return result
+
+
+def cargo_build_command(env):
+    command = ['cargo']
+    if env.get('ADWS_BUILD_MIRROR') == '1':
+        command += ['--config', 'source.crates-io.replace-with="adws-rsproxy"',
+                    '--config', 'source.adws-rsproxy.registry="sparse+https://rsproxy.cn/index/"']
+    return command + ['build', '--release', '--locked']
+
+
 def prepare():
     print(_tr('欢迎安装 ADWS。我们会检查所需软件和组件，补齐前会先征求你的同意。'))
     errors = dependency_errors()
@@ -110,26 +153,27 @@ def prepare():
             build_missing = subprocess.run(['pkg-config', '--exists', 'gtk+-3.0', 'gtk-layer-shell-0', 'json-glib-1.0']).returncode != 0
         if build_missing:
             install_packages(groups=['build'])
+        build_env = choose_build_mirror(build_environment())
         if 'libniri_taskbar.so' in missing:
-            subprocess.run(['bash', str(ROOT / 'adws'), 'build-taskbar'], check=True)
-        subprocess.run(['cargo', 'build', '--release', '--locked'],
+            subprocess.run(['bash', str(ROOT / 'adws'), 'build-taskbar'], check=True, env=build_env)
+        subprocess.run(cargo_build_command(build_env),
                        cwd=ROOT / 'src/adws-runtime', check=True,
-                       env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
+                       env={key: value for key, value in build_env.items() if key != 'CARGO_TARGET_DIR'})
         atomic_install(ROOT / 'src/adws-runtime/target/release/adws-plugin-runner',
                        ROOT / 'libexec/adws-plugin-runner', mode=0o755)
-        subprocess.run(['cargo', 'build', '--release', '--locked'],
+        subprocess.run(cargo_build_command(build_env),
                        cwd=ROOT / 'src/adws-start-menu', check=True,
-                       env={key: value for key, value in os.environ.items() if key != 'CARGO_TARGET_DIR'})
+                       env={key: value for key, value in build_env.items() if key != 'CARGO_TARGET_DIR'})
         atomic_install(ROOT / 'src/adws-start-menu/target/release/adws-start-menu',
                        ROOT / 'libexec/adws-start-menu', mode=0o755)
         if 'libadws_panel.so' in missing:
             subprocess.run(['make', '-C', str(ROOT / 'src/panel-rows')], check=True)
             atomic_install(ROOT / 'src/panel-rows/libadws_panel.so', library_dir / 'libadws_panel.so')
         if 'libwaybar-space.so' in missing:
-            flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk+-3.0', 'gtk-layer-shell-0'], text=True)
+            flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk+-3.0', 'gtk-layer-shell-0', 'wayland-client'], text=True)
             with tempfile.TemporaryDirectory(prefix='adws-build-') as directory:
                 output = Path(directory) / 'libwaybar-space.so'
-                subprocess.run(['cc', '-shared', '-fPIC', '-O2', str(ROOT / 'src/niri-desktop-layer/integration/waybar-space.c'), '-o', str(output), *shlex.split(flags)], check=True)
+                subprocess.run(['cc', '-shared', '-fPIC', '-O2', str(ROOT / 'src/niri-desktop-layer/integration/waybar-space.c'), '-o', str(output), *shlex.split(flags), '-lm'], check=True)
                 atomic_install(output, library_dir / output.name)
     if check(preinstall=True):
         raise RuntimeError(_tr('仍有配置问题需要处理，请按上面的提示修复后再次运行 install.sh；现有配置不会被强制覆盖。'))
@@ -138,6 +182,13 @@ def prepare():
 
 def main():
     try:
+        if sys.argv[1:] == ['--cargo-build']:
+            env = choose_build_mirror(build_environment())
+            subprocess.run(cargo_build_command(env), env=env, check=True)
+            return 0
+        if sys.argv[1:] == ['--build-path']:
+            print(build_environment()['PATH'])
+            return 0
         return prepare()
     except (EOFError, KeyboardInterrupt):
         print(_tr('\n已取消。'))

@@ -84,6 +84,7 @@ def styles(options):
     lines.append(f'.niri-taskbar button {{ min-width: 0; min-height: 0; transition: {transition}; }}')
     start_transition = f'background-color {values["animation_duration"]}ms ease-in-out, color {values["animation_duration"]}ms ease-in-out' if values['window_animations'] else 'none'
     lines.append(f'#custom-applauncher {{ transition: {start_transition}; }}')
+
     if values['position'] in ('left', 'right'):
         lines.append('#clock, #custom-applauncher { min-width: 0; padding: 0.3em 0; }')
         lines.append('.niri-taskbar { padding: 0.35em 0; } .niri-taskbar button { padding: 0.55em 0.12em; }')

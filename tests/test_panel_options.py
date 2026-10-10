@@ -77,7 +77,8 @@ class PanelOptionsTests(unittest.TestCase):
                'builtins':[{'id':'clock','enabled':True,'slot':'right','order':0}]}
         result=layout.render_waybar_config(state,available=[],base={'clock':{'format':'{:%H:%M}','on-click':'kclock','rotate':90}})
         self.assertEqual(result['clock']['rotate'],0)
-        self.assertEqual(result['clock']['on-click'],'')
+        self.assertIn('adws_control_center.py',result['clock']['on-click'])
+        self.assertIn('--edge left',result['clock']['on-click'])
         self.assertIn('adws_clock.py',result['clock']['on-click-right'])
         self.assertEqual(result['clock']['format'],'{0:%H:%M}')
 

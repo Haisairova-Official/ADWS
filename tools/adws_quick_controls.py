@@ -10,19 +10,47 @@ from adws_i18n import tr, prepare_gtk_language
 import adws_quick_backend as backend
 
 
+
+def error_message(kind, error):
+    """Explain known failures without claiming an unverified root cause."""
+    raw=str(error).strip()
+    text=raw.lower()
+    if kind=='sound':
+        if 'too many' in text or 'connection limit' in text:
+            message='声音服务连接数已满，无法读取或调节音量。请关闭占用声音连接的应用后重试；ADWS 会自动检测恢复。'
+        elif 'connection terminated' in text or 'connection reset' in text or 'broken pipe' in text:
+            message='声音服务断开连接，暂时无法读取音量或调节声音。服务可能正在重启，或连接数已满；可尝试关闭 Waydroid 等使用声音的应用后重试。ADWS 会自动检测恢复。'
+        elif 'connection refused' in text or 'connection failure' in text:
+            message='无法连接声音服务，暂时无法读取或调节音量。请检查 PipeWire/PulseAudio 是否运行；ADWS 会自动重试。'
+        elif 'timeout' in text or 'timed out' in text:
+            message='声音状态读取超时，请稍后重试；ADWS 会继续检测声音服务。'
+        else:message='声音操作失败，请检查声音服务后重试。'
+    elif 'timeout' in text or 'timed out' in text:
+        message='亮度设备响应超时，请检查显示器连接和 DDC/CI 设置后重试。'
+    elif isinstance(error,PermissionError) or 'permission denied' in text:
+        message='没有权限调节亮度，请检查背光设备或 DDC/CI 的访问权限。'
+    else:message='亮度操作失败，请检查显示器连接及亮度控制支持后重试。'
+    return tr(message)+(('\n'+tr('技术详情：%s')%raw) if raw else '')
+
+
 def status(kind, output=None):
     if kind=='sound':
         data=backend.audio(); item=next((d for d in data['sinks'] if d.get('default')),None)
         level=round(item['volume']) if item else None
         icon='audio-volume-muted-symbolic' if not item or item.get('mute') else 'audio-volume-high-symbolic' if level>65 else 'audio-volume-medium-symbolic' if level>30 else 'audio-volume-low-symbolic'
     else:
-        data=backend.brightness(); item=next((d for d in data if d['name']==output),None) if output else next((d for d in data if d.get('provider')),None)
-        level=round(item['value']) if item and item.get('value') is not None else None
+        items=backend.brightness_targets(backend.brightness(),output)
+        level=round(sum(item['value'] for item in items)/len(items)) if items else None
         icon='display-brightness-symbolic'
-    return {'icon':icon,'text':f'{level}%' if level is not None else '—','available':level is not None}
+    result={'icon':icon,'text':f'{level}%' if level is not None else '—','available':level is not None}
+    if level is None:result['error']=tr('未找到可用的默认声音输出，请连接或选择声音输出设备。' if kind=='sound' else '未找到可调节亮度的显示器；请检查背光、DDC/CI 或软件亮度服务。')
+    if kind=='sound' and level is None:
+        result['state']='no-device';result['icon']='audio-volume-muted-symbolic'
+    return result
 
 
 def run(kind, detailed, anchor=None, output=None):
+    output = output or None
     import gi
     gi.require_version('Gtk','3.0')
     gi.require_version('Gdk','3.0')
@@ -40,8 +68,9 @@ def run(kind, detailed, anchor=None, output=None):
     class Panel(Gtk.ApplicationWindow):
         def __init__(self):
             super().__init__(application=app)
-            self.closed=False; self.pending={}; self.busy=False; self.timer=0; self.generation=0; self.read_future=None; self.poll_timer=0; self.updating=False; self.audio_refs=[]; self.identity=None
+            self.closed=False; self.pending={}; self.busy=False; self.timer=0; self.generation=0; self.edit_serial=0; self.read_future=None; self.poll_timer=0; self.updating=False; self.audio_refs=[]; self.identity=None
             self.pool=ThreadPoolExecutor(max_workers=1)
+            self.read_pool=ThreadPoolExecutor(max_workers=1)
             self.set_title(tr('音量合成器' if kind=='sound' else '亮度与夜间模式'))
             self.set_decorated(False); self.set_resizable(False); self.set_skip_taskbar_hint(True)
             self.set_type_hint(Gdk.WindowTypeHint.POPUP_MENU)
@@ -77,7 +106,8 @@ def run(kind, detailed, anchor=None, output=None):
             # Preserve the final slider edit if the user dismisses immediately.
             remaining=list(self.pending.values());self.pending.clear()
             if remaining:self.pool.submit(lambda:[fn() for fn in remaining])
-            self.pool.shutdown(wait=False,cancel_futures=False);self.style.close()
+            self.pool.shutdown(wait=False,cancel_futures=False)
+            self.read_pool.shutdown(wait=False,cancel_futures=True);self.style.close()
 
         def position(self,where):
             display=self.get_display();monitor=None
@@ -107,11 +137,11 @@ def run(kind, detailed, anchor=None, output=None):
             self.position(options.get('anchor',{}));self.load()
             self.show_all();self.present()
 
-        def worker(self,function,done):
-            future=self.pool.submit(function)
+        def worker(self,function,done,read=False):
+            future=(self.read_pool if read else self.pool).submit(function)
             def complete(f):
                 try:value=f.result();error=None
-                except Exception as e:value=None;error=str(e)
+                except Exception as e:value=None;error=error_message(kind,e)
                 if not self.closed:GLib.idle_add(done,value,error)
             future.add_done_callback(complete)
             return future
@@ -119,21 +149,32 @@ def run(kind, detailed, anchor=None, output=None):
         def load(self,*_):
             self.generation+=1
             generation=self.generation
+            edit_serial=self.edit_serial
             for child in self.body.get_children():child.destroy()
-            self.body.pack_start(Gtk.Label(label=tr('正在读取系统状态…'),xalign=0),False,False,0)
+            cached=backend.cached_brightness() if kind=='brightness' else None
+            if cached:self.brightness(cached)
+            else:self.body.pack_start(Gtk.Label(label=tr('正在读取系统状态…'),xalign=0),False,False,0)
             self.body.show_all()
             def complete(data,error):
                 if self.closed or generation!=self.generation:return False
+                if cached:
+                    # Never replace a slider while dragging or overwrite an edit
+                    # queued after the hardware refresh began.
+                    def grabbed(widget):
+                        return (isinstance(widget,Gtk.Scale) and widget.has_grab()) or (isinstance(widget,Gtk.Container) and any(grabbed(c) for c in widget.get_children()))
+                    if self.edit_serial!=edit_serial or self.pending or self.busy or grabbed(self.body):return False
+                    if error:self.error.set_text(error);return False
                 for child in self.body.get_children():child.destroy()
                 if error:self.body.pack_start(Gtk.Label(label=error,wrap=True),False,False,0)
                 elif kind=='sound':self.sound(data)
                 else:self.brightness(data)
                 self.body.show_all();return False
             if self.read_future:self.read_future.cancel()
-            self.read_future=self.worker(lambda: backend.audio(self.detailed) if kind=='sound' else backend.brightness(),complete)
+            self.read_future=self.worker(lambda: backend.audio(self.detailed) if kind=='sound' else backend.brightness(force=bool(_)),complete,read=True)
 
         def queue(self,key,function):
             if self.closed or self.updating:return
+            self.edit_serial+=1
             self.pending[key]=function
             if not self.timer:self.timer=GLib.timeout_add(120,self.flush)
 
@@ -166,6 +207,7 @@ def run(kind, detailed, anchor=None, output=None):
             control=Gtk.Scale.new_with_range(Gtk.Orientation.VERTICAL if vertical else Gtk.Orientation.HORIZONTAL,low,high,1 if high==100 else 100)
             control.set_digits(0);control.set_value(value);control.set_hexpand(not vertical)
             if vertical:control.set_inverted(True);control.set_size_request(60,150);control.set_value_pos(Gtk.PositionType.BOTTOM)
+            control.connect('notify::sensitive',lambda c,_:label.set_sensitive(c.get_sensitive()))
             control.connect('value-changed',lambda c:callback(c.get_value()))
             parent.pack_start(control,False,False,0);return control
 
@@ -228,29 +270,45 @@ def run(kind, detailed, anchor=None, output=None):
                             scale.set_value(min(100,item['volume']));mute.set_active(item.get('mute',False))
                 finally:self.updating=False
                 return False
-            self.read_future=self.worker(lambda:backend.audio(self.detailed),done)
+            self.read_future=self.worker(lambda:backend.audio(self.detailed),done,read=True)
             return True
 
         def brightness(self,items):
             self.header('亮度与夜间模式' if self.detailed else '亮度')
             if not items:self.body.pack_start(Gtk.Label(label=tr('无可用配置')),False,False,0);return
-            if not self.detailed:items=[next((i for i in items if i['name']==output),next((i for i in items if i.get('provider')),items[0]))]
+            if not self.detailed:
+                targets=backend.brightness_targets(items,output)
+                level=sum(item['value'] for item in targets)/len(targets) if targets else 100
+                slider=self.scale(self.body,tr('所有可调显示器') if not output else output,level,
+                                  lambda v:self.queue(('all','brightness'),lambda:backend.brightness_all(targets,v)),low=5)
+                slider.set_sensitive(bool(targets))
+                if not targets:self.body.pack_start(Gtk.Label(label=tr('无可用配置'),xalign=0),False,False,0)
+                return
             scroll=Gtk.ScrolledWindow();scroll.set_policy(Gtk.PolicyType.NEVER,Gtk.PolicyType.AUTOMATIC);scroll.set_max_content_height(600);scroll.set_propagate_natural_height(True)
             content=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=18);scroll.add(content);self.body.pack_start(scroll,True,True,0)
-            for item in items:
+            for index,item in enumerate(items):
+                if index:
+                    divider=Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+                    content.pack_start(divider,False,False,0)
                 panel=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=8);content.pack_start(panel,False,False,0)
                 name=item['name'];title=item['description']+' · '+name
                 slider=self.scale(panel,title,item.get('value') or 100,lambda v,i=item:self.queue((i['name'],'brightness'),lambda:backend.brightness_write(i,'brightness',v)),low=5)
                 slider.set_sensitive(bool(item.get('provider')))
-                if not item.get('provider'):panel.pack_start(Gtk.Label(label=tr('无可用配置'),xalign=0),False,False,0)
+                if not item.get('provider'):
+                    unavailable=Gtk.Label(label=tr('无可用配置'),xalign=0);unavailable.set_sensitive(False)
+                    panel.pack_start(unavailable,False,False,0)
                 if not self.detailed:continue
                 temp=self.scale(panel,tr('色温')+' (K)',item['temperature'],lambda v,i=item:self.queue((i['name'],'temperature'),lambda:backend.brightness_write(i,'temperature',v)),low=1000,high=10000)
                 temp.set_sensitive(bool(item.get('color_provider')))
-                row=Gtk.Box(spacing=12);row.pack_start(Gtk.Label(label=tr('夜间模式'),xalign=0),True,True,0)
+                row=Gtk.Box(spacing=12)
+                night_label=Gtk.Label(label=tr('夜间模式'),xalign=0);night_label.set_sensitive(bool(item.get('color_provider')))
+                row.pack_start(night_label,True,True,0)
                 night=compact_switch(Gtk.Switch(active=item['night']));night.set_sensitive(bool(item.get('color_provider')))
                 night.connect('notify::active',lambda c,_,i=item:self.queue((i['name'],'temperature'),lambda v=c.get_active():backend.brightness_write(i,'night',v)))
                 row.pack_end(night,False,False,0);panel.pack_start(row,False,False,0)
-                if not item.get('color_provider'):panel.pack_start(Gtk.Label(label=tr('需要 wl-gammarelay-rs 或 wlsunset 才能调节色温。'),xalign=0,wrap=True),False,False,0)
+                if not item.get('color_provider'):
+                    unavailable=Gtk.Label(label=tr('需要 wl-gammarelay-rs 或 wlsunset 才能调节色温。'),xalign=0,wrap=True);unavailable.set_sensitive(False)
+                    panel.pack_start(unavailable,False,False,0)
 
     panel=Panel()
     action=Gio.SimpleAction.new('open',GLib.VariantType.new('s'))
@@ -273,7 +331,8 @@ def main():
         if args.step is not None:backend.step(args.kind,args.step,args.output);return 0
         return run(args.kind,args.panel,json.loads(args.anchor) if args.anchor else None,args.output)
     except Exception as error:
-        if args.status:print(json.dumps({'icon':'dialog-warning-symbolic','text':'—','available':False}))
+        if args.status:print(json.dumps({'icon':'audio-volume-high-symbolic' if args.kind=='sound' else 'display-brightness-symbolic',
+                                        'text':'—','available':False,'error':error_message(args.kind,error)}))
         else:print(str(error),file=sys.stderr)
         return 1
 

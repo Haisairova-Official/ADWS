@@ -55,8 +55,10 @@ class InstallationTests(unittest.TestCase):
         (self.project/'src/panel-rows').mkdir()
         (self.project/'src/panel-rows/libadws_panel.so').write_text('test panel')
         for program, script in {
-            'cargo': 'mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so\nprintf test > target/release/adws-plugin-runner\nprintf test > target/release/adws-start-menu',
+            'rustc': 'printf "rustc 1.87.0\\n"',
+            'cargo': 'if [ "$1" = --version ]; then printf "cargo 1.87.0\\n"; exit 0; fi; mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so\nprintf test > target/release/adws-plugin-runner\nprintf test > target/release/adws-start-menu',
             'make': 'exit 0',
+            'fc-list': 'printf "Symbols Nerd Font\\n"',
             'cc': 'while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; printf test > "$1"; exit 0; fi; shift; done',
         }.items():
             file=self.bin/program;file.write_text('#!/bin/sh\n'+script+'\n');file.chmod(0o755)
@@ -187,6 +189,9 @@ runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_n
         source = self.root / 'project'
         (source / 'src/niri-taskbar/target/release').mkdir(parents=True)
         shutil.copy2(ROOT / 'adws', source / 'adws')
+        shutil.copytree(ROOT / 'tools', source / 'tools', ignore=shutil.ignore_patterns('__pycache__'))
+        shutil.copytree(ROOT / 'src/niri-desktop-layer/desktop_layer', source / 'src/niri-desktop-layer/desktop_layer', ignore=shutil.ignore_patterns('__pycache__'))
+        shutil.copytree(ROOT / 'language', source / 'language')
         (source / 'scripts').mkdir()
         shutil.copy2(ROOT / 'scripts/adws-i18n.sh', source / 'scripts/adws-i18n.sh')
         artifact = source / 'src/niri-taskbar/target/release/libniri_taskbar.so'
@@ -196,7 +201,7 @@ runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_n
         held = old.open()
         self.addCleanup(held.close)
         cargo = self.bin / 'cargo'
-        cargo.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/cargo-args"\nexit 0\n')
+        cargo.write_text('#!/bin/sh\nif [ "$1" = --version ]; then printf "cargo 1.87.0\\n"; exit 0; fi\nprintf "%s\\n" "$@" > "$HOME/cargo-args"\nexit 0\n')
         cargo.chmod(0o755)
         result = subprocess.run([str(source / 'adws'), 'build-taskbar'], env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -21,7 +21,7 @@ def profile_path():
     return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'adws/waybar-top.json'
 
 def rendered(root=ROOT,preview=False):
-    data=decode((root/'config/waybar/config-top.jsonc').read_text())
+    data=decode((root/'config/waybar/config-top.jsonc').read_text(encoding='utf-8'))
     zh=chinese()
     def command(tab=None):return shlex.join(['bash',str(root/'adws'),'config',*(['--tab',tab] if tab else [])])
     def helper(name,*args):return shlex.join([sys.executable,str(root/'tools'/name),*args])
@@ -81,7 +81,7 @@ def rendered(root=ROOT,preview=False):
     if not pulse_socket.exists() and not os.environ.get('PULSE_SERVER') and shutil.which('wpctl'):
         data['group/audio']['modules']=['wireplumber']
     def battery_device(path):
-        try:return (path/'type').read_text().strip()=='Battery'
+        try:return (path/'type').read_text(encoding='utf-8').strip()=='Battery'
         except OSError:return False
     if not any(battery_device(p) for p in Path('/sys/class/power_supply').glob('*')):
         data['modules-right'].remove('battery')
@@ -94,7 +94,8 @@ def rendered(root=ROOT,preview=False):
         data['custom/settings']['tooltip-format']='临时预览 · ADWS 设置' if zh else 'Temporary preview · ADWS settings'
         data['modules-right'].append('custom/adws-preview-close')
         data['custom/adws-preview-close']={'format':'×','tooltip-format':'关闭此预览，不影响原有 Waybar' if zh else 'Close this preview; keep the original Waybar','on-click':shlex.join([sys.executable,str(root/'tools/adws_topbar.py'),'--stop-preview'])}
-    css=(root/'config/waybar/style-top.css').read_text()
+    from adws_fonts import with_symbol_fallbacks
+    css=with_symbol_fallbacks((root/'config/waybar/style-top.css').read_text(encoding='utf-8'))
     for side in ('left','right'):
         name='arrow-'+side+'-symbolic.svg'
         css=css.replace('url('+json.dumps(name)+')','url('+css_string(str(root/'config/waybar'/name))+')')
@@ -117,9 +118,9 @@ def stop_preview():
     marker=preview_path()
     if not marker.is_file():return False
     try:
-        record=json.loads(marker.read_text());proc=Path('/proc')/str(record['pid'])
+        record=json.loads(marker.read_text(encoding='utf-8'));proc=Path('/proc')/str(record['pid'])
         args=(proc/'cmdline').read_bytes().decode().split('\0')
-        identity=(proc/'stat').read_text().rsplit(')',1)[1].split()[19]
+        identity=(proc/'stat').read_text(encoding='utf-8').rsplit(')',1)[1].split()[19]
         if Path(args[0]).name=='waybar' and record['config'] in args and identity==record['start'] and proc.stat().st_uid==os.getuid():os.kill(record['pid'],signal.SIGTERM)
     except (OSError,ValueError,KeyError,IndexError):pass
     marker.unlink(missing_ok=True);return True
@@ -132,29 +133,29 @@ def preview(root=ROOT,preset="standard"):
     directory=Path(tempfile.mkdtemp(prefix='adws-top-preview-'))
     from adws_waybar_presets import rendered as preset_rendered
     config,css=preset_rendered(preset,root,preview=True)
-    (directory/'config.jsonc').write_text(config);(directory/'style.css').write_text(css)
+    (directory/'config.jsonc').write_text(config, encoding='utf-8');(directory/'style.css').write_text(css, encoding='utf-8')
     colors=folder()/'colors.css'
     shutil.copy2(colors if colors.is_file() else root/'config/waybar/colors.css',directory/'colors.css')
     log=directory/'waybar.log'
     with log.open('w') as stream:process=subprocess.Popen([binary,'-c',str(directory/'config.jsonc'),'-s',str(directory/'style.css')],stdout=stream,stderr=stream,start_new_session=True)
     import time
     time.sleep(.6)
-    if process.poll() is not None:raise RuntimeError(_tr('Waybar 预览未能启动：%s') % log.read_text()[-1800:])
-    start=(Path('/proc')/str(process.pid)/'stat').read_text().rsplit(')',1)[1].split()[19]
+    if process.poll() is not None:raise RuntimeError(_tr('Waybar 预览未能启动：%s') % log.read_text(encoding='utf-8')[-1800:])
+    start=(Path('/proc')/str(process.pid)/'stat').read_text(encoding='utf-8').rsplit(')',1)[1].split()[19]
     replace_files({preview_path():(json.dumps({'pid':process.pid,'start':start,'config':str(directory/'config.jsonc'),'log':str(log)})+'\n').encode()})
     return directory
 
 def add_autostart(path):
     """Only a fresh default profile may receive this opt-in startup block."""
     from adws_autostart import write_config
-    text=Path(path).read_text()
+    text=Path(path).read_text(encoding='utf-8')
     # Keep existing Waybar startup commands, including included config fragments.
     def existing(file,seen):
         file=Path(file).resolve()
         if file in seen:return False
         if len(seen)>32:return True
         seen.add(file)
-        try:source=file.read_text()
+        try:source=file.read_text(encoding='utf-8')
         except OSError:return True
         from adws_layout import _strip_jsonc
         source=_strip_jsonc(source)
@@ -167,7 +168,7 @@ def add_autostart(path):
                 if existing(child if child.is_absolute() else file.parent/child,seen):return True
         return False
     if BEGIN in text or existing(path,set()):return False
-    data=json.loads(profile_path().read_text())
+    data=json.loads(profile_path().read_text(encoding='utf-8'))
     from adws_waybar_compat import resolve_waybar
     argv=[resolve_waybar() or 'waybar','-c',data['config'],'-s',data['style']]
     line='spawn-at-startup '+' '.join(json.dumps(v,ensure_ascii=False) for v in argv)
@@ -175,7 +176,7 @@ def add_autostart(path):
 
 def offer_autostart():
     if not profile_path().is_file():return
-    data=json.loads(profile_path().read_text())
+    data=json.loads(profile_path().read_text(encoding='utf-8'))
     if not data.get('installed_default'):return
     from adws_launcher import ask
     try:

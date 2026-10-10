@@ -872,6 +872,24 @@ def run_gui(args, cfg, directory):
             dialog.connect("response", lambda w, result: LOG.info(_tr('弹窗响应：%s，结果=%s'), w.get_title(), result))
             dialog.show_all()
 
+        def open_with(self, key):
+            if self.launch_dialog:
+                self.launch_dialog.present()
+                return
+            from .open_with import choose
+            keys = list(self.selection) if key in self.selection else [key]
+            paths = [entry.path for value in keys if (entry := self.entry(value)) is not None]
+            def failure(message):
+                dialog = Gtk.MessageDialog(transient_for=self, modal=True,
+                    message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.CLOSE,
+                    text=_tr('打开失败'))
+                dialog.format_secondary_text(message)
+                dialog.connect('response', lambda *_: dialog.destroy())
+                dialog.show_all()
+            self.launch_dialog = choose(self, paths, failure)
+            if self.launch_dialog:
+                self.launch_dialog.connect('destroy', lambda *_: setattr(self, 'launch_dialog', None))
+
         def make_menu(self, key):
             menu = Gtk.Menu()
             def item(parent, label, callback=None, icon=None):
@@ -926,6 +944,7 @@ def run_gui(args, cfg, directory):
             if key:
                 item(menu, ''.join([_tr('打开选中的 '), f'{len(self.selection)}', _tr(' 项')]) if len(self.selection) > 1 else _tr('打开'),
                      self.open_selected if len(self.selection) > 1 else lambda: self.open_entry(key))
+                item(menu, _tr('用指定应用打开…'), lambda: self.open_with(key), 'application-x-executable-symbolic')
                 item(menu, _tr('在 Thunar 中显示'), self.reveal_selected)
                 item(menu, _tr('复制文件路径'), self.copy_paths)
                 item(menu, _tr('重命名…'), (lambda: self.rename_entry(key)) if len(self.selection) <= 1 else None)

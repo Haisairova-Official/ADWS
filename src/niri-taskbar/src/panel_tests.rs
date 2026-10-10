@@ -450,3 +450,35 @@ fn lyric_width_changes_do_not_reload_unchanged_icons() {
         unsafe {host.destroy();}
     }
 }
+
+#[test]
+#[ignore = "requires an isolated GTK display"]
+fn repeated_group_snapshots_preserve_focused_style() {
+    use std::{cell::Cell, rc::Rc};
+    gtk::init().unwrap();
+    let state=State::new(serde_json::from_value(json!({"group_windows":true,"window_animations":false})).unwrap());
+    let grid=gtk::Grid::new();
+    let window=gtk::Window::new(gtk::WindowType::Toplevel);
+    window.add(&grid);window.show_all();
+    let mut instance=Instance::new(state,grid);
+    instance.pins.clear();
+    let filter=Arc::new(Mutex::new(output::Filter::Only("DP-1".into())));
+    let main=gtk::glib::MainContext::default();
+    main.block_on(instance.process_window_snapshot(snapshot(),filter.clone()));
+    settle();
+    let context=instance.buttons[&1].widget().style_context();
+    assert!(context.has_class("focused"));
+    let changes=Rc::new(Cell::new(0));let count=changes.clone();
+    let handler=context.connect_changed(move |_|count.set(count.get()+1));
+    let began=std::time::Instant::now();
+    for _ in 0..100 {
+        main.block_on(instance.process_window_snapshot(snapshot(),filter.clone()));
+        let _=context.color(gtk::StateFlags::NORMAL);
+        while gtk::events_pending(){gtk::main_iteration();}
+    }
+    eprintln!("100 identical grouped snapshots: {:?}, style invalidations: {}",began.elapsed(),changes.get());
+    assert_eq!(changes.get(),0,"unchanged grouped focus restarted style work");
+    assert!(context.has_class("focused"));
+    context.disconnect(handler);
+    unsafe {window.destroy();}
+}

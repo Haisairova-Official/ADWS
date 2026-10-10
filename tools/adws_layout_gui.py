@@ -381,7 +381,7 @@ class LayoutWindow:
         box = Gtk.Box(spacing=10)
         icon = {"start": "view-app-grid-symbolic", "windows": "view-grid-symbolic",
                 "workspaces": "view-dual-symbolic", "clock": "preferences-system-time-symbolic",
-                "tray": "view-more-symbolic", "sound": "audio-volume-high-symbolic", "brightness": "display-brightness-symbolic"}.get(entry['key'], 'application-x-addon-symbolic')
+                "tray": "view-more-symbolic", "sound": "audio-volume-high-symbolic", "brightness": "display-brightness-symbolic", "sidebar": "view-grid-symbolic"}.get(entry['key'], 'application-x-addon-symbolic')
         box.pack_start(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.LARGE_TOOLBAR), False, False, 0)
         labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         title = Gtk.Label(label=entry['name'], xalign=0)

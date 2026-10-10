@@ -27,6 +27,7 @@ PAGES = (
     Page('layout', '组件与插件', '排列组件，管理插件和时钟。', 'application-x-addon-symbolic', '工作空间', 'layout plugin component clock lyrics 布局 插件 组件 时钟 歌词'),
     Page('start', '开始菜单', '启动器、按钮图样、菜单主题与键位。', 'view-app-grid-symbolic', '工作空间', 'start launcher keyboard rofi fuzzel 开始 启动器 快捷键'),
     Page('wallpaper', '壁纸', '选择图片与壁纸管理工具。', 'preferences-desktop-wallpaper-symbolic', '个性化', 'wallpaper background awww swww swaybg 壁纸 背景'),
+    Page('sidebar', '侧边栏', '信息、小工具与天气。', 'view-list-symbolic', '工作空间', 'sidebar widgets weather 侧边栏 小工具 天气'),
     Page('apps', '默认应用', '选择打开网页、文件夹与文本的应用。', 'application-x-executable-symbolic', '个性化', 'default browser files editor 默认 浏览器 文件管理器 编辑器'),
     Page('components', '会话与组件', '管理桌面、任务栏的运行与登录自启。', 'system-run-symbolic', '系统', 'session services autostart restart 组件 自启 重启 会话'),
     Page('about', '更新与配置', '检查更新、导入导出配置或重新运行向导。', 'help-about-symbolic', '系统', 'about update beta import export setup 关于 更新 导入 导出 向导'),
@@ -372,6 +373,9 @@ class SystemSettingsWindow(Gtk.Window):
             from adws_waybar_gui import WaybarPage
             self.waybar_page = WaybarPage(self)
             return self.scroll(self.waybar_page)
+        if key == 'sidebar':
+            from adws_sidebar import build_settings
+            return self.scroll(build_settings(self))
         if key == 'apps':
             return self.scroll(self.build_apps())
         if key == 'wallpaper':
@@ -591,6 +595,8 @@ class SystemSettingsWindow(Gtk.Window):
             line.pack_start(button, False, False, 0)
         section.pack_start(line, False, False, 0)
         box.pack_start(section, False, False, 0)
+        from adws_app_scaling import build_card
+        box.pack_start(build_card(self), False, False, 0)
         return box
 
     def deploy_terminal_preset(self, name):

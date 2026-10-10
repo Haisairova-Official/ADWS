@@ -31,7 +31,7 @@ class LayoutInstancesTests(unittest.TestCase):
         self.assertEqual(new, layout.normalize_layout(new))
         self.assertFalse(new['builtins'][0]['enabled'])
         self.assertEqual(new['builtins'][0]['instance'], 'start')
-        self.assertEqual(len(new['builtins']), 7)
+        self.assertEqual(len(new['builtins']), len(layout.BUILTIN_INFO))
 
     def test_two_starts_have_separate_commands_icons_slots_and_context_menus(self):
         state = {'apiVersion':2, 'builtins':[
@@ -139,3 +139,25 @@ class LayoutInstancesTests(unittest.TestCase):
 
 
 if __name__ == '__main__':unittest.main()
+
+
+class SidebarComponentTests(unittest.TestCase):
+    def test_sidebar_is_optional_anchored_singleton_builtin(self):
+        entry = next(row for row in layout.component_catalog([]) if row['key']=='sidebar')
+        self.assertFalse(entry['required']); self.assertFalse(entry['repeatable'])
+        row=layout.new_builtin('sidebar',[],{})
+        with self.assertRaises(ValueError): layout.new_builtin('sidebar',[row],{})
+        state={'apiVersion':2,'builtins':[row],'plugins':[],'options':{'position':'left'}}
+        result=layout.render_waybar_config(state,available=[],base={'custom/sidebar':{'on-click':'old'}})
+        self.assertIn('cffi/system-sidebar',result['modules-right'])
+        self.assertEqual(result['cffi/system-sidebar']['component'],'sidebar')
+        self.assertTrue(result['cffi/system-sidebar']['control_helper'].endswith('/tools/adws_sidebar.py'))
+        self.assertTrue(result['cffi/system-sidebar']['vertical'])
+        self.assertNotIn('custom/sidebar',result)
+        self.assertNotIn('exec',result['cffi/system-sidebar'])
+        row['slot']='center'
+        result=layout.render_waybar_config(state,available=[],base={})
+        self.assertIn('cffi/system-sidebar',result['modules-center'])
+        row['enabled']=False
+        result=layout.render_waybar_config(state,available=[],base={})
+        self.assertNotIn('cffi/system-sidebar',result['modules-center'])

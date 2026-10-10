@@ -13,6 +13,18 @@ class RuntimeTests(unittest.TestCase):
         mock = patch('adws_oobe.launch')
         mock.start()
         self.addCleanup(mock.stop)
+    def test_x11_start_and_restart_do_not_stop_or_spawn_components(self):
+        import os
+        with patch.dict(os.environ, {'XDG_SESSION_TYPE':'x11','NIRI_SOCKET':'stale','WAYLAND_DISPLAY':'stale'}), patch.object(runtime,'pids') as pids, patch.object(runtime.subprocess,'Popen') as spawn:
+            for component in ('desktop','taskbar'):
+                for operation in ('--start','--restart','--debug'):
+                    self.assertEqual(runtime.main([component,operation]),1)
+            pids.assert_not_called();spawn.assert_not_called()
+
+    def test_x11_ignores_inherited_wayland_compositor_sockets(self):
+        from adws_display import detect_session
+        self.assertIsNone(detect_session({'XDG_SESSION_TYPE':'x11','XDG_CURRENT_DESKTOP':'niri','NIRI_SOCKET':'stale','HYPRLAND_INSTANCE_SIGNATURE':'stale'}))
+
     def test_taskbar_inherits_own_niri_session_locale(self):
         import tempfile
         from adws_i18n import chinese

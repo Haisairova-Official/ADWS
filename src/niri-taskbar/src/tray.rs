@@ -348,6 +348,10 @@ impl Tray {
                 if let Some(tray) = weak.upgrade() {
                     if name == WATCHER && !new.is_empty() {
                         let _ = tx.try_send("@watcher".into());
+                    } else if name.starts_with("org.kde.StatusNotifierItem-") && !new.is_empty() {
+                        // Some Qt applications keep their SNI service but miss
+                        // registration after the watcher/host is restarted.
+                        let _ = tx.try_send(format!("{name}/StatusNotifierItem"));
                     }
                     if !old.is_empty() && new.is_empty() {
                         tray_remove(&tray, &name);
@@ -436,6 +440,25 @@ impl Tray {
                         .await;
                     for item in items {
                         add_item(&weak, &item).await;
+                    }
+                }
+                // Recover live, standard SNI services omitted from the watcher
+                // inventory. Query asynchronously; never scan processes or poll.
+                if let Some(tray) = weak.upgrade() {
+                    let bus = tray.bus.borrow().clone();
+                    drop(tray);
+                    if let Some(bus) = bus {
+                        if let Ok(reply) = bus.call_future(
+                            Some("org.freedesktop.DBus"), "/org/freedesktop/DBus",
+                            "org.freedesktop.DBus", "ListNames", None, None,
+                            gio::DBusCallFlags::NO_AUTO_START, 1500,
+                        ).await {
+                            if let Some(names) = reply.child_value(0).get::<Vec<String>>() {
+                                for name in names.into_iter().filter(|name| name.starts_with("org.kde.StatusNotifierItem-")) {
+                                    add_item(&weak, &format!("{name}/StatusNotifierItem")).await;
+                                }
+                            }
+                        }
                     }
                 }
             }));
@@ -558,7 +581,11 @@ async fn add_item(weak: &std::rc::Weak<Tray>, address: &str) {
         return;
     }
     let Some(tray) = weak.upgrade() else { return };
-    if tray.items.borrow().contains_key(address) {
+    if tray.items.borrow().contains_key(address)
+        || tray.items.borrow().values().any(|item|
+            item.proxy.name_owner() == proxy.name_owner()
+                && item.proxy.object_path() == proxy.object_path())
+    {
         return;
     }
     let button = gtk::Button::new();
@@ -889,6 +916,39 @@ mod gui_tests {
         std::fs::remove_file(path).unwrap();
     }
     const ITEM_XML: &str = r#"<node><interface name="org.kde.StatusNotifierItem"><method name="Activate"><arg type="i" direction="in"/><arg type="i" direction="in"/></method><method name="ContextMenu"><arg type="i" direction="in"/><arg type="i" direction="in"/></method><property name="Title" type="s" access="read"/><property name="Status" type="s" access="read"/><property name="IconName" type="s" access="read"/><property name="ItemIsMenu" type="b" access="read"/></interface></node>"#;
+    #[test]
+    #[ignore = "requires isolated GTK and session bus"]
+    fn existing_unregistered_sni_is_recovered_and_not_duplicated() {
+        gtk::init().unwrap();
+        let context = glib::MainContext::default();
+        let _guard = context.acquire().unwrap();
+        let bus = context.block_on(gio::bus_get_future(gio::BusType::Session)).unwrap();
+        let iface = gio::DBusNodeInfo::for_xml(ITEM_XML).unwrap().lookup_interface(ITEM).unwrap();
+        let reg = bus.register_object("/StatusNotifierItem", &iface,
+            |_,_,_,_,_,_,call| call.return_value(Some(&().to_variant())),
+            |_,_,_,_,property| match property {
+                "Title" => "WeChat fixture".to_variant(),
+                "Status" => "Active".to_variant(),
+                "ItemIsMenu" => false.to_variant(),
+                _ => "audio-volume-high-symbolic".to_variant(),
+            }, |_,_,_,_,_,_| false).unwrap();
+        let name = "org.kde.StatusNotifierItem-12345-9";
+        let owner = gio::bus_own_name_on_connection(&bus, name, gio::BusNameOwnerFlags::NONE, |_,_|{}, |_,_|{});
+        context.block_on(glib::timeout_future(Duration::from_millis(80)));
+        let root = gtk::Box::new(gtk::Orientation::Horizontal,0);
+        let config:Config=serde_json::from_str(r#"{"component":"tray"}"#).unwrap();
+        let tray = Tray::new(root.upcast_ref(), &config);
+        context.block_on(glib::timeout_future(Duration::from_millis(250)));
+        assert_eq!(tray.items.borrow().len(),1,"live SNI must recover without registration");
+        assert!(tray.items.borrow().values().next().unwrap().active.get());
+        context.block_on(add_item(&Rc::downgrade(&tray), &format!("{}/StatusNotifierItem", bus.unique_name().unwrap())));
+        assert_eq!(tray.items.borrow().len(),1,"service aliases must not duplicate icons");
+        gio::bus_unown_name(owner);
+        context.block_on(glib::timeout_future(Duration::from_millis(100)));
+        assert!(tray.items.borrow().is_empty(),"a withdrawn service must still disappear");
+        drop(tray);
+        bus.unregister_object(reg).unwrap();
+    }
     #[test]
     #[ignore = "requires isolated GTK and session bus"]
     fn overflow_and_unload_are_bounded() {

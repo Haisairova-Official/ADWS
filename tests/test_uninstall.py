@@ -24,7 +24,7 @@ class UninstallTests(unittest.TestCase):
         self.root.mkdir()
         self.addCleanup(patch.stopall)
         patch.object(removal, 'ROOT', self.root).start()
-        patch.dict(os.environ, HOME=str(self.home), XDG_CONFIG_HOME=str(self.config), XDG_STATE_HOME=str(self.state),
+        patch.dict(os.environ, HOME=str(self.home), XDG_CONFIG_HOME=str(self.config), XDG_STATE_HOME=str(self.state), XDG_DATA_HOME=str(self.base/'data'),
                    NIRI_CONFIG=str(self.config/'niri/config.kdl')).start()
         self.control = patch('adws_runtime.main', return_value=0).start()
         (self.home / '.local/bin').mkdir(parents=True)

@@ -1,4 +1,5 @@
 """Optional user-local Nerd Fonts symbols, pinned to an official release."""
+import re
 import hashlib
 import os
 from pathlib import Path
@@ -14,6 +15,73 @@ URL = 'https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/NerdFont
 SHA256 = 'fdca3682534f6f65e1ccb2345b0362ccf67d9b8eca7c8025330946e93e2473bc'
 FONTS = ('SymbolsNerdFont-Regular.ttf', 'SymbolsNerdFontMono-Regular.ttf')
 LIMIT = 8 * 1024 * 1024
+
+
+def _skip_css_token(text, index):
+    """Skip comments, strings and escapes without interpreting their contents."""
+    if text.startswith('/*', index):
+        end = text.find('*/', index + 2)
+        return len(text) if end < 0 else end + 2
+    if text[index] in ('"', "'"):
+        quote = text[index]; index += 1
+        while index < len(text):
+            if text[index] == chr(92): index += 2
+            elif text[index] == quote: return index + 1
+            else: index += 1
+        return len(text)
+    if text[index] == chr(92): return min(len(text), index + 2)
+    return index + 1
+
+
+def _font_value(value):
+    boundaries = [0]; index = 0
+    while index < len(value):
+        if value.startswith('/*', index) or value[index] in ('"', "'", chr(92)):
+            index = _skip_css_token(value, index)
+        else:
+            if value[index] == ',': boundaries.append(index + 1)
+            index += 1
+    parts = [value[start:(boundaries[i+1]-1 if i+1 < len(boundaries) else len(value))]
+             for i, start in enumerate(boundaries)]
+    names = [re.sub(r'/\*.*?\*/', '', part, flags=re.S).strip().lower() for part in parts]
+    # Global keywords cannot be combined with a font list. Preserve comments.
+    if names[0] in ('inherit', 'initial', 'unset', 'revert', 'revert-layer'):
+        return value if len(parts) == 1 else parts[0].rstrip()
+    existing = {name.strip('"\'') for name in names}
+    additions = [name for name in ('Symbols Nerd Font', 'Symbols Nerd Font Mono') if name.lower() not in existing]
+    if not additions: return value
+    addition = ', '.join('"'+name+'"' for name in additions)
+    generic = next((i for i, name in enumerate(names) if name in
+                    ('sans-serif', 'serif', 'monospace', 'cursive', 'fantasy', 'system-ui')), None)
+    if generic is not None:
+        offset = boundaries[generic]
+        whitespace = len(parts[generic]) - len(parts[generic].lstrip())
+        offset += whitespace
+        return value[:offset] + addition + ', ' + value[offset:]
+    return value.rstrip() + ', ' + addition + value[len(value.rstrip()):]
+
+
+def with_symbol_fallbacks(css):
+    """Change declarations only; preserve CSS strings, comments and text fonts."""
+    output = []; start = index = 0
+    while index < len(css):
+        if css.startswith('/*', index) or css[index] in ('"', "'", chr(92)):
+            index = _skip_css_token(css, index); continue
+        match = re.match(r'font-family\s*:', css[index:], re.I)
+        if match and (index == 0 or not (css[index-1].isalnum() or css[index-1] in '_-')):
+            value_start = index + match.end(); end = value_start
+            while end < len(css):
+                if css.startswith('/*', end) or css[end] in ('"', "'", chr(92)):
+                    end = _skip_css_token(css, end)
+                elif css[end] in ';{}': break
+                else: end += 1
+            if end == len(css) or css[end] != '{':
+                output.append(css[start:value_start]); output.append(_font_value(css[value_start:end]))
+                start = index = end
+                continue
+        index += 1
+    output.append(css[start:])
+    return ''.join(output)
 
 
 def available():

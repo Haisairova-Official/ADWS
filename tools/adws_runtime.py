@@ -141,8 +141,9 @@ def help_text(component=None):
     if component is None:
         commands += _tr('依赖修复（操作前会询问）：\n  adws check --repair-waybar  检查 Waybar；安装/升级软件包或构建兼容版本\n  adws check --install-fonts  检测并补装 Nerd Fonts 图标字体（约 3 MB）\n  编译版 Waybar 使用用户专用目录；字体安装保留原来的正文字体。\n\n')
     target = component or "desktop"
+    commands += _tr('  sidebar              打开侧边栏小工具\n')
     commands += _tr('  start-menu           打开 ADWS 开始菜单\n\n')
-    return ''.join([f'{title}', '\n', f'{info.get("help_version") or version_text(info)}', _tr('     构建日期：'), f'{build_date}', _tr('\n\n最新更新：\n'), f'{summary}', _tr('\n\n用法：'), f'{usage}', '\n\n', f'{commands}', _tr('组件选项（desktop / taskbar；每次选择一项）：\n  -s, --start           后台启动；已运行时不重复启动\n  -S, --stop            正常停止\n  -k, --kill            强制结束\n  -r, --restart         正常停止后重新启动\n  -d, --debug           在当前终端运行并输出日志；Ctrl+C 结束\n      --status          查询运行状态与 PID\n  -h, --help, -?        显示帮助\n\n日志级别（仅用于 --debug，默认 -4）：\n  -1 致命   -2 错误   -3 警告   -4 信息   -5 调试   -6 跟踪\n\n示例：\n  adws -s\n  adws -s '), f'{target}', '\n  adws ', f'{target}', ' -s\n  adws ', f'{target}', ' -d -6\n  adws ', f'{target}', _tr(' --status\n\n组件与选项可前后互换；省略组件时，启停、重启和状态查询同时作用于桌面和任务栏。\n调试须指定一个组件。启动成功不输出提示；失败时输出错误。\n调试模式先停止旧实例；结束后用 -s 恢复后台运行。\n停止 desktop 后桌面右键失效；--status 未运行时返回 1。\n\n我不知道 ADWS 含不含有超级牛力。\n')])
+    return ''.join([f'{title}', '\n', f'{_tr(info.get("help_version") or version_text(info))}', _tr('     构建日期：'), f'{build_date}', _tr('\n\n最新更新：\n'), f'{summary}', _tr('\n\n用法：'), f'{usage}', '\n\n', f'{commands}', _tr('组件选项（desktop / taskbar；每次选择一项）：\n  -s, --start           后台启动；已运行时不重复启动\n  -S, --stop            正常停止\n  -k, --kill            强制结束\n  -r, --restart         正常停止后重新启动\n  -d, --debug           在当前终端运行并输出日志；Ctrl+C 结束\n      --status          查询运行状态与 PID\n  -h, --help, -?        显示帮助\n\n日志级别（仅用于 --debug，默认 -4）：\n  -1 致命   -2 错误   -3 警告   -4 信息   -5 调试   -6 跟踪\n\n示例：\n  adws -s\n  adws -s '), f'{target}', '\n  adws ', f'{target}', ' -s\n  adws ', f'{target}', ' -d -6\n  adws ', f'{target}', _tr(' --status\n\n组件与选项可前后互换；省略组件时，启停、重启和状态查询同时作用于桌面和任务栏。\n调试须指定一个组件。启动成功不输出提示；失败时输出错误。\n调试模式先停止旧实例；结束后用 -s 恢复后台运行。\n停止 desktop 后桌面右键失效；--status 未运行时返回 1。\n\n我不知道 ADWS 含不含有超级牛力。\n')])
 
 
 class HelpParser(argparse.ArgumentParser):
@@ -219,6 +220,9 @@ def main(argv=None, quiet=False):
         operation = next('--' + name for name in ('start', 'stop', 'kill', 'restart', 'status') if getattr(args, name))
         results = [main([component, operation], quiet=quiet) for component in ('desktop', 'taskbar')]
         return max(results)
+    if (args.start or args.restart or args.debug) and os.environ.get('XDG_SESSION_TYPE', '').casefold() == 'x11':
+        print(_tr('ADWS 桌面和任务栏需要 Wayland / Niri 会话；X11 下仍可使用 ADWS 系统设置。'), file=sys.stderr)
+        return 1
     level = args.log_level or 4
     targets = pids(args.component)
     if args.status:

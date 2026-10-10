@@ -105,6 +105,8 @@ def remove_autostart():
 
 
 def remove_owned_files(keep_config):
+    from adws_location_registration import remove_location_registration
+    remove_location_registration()
     data = read_inventory()
     roots = {ROOT}
     previous_root = data.get('root')

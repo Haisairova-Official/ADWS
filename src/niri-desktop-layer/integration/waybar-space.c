@@ -4,6 +4,17 @@
 #include <gtk/gtk.h>
 #include <gtk-layer-shell.h>
 
+#ifndef SPACE_TEST
+#include "popup-effect.c"
+/* Older distro libraries do not export this optional commit helper. */
+extern void gtk_layer_try_force_commit(GtkWindow *window) __attribute__((weak));
+
+static void commit_surface(GtkWindow *window) {
+    gtk_widget_queue_draw(GTK_WIDGET(window));
+    if (gtk_layer_try_force_commit) gtk_layer_try_force_commit(window);
+}
+#endif
+
 typedef struct wbcffi_module wbcffi_module;
 typedef struct {
     wbcffi_module *obj;
@@ -40,7 +51,7 @@ static void release_zone(GtkWindow *window);
 #else
 static void release_zone(GtkWindow *window) {
     gtk_layer_set_exclusive_zone(window, 0);
-    gtk_layer_try_force_commit(window);
+    commit_surface(window);
 }
 #endif
 
@@ -65,22 +76,20 @@ static void apply_gap(Space *self, double gap) {
         /* A margin-only change may leave an otherwise idle surface without a
          * frame. Schedule damage and commit instead of waiting for a clock or
          * plugin update to finish initial placement. */
-        gtk_widget_queue_draw(GTK_WIDGET(self->window));
-        gtk_layer_try_force_commit(self->window);
+        commit_surface(self->window);
     }
 #endif
 }
-static gboolean animate_gap(GtkWidget *widget, GdkFrameClock *clock, gpointer data) {
-    (void)widget;
+static gboolean animate_gap(gpointer data) {
     Space *self=data;
-    double t=CLAMP((gdk_frame_clock_get_frame_time(clock)-self->animation_start)/(self->duration*1000.0),0.,1.);
+    double t=CLAMP((g_get_monotonic_time()-self->animation_start)/(self->duration*1000.0),0.,1.);
     double eased=t*t*(3.-2.*t);
     apply_gap(self,self->from_gap+(self->target_gap-self->from_gap)*eased);
     if(t>=1.) {self->animation=0;return G_SOURCE_REMOVE;}
     return G_SOURCE_CONTINUE;
 }
 static void stop_animation(Space *self) {
-    if(self->animation && self->window)gtk_widget_remove_tick_callback(GTK_WIDGET(self->window),self->animation);
+    if(self->animation)g_source_remove(self->animation);
     self->animation=0;
 }
 
@@ -100,7 +109,8 @@ static gboolean sync_state(gpointer data) {
         if(!initial && self->animations && gtk_widget_get_mapped(GTK_WIDGET(self->window))) {
             self->from_gap=self->gap;
             self->animation_start=g_get_monotonic_time();
-            self->animation=gtk_widget_add_tick_callback(GTK_WIDGET(self->window),animate_gap,self,NULL);
+            /* Layer margins must finish even when the compositor supplies no frame callbacks. */
+            self->animation=g_timeout_add_full(G_PRIORITY_DEFAULT,16,animate_gap,self,NULL);
         } else apply_gap(self,self->target_gap);
     }
     int hidden = gtk_style_context_has_class(gtk_widget_get_style_context(GTK_WIDGET(self->window)), "mode-invisible");

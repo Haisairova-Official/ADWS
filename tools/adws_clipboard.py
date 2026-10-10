@@ -1,13 +1,15 @@
 """ADWS clipboard picker over cliphist; no terminal or external menu frontend."""
 import argparse
-from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import os
 from pathlib import Path
 import shutil
+import selectors
 import subprocess
 import sys
+import time
 from adws_i18n import tr
+import adws_clipboard_pins as pins
 
 def run(args,**kwargs):return subprocess.run(args,check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=8,**kwargs).stdout
 
@@ -17,8 +19,65 @@ def entries():
     return [line for line in text.splitlines() if '\t' in line][:500]
 
 def copy_entry(line):
-    data=run(['cliphist','decode'],input=(line+'\n').encode())
+    data=pins.read(line) if pins.identity(line) else run(['cliphist','decode'],input=(line+'\n').encode())
     run(['wl-copy'],input=data)
+
+def list_records():
+    fixed=pins.records();sources={item['source'] for item in fixed}
+    return [item['line'] for item in fixed]+[line for line in entries() if line not in sources]
+
+def toggle_pin(line):
+    if pins.identity(line):
+        # Unpin returns the item to ordinary history, even after that history expired.
+        run(['cliphist','store'],input=pins.read(line));pins.remove(line)
+    else:
+        try:data=preview_data(line,limit=pins.MAX_BYTES,timeout=5)
+        except ValueError as exc:
+            if str(exc)=='Preview too large':raise ValueError(tr('单条固定内容不能超过 32 MiB。')) from exc
+            raise
+        pins.store(line,data)
+    return list_records()
+
+def delete_entry(line):
+    if pins.identity(line):
+        original=next((item['source'] for item in pins.records() if item['line']==line),None)
+        if original and original in entries():run(['cliphist','delete'],input=(original+'\n').encode())
+        pins.remove(line)
+    else:run(['cliphist','delete'],input=(line+'\n').encode())
+
+def preview_data(line, *, limit=8*1024*1024, timeout=2, cancelled=None):
+    """Decode a preview with bounded memory/time; never change the clipboard."""
+    if cancelled and cancelled.is_set(): return b''
+    if pins.identity(line):return pins.read(line,limit=limit)
+    value=(line+'\n').encode()
+    if len(value)>4096: raise ValueError('Preview identifier too large')
+    if cancelled and cancelled.is_set(): return b''
+    with subprocess.Popen(['cliphist','decode'],stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE,stderr=subprocess.DEVNULL) as process:
+        try:
+            process.stdin.write(value);process.stdin.close()
+            deadline=time.monotonic()+timeout;data=bytearray()
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout,selectors.EVENT_READ)
+                while True:
+                    if cancelled and cancelled.is_set(): return b''
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0: raise TimeoutError('Preview timed out')
+                    if not selector.select(min(.05,remaining)): continue
+                    chunk=os.read(process.stdout.fileno(),min(65536,limit-len(data)+1))
+                    if not chunk: break
+                    data.extend(chunk)
+                    if len(data)>limit: raise ValueError('Preview too large')
+            while process.poll() is None:
+                if cancelled and cancelled.is_set():return b''
+                if time.monotonic()>=deadline:raise TimeoutError('Preview timed out')
+                time.sleep(.01)
+            if process.returncode:
+                raise ValueError('Preview unavailable')
+            return bytes(data)
+        finally:
+            if process.poll() is None: process.kill()
+            process.wait()
 
 def watcher_exists():
     for path in Path('/proc').iterdir():
@@ -39,61 +98,14 @@ def ensure_watcher():
             subprocess.Popen(['wl-paste','--watch','cliphist','store'],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
 
 def picker():
-    import gi
-    gi.require_version('Gtk','3.0');gi.require_version('Gdk','3.0')
-    from gi.repository import Gtk,Gio,GLib,Pango,Gdk
-    from adws_launch_dialogs import CompactDialog
-    app=Gtk.Application(application_id='org.akiacg.ADWS.Clipboard',flags=Gio.ApplicationFlags.FLAGS_NONE)
-    def activate(app):
-        if app.get_windows():app.get_windows()[0].present();return
-        dialog=CompactDialog(None,'剪贴板历史',tr('剪贴板历史'),tr('选择一项复制，然后在目标窗口粘贴。'),icon='edit-paste-symbolic',accept=None)
-        app.add_window(dialog);dialog.set_default_size(520,460);dialog.set_resizable(True)
-        try:
-            gi.require_version('GtkLayerShell','0.1');from gi.repository import GtkLayerShell as layer
-            if layer.is_supported():
-                layer.init_for_window(dialog);layer.set_namespace(dialog,'waybar');layer.set_layer(dialog,layer.Layer.OVERLAY);layer.set_keyboard_mode(dialog,layer.KeyboardMode.ON_DEMAND);layer.set_exclusive_zone(dialog,0);layer.set_anchor(dialog,layer.Edge.TOP,True);layer.set_margin(dialog,layer.Edge.TOP,55)
-        except (ImportError,ValueError):pass
-        search=Gtk.SearchEntry();search.set_placeholder_text(tr('搜索剪贴板'));dialog.body.pack_start(search,False,False,0)
-        scroll=Gtk.ScrolledWindow();scroll.set_policy(Gtk.PolicyType.NEVER,Gtk.PolicyType.AUTOMATIC);scroll.set_min_content_height(230)
-        listing=Gtk.ListBox();listing.set_selection_mode(Gtk.SelectionMode.SINGLE);scroll.add(listing);dialog.body.pack_start(scroll,True,True,0)
-        status=Gtk.Label(xalign=0);status.set_line_wrap(True);dialog.body.pack_start(status,False,False,0)
-        controls=Gtk.Box(spacing=8);refresh=Gtk.Button(label=tr('刷新'));clear=Gtk.Button(label=tr('清空历史'));controls.pack_start(refresh,False,False,0);controls.pack_start(clear,False,False,0);dialog.body.pack_start(controls,False,False,0)
-        pool=ThreadPoolExecutor(max_workers=1);closed=[False];busy=[False]
-        def work(job,done):
-            if busy[0]:return
-            busy[0]=True;listing.set_sensitive(False);refresh.set_sensitive(False);clear.set_sensitive(False)
-            def complete(f):
-                def deliver():
-                    if closed[0]:return False
-                    busy[0]=False;listing.set_sensitive(True);refresh.set_sensitive(True);clear.set_sensitive(True)
-                    try:done(f.result())
-                    except Exception as error:status.set_text(str(error))
-                    return False
-                GLib.idle_add(deliver)
-            pool.submit(job).add_done_callback(complete)
-        def show(rows):
-            for row in listing.get_children():listing.remove(row)
-            for line in rows:
-                row=Gtk.ListBoxRow();row.record=line
-                label=Gtk.Label(label=line.split('\t',1)[1],xalign=0);label.set_ellipsize(Pango.EllipsizeMode.END);label.set_max_width_chars(60);label.set_margin_top(10);label.set_margin_bottom(10);row.add(label);listing.add(row)
-            status.set_text(tr('暂无剪贴板历史') if not rows else '');listing.show_all();listing.invalidate_filter()
-        def load(*_):work(entries,show)
-        listing.set_filter_func(lambda row:search.get_text().casefold() in row.record.casefold())
-        search.connect('search-changed',lambda *_:listing.invalidate_filter())
-        listing.connect('row-activated',lambda _,row:work(lambda:copy_entry(row.record),lambda _:dialog.destroy()))
-        def wipe(*_):
-            confirm=CompactDialog(dialog,'清空历史',tr('清空历史'),tr('确定要清空剪贴板历史吗？'),icon='edit-clear-symbolic',accept='确定');confirm.show_all();accepted=confirm.run()==Gtk.ResponseType.OK;confirm.destroy()
-            if accepted:work(lambda:run(['cliphist','wipe']),lambda _:show([]))
-        clear.connect('clicked',wipe);refresh.connect('clicked',load)
-        def close(*_):closed[0]=True;pool.shutdown(wait=False,cancel_futures=True)
-        dialog.connect('destroy',close);dialog.connect('response',lambda *_:dialog.destroy());dialog.show_all();search.grab_focus();load()
-    app.connect('activate',activate);return app.run([])
+    from adws_clipboard_gui import picker as show_picker
+    return show_picker()
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--watch-start',action='store_true');args=parser.parse_args()
     try:
-        ensure_watcher()
-        if args.watch_start:print('ready');return 0
+        if args.watch_start:
+            ensure_watcher();print('ready');return 0
         return picker()
     except Exception as error:
         print(str(error),file=sys.stderr)

@@ -220,7 +220,7 @@ sys.exit(1)
                 if args[0]=='bash':(lib/names[0]).write_text('NEW')
                 if args[0]=='cc':Path(args[args.index('-o')+1]).write_text('NEW')
                 return subprocess.CompletedProcess(args,0)
-            with patch('adws_fonts.ensure_fonts',return_value=True),patch.object(Path,'home',return_value=root),patch.object(setup,'ROOT',root),patch.object(setup,'dependency_errors',return_value=[]),patch('adws_prebuilt.install',return_value=False),patch.object(setup,'confirm',return_value=True),patch.object(setup,'check',return_value=0),patch.object(setup.shutil,'which',return_value='/usr/bin/tool'),patch.object(setup.subprocess,'run',side_effect=build),patch.object(setup.subprocess,'check_output',return_value=''):
+            with patch.object(setup,'build_environment',return_value=dict(os.environ)),patch('adws_fonts.ensure_fonts',return_value=True),patch.object(Path,'home',return_value=root),patch.object(setup,'ROOT',root),patch.object(setup,'dependency_errors',return_value=[]),patch('adws_prebuilt.install',return_value=False),patch.object(setup,'confirm',return_value=True),patch.object(setup,'check',return_value=0),patch.object(setup.shutil,'which',return_value='/usr/bin/tool'),patch.object(setup.subprocess,'run',side_effect=build),patch.object(setup.subprocess,'check_output',return_value=''):
                 setup.prepare()
             for name in names:self.assertEqual((lib/name).read_text(),'NEW')
 

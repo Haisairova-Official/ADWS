@@ -45,6 +45,7 @@ BUILTIN_INFO = {
     "tray": {"name": _tr("系统托盘"), "module":"cffi/system-tray", "slot":"right"},
     "brightness": {"name": _tr("亮度"), "module":"cffi/system-brightness", "slot":"right"},
     "sound": {"name": _tr("声音"), "module":"cffi/system-sound", "slot":"right"},
+    "sidebar": {"name": _tr("侧边栏"), "module": "cffi/system-sidebar", "slot": "right"},
     "clock": {"name": _tr('时钟'), "module": "clock", "slot": "right"},
 }
 
@@ -329,7 +330,7 @@ def normalize_layout(data: dict) -> dict:
             continue
         item = copy.deepcopy(value)
         key = item["id"]
-        if key in ("windows", "workspaces", "tray", "brightness", "sound"):
+        if key in ("windows", "workspaces", "tray", "brightness", "sound", "sidebar"):
             if key in singletons:
                 continue
             singletons.add(key)
@@ -338,7 +339,7 @@ def normalize_layout(data: dict) -> dict:
             raise ValueError(_tr('组件实例标识无效。'))
         if instance in BUILTIN_INFO and instance != key:
             raise ValueError(_tr("组件实例标识无效。"))
-        if key in ("windows", "workspaces", "tray", "brightness", "sound"):
+        if key in ("windows", "workspaces", "tray", "brightness", "sound", "sidebar"):
             instance = key
         if instance in used:
             # Deterministic migration of hand-edited legacy duplicate records.
@@ -385,7 +386,7 @@ def component_catalog(available: list[dict]) -> list[dict]:
     catalog = [{"kind": "builtin", "key": key, **info,
                 "repeatable": key in ("start", "clock"), "required": key == "windows",
                 "icon": {"start": "view-app-grid-symbolic", "windows": "view-grid-symbolic",
-                         "clock": "preferences-system-time-symbolic", "workspaces": "view-dual-symbolic", "tray":"view-more-symbolic", "brightness":"display-brightness-symbolic", "sound":"audio-volume-high-symbolic"}[key]}
+                         "clock": "preferences-system-time-symbolic", "workspaces": "view-dual-symbolic", "tray":"view-more-symbolic", "brightness":"display-brightness-symbolic", "sound":"audio-volume-high-symbolic", "sidebar":"view-grid-symbolic"}[key]}
                for key, info in BUILTIN_INFO.items()]
     catalog.extend({"kind": "plugin", "key": entry["manifest"]["id"],
                     "name": _tr(entry["manifest"].get("name", entry["manifest"]["id"])),
@@ -399,7 +400,7 @@ def new_builtin(key: str, rows: list[dict], options: dict) -> dict:
     if key not in BUILTIN_INFO:
         raise ValueError(_tr('未知组件。'))
     existing = [row for row in rows if row.get("id") == key]
-    if existing and key in ("windows", "workspaces", "tray", "brightness", "sound"):
+    if existing and key in ("windows", "workspaces", "tray", "brightness", "sound", "sidebar"):
         raise ValueError(_tr('此组件只能添加一个。'))
     used = {row.get("instance", row.get("id")) for row in rows}
     instance = key if key not in used else f"{key}-{uuid.uuid4().hex[:12]}"
@@ -613,6 +614,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             cfg.pop(key)
     cfg.pop('cffi/start-button', None)
     items = enabled_builtins(layout) + enabled_plugins(layout, available)
+    cfg.pop('custom/sidebar', None)  # Migrate the former unanchored launcher.
     from adws_launcher import native_menu_command
     for item in items:
         if item.get("id") != "start" or not item.get("enabled"):
@@ -665,9 +667,9 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
         slots[slot].append(item)
 
     def defs_for(module: str) -> dict | None:
-        if module in ("cffi/system-tray", "cffi/system-brightness", "cffi/system-sound"):
+        if module in ("cffi/system-tray", "cffi/system-brightness", "cffi/system-sound", "cffi/system-sidebar"):
             return {"module_path":str(taskbar_library_path(layout)),"component":module.removeprefix("cffi/system-"),
-                    "control_helper":str(PROJECT_ROOT / "tools/adws_quick_controls.py"),
+                    "control_helper":str(PROJECT_ROOT / ("tools/adws_sidebar.py" if module == "cffi/system-sidebar" else "tools/adws_quick_controls.py")),
                     "control_output":cfg.get("output", "") if isinstance(cfg.get("output", ""),str) else "",
                     "vertical":vertical,"position":panel['position'],"thickness":panel['thickness']}
         if module == "cffi/niri-taskbar":
@@ -686,6 +688,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
                 "window_animations": panel['window_animations'],
                 "animation_duration": panel['animation_duration'],
                 "preview_helper": str(PROJECT_ROOT / "tools/adws_window_preview.py"),
+                "clock_control_helper": str(PROJECT_ROOT / "tools/adws_control_center.py"),
                 "thickness": panel['thickness'],
             }
             if isinstance(base_def.get("apps"), dict):
@@ -781,7 +784,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             if module_cfg is None:
                 continue
             cfg[module] = module_cfg
-        elif module in ("cffi/niri-taskbar", "cffi/system-tray", "cffi/system-brightness", "cffi/system-sound"):
+        elif module in ("cffi/niri-taskbar", "cffi/system-tray", "cffi/system-brightness", "cffi/system-sound", "cffi/system-sidebar"):
             cfg[module] = defs_for(module)
         left_names.append(module)
 
@@ -795,7 +798,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             if module_cfg is None:
                 continue
             cfg[module] = module_cfg
-        elif module in ("cffi/niri-taskbar", "cffi/system-tray", "cffi/system-brightness", "cffi/system-sound"):
+        elif module in ("cffi/niri-taskbar", "cffi/system-tray", "cffi/system-brightness", "cffi/system-sound", "cffi/system-sidebar"):
             cfg[module] = defs_for(module)
         center_names.append(module)
 
@@ -807,7 +810,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             if module_cfg is None:
                 continue
             cfg[module] = module_cfg
-        elif module in ("cffi/niri-taskbar", "cffi/system-tray", "cffi/system-brightness", "cffi/system-sound"):
+        elif module in ("cffi/niri-taskbar", "cffi/system-tray", "cffi/system-brightness", "cffi/system-sound", "cffi/system-sidebar"):
             cfg[module] = defs_for(module)
         right_names.append(module)
 
@@ -872,7 +875,8 @@ def patch_style(text: str, css_block: str) -> str:
         if CSS_START in text and CSS_END in text:
             text = re.sub(re.escape(CSS_START) + r".*?" + re.escape(CSS_END),
                           "", text, flags=re.S).rstrip() + "\n"
-    return text
+    from adws_fonts import with_symbol_fallbacks
+    return with_symbol_fallbacks(text)
 
 
 def config_to_jsonc(cfg: dict) -> str:
