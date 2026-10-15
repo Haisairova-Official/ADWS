@@ -356,7 +356,7 @@ The old MNWS bar was observed consuming one CPU core while idle and recovered af
 Source installation works on most distributions:
 
 ```sh
-git clone --branch v1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
+git clone https://github.com/Haisairova-Official/ADWS.git 
 cd ADWS
 ./install.sh
 adws -s
