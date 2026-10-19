@@ -6,9 +6,17 @@
 
 **A simpler desktop experience for Niri.**
 
-稳定版本 / Stable: **1.35** · 内部版本 / Internal revision: **Q** (`Pre-1.35`) · [更新记录 / Changelog](CHANGELOG.md)
+稳定版本 / Stable: **1.35-R** · 内部版本 / Internal revision: **R** (`Pre-1.35`) · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
+
+## 1.35-R 正式版 / Release
+
+修复托盘隐藏面板点击外部不关闭、状态不刷新和临时图片缺失造成的图标消失。补充真实 Niri 输入与资源清理回归。
+
+Fix tray overflow dismissal on outside clicks, missed status updates and disappearing icons. Add real Niri input and cleanup regression coverage.
+
+[本次更新 / Release notes](docs/release-1.35-R.md)
 
 ## 1.35 正式版 / Release
 

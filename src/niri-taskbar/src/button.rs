@@ -704,6 +704,32 @@ fn layer_keyboard_api() -> Option<LayerKeyboardApi> {
         })
     })
 }
+// Keep inert layer bars focusable only for the lifetime of an open popup.
+pub(crate) struct PopupKeyboardFocus {
+    window: gtk::glib::WeakRef<gtk::Window>,
+    api: LayerKeyboardApi,
+    previous: i32,
+}
+impl Drop for PopupKeyboardFocus {
+    fn drop(&mut self) {
+        use gtk::glib::translate::ToGlibPtr;
+        if let Some(window) = self.window.upgrade() && !window.in_destruction() {
+            unsafe { (self.api.set_mode)(window.to_glib_none().0, self.previous); }
+        }
+    }
+}
+pub(crate) fn popup_keyboard_focus(window: &gtk::Window) -> Option<PopupKeyboardFocus> {
+    use gtk::glib::translate::ToGlibPtr;
+    let api = layer_keyboard_api()?;
+    // SAFETY: GTK thread, live window; ordinary X11 windows are left alone.
+    unsafe {
+        if (api.is_layer)(window.to_glib_none().0) == 0 { return None; }
+        let previous = (api.get_mode)(window.to_glib_none().0);
+        if previous != 0 { return None; }
+        (api.set_mode)(window.to_glib_none().0, 2);
+        Some(PopupKeyboardFocus { window: window.downgrade(), api, previous })
+    }
+}
 fn menu_keyboard_focus(menu: &gtk::Menu, button: &gtk::Button) {
     use gtk::glib::translate::ToGlibPtr;
     let Some(api) = layer_keyboard_api() else { return; };

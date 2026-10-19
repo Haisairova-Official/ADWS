@@ -1277,7 +1277,7 @@ fn build(
     add_class(&footer, "menu-footer");
     content.pack_start(&footer, false, false, 0);
     let build = json_file(&root.join("build-info.json"));
-    let version = build["display_version"].as_str().unwrap_or("").trim();
+    let version = build["display_name"].as_str().or_else(|| build["display_version"].as_str()).unwrap_or("").trim();
     let inscription = if version.is_empty() {
         "ADWS".to_owned()
     } else {

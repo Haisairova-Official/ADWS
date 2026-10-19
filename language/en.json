@@ -2325,5 +2325,10 @@
   "插件增加语言标签、单例声明与独立 Watchdog；NCMLyricsBar 1.1.0 按钮配色跟随任务栏。": "Add plugin language labels, singleton declarations and independent watchdogs; NCMLyricsBar 1.1.0 buttons follow the taskbar theme.",
   "声音与亮度报错说明更清楚，点击和滚轮操作后刷新；无声音设备显示静音喇叭与右侧问号，其他异常使用角标。": "Explain sound/brightness failures clearly and refresh after clicks or wheel changes; show a muted speaker with a question mark on the right when no audio device is available, and corner badges for other failures.",
   "修复微信等托盘服务漏注册后图标消失的问题，自动恢复已有图标服务并避免重复显示。": "Recover existing tray services omitted from registration, including WeChat, without displaying duplicate icons.",
-  "Major 1.35    内部版本：Q": "Version 1.35    Internal revision: Q"
+  "Major 1.35    内部版本：Q": "Version 1.35    Internal revision: Q",
+  "修复托盘隐藏图标面板在 Wayland 下点击外部窗口或空白桌面后不收起的问题，关闭后恢复底栏焦点模式。": "Fix Wayland tray overflow dismissal when clicking another window or the empty desktop; restore the bar keyboard mode on close.",
+  "托盘状态刷新合并重复通知，避免持续更新打断状态读取；补充标准属性通知，及时更新图标、状态和提示。": "Coalesce tray refresh notifications without interrupting reads; handle standard property changes to update icons, status and descriptions.",
+  "临时缺失的托盘图片保留上一张有效图标，后续更新自动重试，减少微信等应用的图标消失。": "Keep the last valid tray image when a file is temporarily missing and retry on subsequent updates, reducing disappearing application icons.",
+  "补充真实 Niri 鼠标操作与资源清理回归，完善安装测试隔离；修正正式版小更新的版本识别。": "Add real Niri pointer-input and cleanup regressions, isolate installation tests and correct stable maintenance update version detection.",
+  "Major 1.35    内部版本：R": "Major 1.35    Internal revision: R"
 }

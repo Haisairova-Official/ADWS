@@ -37,6 +37,27 @@ class UpdateTests(unittest.TestCase):
         self.assertLess(update.version_key('1.25 Release'), update.version_key('v1.3'))
         self.assertLess(update.version_key('1.25 Release'), update.version_key('v1.25.1'))
 
+    def test_maintenance_revision_upgrades_from_stable_without_repeating(self):
+        import json
+        import tempfile
+        import adws_runtime
+        import adws_upgrade
+        release = {'tag_name':'v1.35.1-R', 'name':'ADWS 1.35-R Released'}
+        metadata = {'major_version':'1.35', 'minor_version':'R',
+                    'display_name':'1.35-R', 'display_version':'1.35.1-R', 'release_label':'Release'}
+        self.assertGreater(update.release_version(release), update.version_key('1.35'))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root/'build-info.json').write_text(json.dumps(metadata))
+            self.assertEqual(adws_upgrade.installed_version(root), update.release_version(release))
+            self.assertEqual(adws_runtime.version_text(metadata), '1.35-R')
+            with patch.object(update,'ROOT',root), patch.object(update,'mainland_china',return_value=False), patch.object(update,'read_json',return_value=release):
+                self.assertEqual(update.current_version(), '1.35.1-R')
+                self.assertFalse(update.check_update()['available'])
+        with patch.object(update,'current_version',return_value='1.35'), patch.object(update,'mainland_china',return_value=False), patch.object(update,'read_json',return_value=release):
+            self.assertTrue(update.check_update()['available'])
+        self.assertEqual(adws_runtime.version_text({'display_version':'1.35'}), '1.35')
+
     def test_cn_proxy_first_falls_back_to_github(self):
         with patch.object(update, 'mainland_china', return_value=True), patch.object(update, 'current_version', return_value='1.25 Release'), patch.dict(os.environ, {'ADWS_GITHUB_PROXY':'https://gh-proxy.com/'}), patch.object(update, 'read_json', side_effect=[ValueError('proxy error'), {'tag_name':'v1.26'}]) as read:
             result = update.check_update()

@@ -20,6 +20,8 @@ pub(crate) struct Tray {
     grid: gtk::Grid,
     arrow: gtk::MenuButton,
     popup: gtk::Popover,
+    focus_handler: RefCell<Option<(glib::WeakRef<gtk::Window>, glib::SignalHandlerId)>>,
+    keyboard_focus: RefCell<Option<crate::button::PopupKeyboardFocus>>,
     _arrow_tip: Rc<TrayTip>,
     edge: String,
     items: RefCell<HashMap<String, Rc<Item>>>,
@@ -40,7 +42,8 @@ struct Item {
     active: Cell<bool>,
     menu: RefCell<Option<gtk::Menu>>,
     refresh: RefCell<Option<glib::JoinHandle<()>>>,
-    handler: RefCell<Option<glib::SignalHandlerId>>,
+    refresh_dirty: Cell<bool>,
+    handlers: RefCell<Vec<glib::SignalHandlerId>>,
     size: i32,
     icon_theme: RefCell<Option<(String, gtk::IconTheme)>>,
     icon_properties: RefCell<HashMap<String,glib::Variant>>,
@@ -110,7 +113,7 @@ impl Drop for Item {
         if let Some(t) = self.refresh.get_mut().take() {
             t.abort();
         }
-        if let Some(id) = self.handler.get_mut().take() {
+        for id in self.handlers.get_mut().drain(..) {
             self.proxy.disconnect(id);
         }
         if let Some(m) = self.menu.get_mut().take() {
@@ -123,6 +126,7 @@ impl Drop for Item {
 }
 impl Drop for Tray {
     fn drop(&mut self) {
+        self.disconnect_focus_handler();
         for t in &self.tasks.get_mut().0 {
             t.abort();
         }
@@ -195,6 +199,8 @@ impl Tray {
             grid,
             arrow,
             popup,
+            focus_handler: RefCell::new(None),
+            keyboard_focus: RefCell::new(None),
             _arrow_tip: arrow_tip,
             edge: config.position().to_owned(),
             items: RefCell::new(HashMap::new()),
@@ -206,6 +212,43 @@ impl Tray {
             owners: RefCell::new(vec![]),
             signals: RefCell::new(vec![]),
             watcher_items: Arc::new(Mutex::new(vec![])),
+        });
+        // A layer surface must become keyboard-interactive BEFORE the opening
+        // pointer press reaches the compositor. Changing it in show is too
+        // late: no focus is granted, so an outside click has no focus to revoke.
+        let weak = Rc::downgrade(&tray);
+        tray.arrow.connect_enter_notify_event(move |_, _| {
+            if let Some(tray) = weak.upgrade() {
+                tray.prepare_keyboard_focus();
+            }
+            glib::Propagation::Proceed
+        });
+        let weak = Rc::downgrade(&tray);
+        tray.arrow.connect_leave_notify_event(move |_, _| {
+            if let Some(tray) = weak.upgrade() && !tray.popup.is_visible() {
+                tray.keyboard_focus.borrow_mut().take();
+            }
+            glib::Propagation::Proceed
+        });
+        let weak = Rc::downgrade(&tray);
+        tray.popup.connect_show(move |_| {
+            if let Some(tray) = weak.upgrade() {
+                // The module can be created before Waybar attaches it to a
+                // window. Resolve the host each time the overflow is opened.
+                if let Some(window) = tray.bar.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok()) {
+                    tray.prepare_keyboard_focus();
+                    let weak = Rc::downgrade(&tray);
+                    let id = window.connect_focus_out_event(move |_, _| {
+                        if let Some(tray) = weak.upgrade() { tray.popup.popdown(); }
+                        glib::Propagation::Proceed
+                    });
+                    tray.focus_handler.replace(Some((window.downgrade(), id)));
+                }
+            }
+        });
+        let weak = Rc::downgrade(&tray);
+        tray.popup.connect_unmap(move |_| {
+            if let Some(tray) = weak.upgrade() { tray.disconnect_focus_handler(); }
         });
         let weak = Rc::downgrade(&tray);
         tray.tasks
@@ -219,6 +262,21 @@ impl Tray {
                 }
             }));
         tray
+    }
+    fn prepare_keyboard_focus(&self) {
+        if self.keyboard_focus.borrow().is_none()
+            && let Some(window) = self.bar.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok())
+        {
+            self.keyboard_focus.replace(crate::button::popup_keyboard_focus(&window));
+        }
+    }
+    fn disconnect_focus_handler(&self) {
+        if let Some((window, id)) = self.focus_handler.borrow_mut().take()
+            && let Some(window) = window.upgrade()
+        {
+            window.disconnect(id);
+        }
+        self.keyboard_focus.borrow_mut().take();
     }
     fn connect(self: &Rc<Self>, bus: gio::DBusConnection) {
         self.bus.replace(Some(bus.clone()));
@@ -603,7 +661,8 @@ async fn add_item(weak: &std::rc::Weak<Tray>, address: &str) {
         active: Cell::new(false),
         menu: RefCell::new(None),
         refresh: RefCell::new(None),
-        handler: RefCell::new(None),
+        refresh_dirty: Cell::new(false),
+        handlers: RefCell::new(Vec::new()),
         size: tray.size,
         icon_theme: RefCell::new(None),
         icon_properties: RefCell::new(HashMap::new()),
@@ -617,12 +676,16 @@ async fn add_item(weak: &std::rc::Weak<Tray>, address: &str) {
     item.image.connect_scale_factor_notify(move |_| {
         if let Some(item)=wi.upgrade() { render_icon(&item,&item.icon_properties.borrow()); }
     });
-    let wi = Rc::downgrade(&item);
-    let wt = weak.clone();
-    *item.handler.borrow_mut() = Some(item.proxy.connect_local("g-signal", false, move |_| {
-        refresh(&wi, &wt);
-        None
-    }));
+    // Some clients only emit the standard PropertiesChanged notification.
+    // Both paths use the same bounded refresh queue and weak ownership.
+    for signal in ["g-signal", "g-properties-changed"] {
+        let wi = Rc::downgrade(&item);
+        let wt = weak.clone();
+        item.handlers.borrow_mut().push(item.proxy.connect_local(signal, false, move |_| {
+            refresh(&wi, &wt);
+            None
+        }));
+    }
     let wi = Rc::downgrade(&item);
     item.button.connect_button_press_event(move |_, event| {
         let Some(item) = wi.upgrade() else {
@@ -675,9 +738,11 @@ async fn add_item(weak: &std::rc::Weak<Tray>, address: &str) {
 }
 fn refresh(wi: &std::rc::Weak<Item>, wt: &std::rc::Weak<Tray>) {
     let Some(item) = wi.upgrade() else { return };
-    if let Some(task) = item.refresh.borrow_mut().take() {
-        task.abort();
+    if item.refresh.borrow().is_some() {
+        item.refresh_dirty.set(true);
+        return;
     }
+    item.refresh_dirty.set(false);
     let wi = wi.clone();
     let wt = wt.clone();
     let proxy = item.proxy.clone();
@@ -700,6 +765,7 @@ fn refresh(wi: &std::rc::Weak<Item>, wt: &std::rc::Weak<Tray>) {
             Ok(reply) => reply,
             Err(error) => {
                 tracing::debug!(%error,"cannot refresh tray item");
+                finish_refresh(&wi, &wt);
                 return;
             }
         };
@@ -730,8 +796,19 @@ fn refresh(wi: &std::rc::Weak<Item>, wt: &std::rc::Weak<Tray>) {
         if old_active != item.active.get() {
             tray.arrange();
         }
+        drop(tray);
+        drop(item);
+        finish_refresh(&wi, &wt);
     });
     item.refresh.replace(Some(task));
+}
+fn finish_refresh(wi: &std::rc::Weak<Item>, wt: &std::rc::Weak<Tray>) {
+    let Some(item) = wi.upgrade() else { return };
+    item.refresh.borrow_mut().take();
+    if item.refresh_dirty.replace(false) && wt.upgrade().is_some() {
+        drop(item);
+        refresh(wi, wt);
+    }
 }
 fn render_icon(item: &Item, props: &HashMap<String,glib::Variant>) {
     if props.is_empty() {return;}
@@ -740,7 +817,6 @@ fn render_icon(item: &Item, props: &HashMap<String,glib::Variant>) {
     let signature=(["Status","IconName","IconPixmap","IconThemePath","AttentionIconName","AttentionIconPixmap","OverlayIconName","OverlayIconPixmap"].iter().map(|key|props.get(*key).cloned()).collect(),
         item.image.scale_factor(),item.image.style_context().color(gtk::StateFlags::NORMAL));
     if item.icon_signature.borrow().as_ref()==Some(&signature) {return;}
-    item.icon_signature.replace(Some(signature));
         let scale = item.image.scale_factor().max(1);
         let size = item.size * scale;
         let theme_path = get("IconThemePath");
@@ -771,8 +847,11 @@ fn render_icon(item: &Item, props: &HashMap<String,glib::Variant>) {
             }
             if let Some(surface) = image.create_surface(scale,item.button.window().as_ref()) {
                 item.image.set_from_surface(Some(&surface));
+                item.icon_signature.replace(Some(signature));
             }
-        } else {
+        } else if item.image.storage_type() == gtk::ImageType::Empty {
+            // Temporary file/pixmap failures must not erase a valid icon or
+            // cache the failure forever. The next identical signal can retry.
             item.image.set_from_icon_name(Some("application-x-executable-symbolic"),gtk::IconSize::Button);
         }
 
@@ -924,11 +1003,15 @@ mod gui_tests {
         let _guard = context.acquire().unwrap();
         let bus = context.block_on(gio::bus_get_future(gio::BusType::Session)).unwrap();
         let iface = gio::DBusNodeInfo::for_xml(ITEM_XML).unwrap().lookup_interface(ITEM).unwrap();
+        let reads = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let getter_reads = reads.clone();
+        let passive = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let getter_passive = passive.clone();
         let reg = bus.register_object("/StatusNotifierItem", &iface,
             |_,_,_,_,_,_,call| call.return_value(Some(&().to_variant())),
-            |_,_,_,_,property| match property {
-                "Title" => "WeChat fixture".to_variant(),
-                "Status" => "Active".to_variant(),
+            move |_,_,_,_,property| match property {
+                "Title" => { getter_reads.fetch_add(1,std::sync::atomic::Ordering::Relaxed); if getter_passive.load(std::sync::atomic::Ordering::Relaxed) { "WeChat hidden" } else { "WeChat fixture" }.to_variant() },
+                "Status" => if getter_passive.load(std::sync::atomic::Ordering::Relaxed) { "Passive" } else { "Active" }.to_variant(),
                 "ItemIsMenu" => false.to_variant(),
                 _ => "audio-volume-high-symbolic".to_variant(),
             }, |_,_,_,_,_,_| false).unwrap();
@@ -941,6 +1024,35 @@ mod gui_tests {
         context.block_on(glib::timeout_future(Duration::from_millis(250)));
         assert_eq!(tray.items.borrow().len(),1,"live SNI must recover without registration");
         assert!(tray.items.borrow().values().next().unwrap().active.get());
+        let item = tray.items.borrow().values().next().unwrap().clone();
+        let icon_path = std::env::temp_dir().join(format!("adws-late-icon-{}.png",std::process::id()));
+        let props = HashMap::from([("IconName".into(),icon_path.to_string_lossy().to_variant())]);
+        let prior_signature = item.icon_signature.borrow().clone();
+        render_icon(&item,&props);
+        assert_eq!(*item.icon_signature.borrow(),prior_signature,"missing icon must not cache failure");
+        let pixels = gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb,true,8,16,16).unwrap();
+        pixels.fill(0x00ff00ff);pixels.savev(&icon_path,"png",&[]).unwrap();
+        render_icon(&item,&props);
+        assert_ne!(*item.icon_signature.borrow(),prior_signature,"same properties must retry newly available icon");
+        std::fs::remove_file(icon_path).unwrap();
+        let reads_before = reads.load(std::sync::atomic::Ordering::Relaxed);
+        for _ in 0..40 {
+            refresh(&Rc::downgrade(&item), &Rc::downgrade(&tray));
+            context.block_on(glib::timeout_future(Duration::from_millis(10)));
+        }
+        assert!(reads.load(std::sync::atomic::Ordering::Relaxed) > reads_before, "continuous signals must not starve GetAll");
+        context.block_on(glib::timeout_future(Duration::from_millis(150)));
+        assert!(item.refresh.borrow().is_none(), "completed requests must release their task");
+        for hidden in [true, false] {
+            passive.store(hidden,std::sync::atomic::Ordering::Relaxed);
+            let changed = HashMap::from([("Status",if hidden { "Passive" } else { "Active" }.to_variant())]);
+            bus.emit_signal(None,"/StatusNotifierItem","org.freedesktop.DBus.Properties",
+                "PropertiesChanged",Some(&(ITEM,changed,Vec::<String>::new()).to_variant())).unwrap();
+            context.block_on(glib::timeout_future(Duration::from_millis(150)));
+            assert_eq!(item.active.get(),!hidden,"standard property updates must refresh tray visibility");
+            assert_eq!(item.button.tooltip_text().as_deref(),Some(if hidden { "WeChat hidden" } else { "WeChat fixture" }),"property refresh must also update descriptions");
+        }
+        drop(item);
         context.block_on(add_item(&Rc::downgrade(&tray), &format!("{}/StatusNotifierItem", bus.unique_name().unwrap())));
         assert_eq!(tray.items.borrow().len(),1,"service aliases must not duplicate icons");
         gio::bus_unown_name(owner);
@@ -948,6 +1060,77 @@ mod gui_tests {
         assert!(tray.items.borrow().is_empty(),"a withdrawn service must still disappear");
         drop(tray);
         bus.unregister_object(reg).unwrap();
+    }
+    #[test]
+    #[ignore = "requires nested Wayland compositor and real-input driver"]
+    fn overflow_dismisses_on_external_wayland_click() {
+        use std::time::Instant;
+        #[link(name = "gtk-layer-shell")]
+        unsafe extern "C" {
+            fn gtk_layer_init_for_window(window: *mut gtk::ffi::GtkWindow);
+            fn gtk_layer_set_anchor(window: *mut gtk::ffi::GtkWindow, edge: i32, anchor: i32);
+            fn gtk_layer_set_layer(window: *mut gtk::ffi::GtkWindow, layer: i32);
+            fn gtk_layer_get_keyboard_mode(window: *mut gtk::ffi::GtkWindow) -> i32;
+        }
+        gtk::init().unwrap();
+        let context = glib::MainContext::default();
+        let _guard = context.acquire().unwrap();
+        let folder = std::path::PathBuf::from(std::env::var_os("ADWS_TRAY_TEST_DIR").unwrap());
+        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        unsafe {
+            gtk_layer_init_for_window(window.to_glib_none().0);
+            gtk_layer_set_layer(window.to_glib_none().0, 2);
+            for edge in [0, 1, 3] { gtk_layer_set_anchor(window.to_glib_none().0, edge, 1); }
+        }
+        window.set_size_request(-1, 60);
+        let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        window.add(&root);
+        let config: Config = serde_json::from_str(r#"{"component":"tray"}"#).unwrap();
+        let tray = Tray::new(root.upcast_ref(), &config);
+        tray.bar.set_margin_start(300);
+        window.show_all();
+        let bus = context.block_on(gio::bus_get_future(gio::BusType::Session)).unwrap();
+        let iface = gio::DBusNodeInfo::for_xml(ITEM_XML).unwrap().lookup_interface(ITEM).unwrap();
+        let mut registrations = Vec::new();
+        for i in 0..4 {
+            let path = format!("/OverflowFixture{i}");
+            registrations.push(bus.register_object(&path, &iface,
+                |_,_,_,_,_,_,call| call.return_value(Some(&().to_variant())),
+                move |_,_,_,_,property| match property {
+                    "Title" => format!("Fixture {i}").to_variant(),
+                    "Status" => "Active".to_variant(),
+                    "ItemIsMenu" => false.to_variant(),
+                    _ => "audio-volume-high-symbolic".to_variant(),
+                }, |_,_,_,_,_,_| false).unwrap());
+            context.block_on(add_item(&Rc::downgrade(&tray), &format!("{}{path}", bus.unique_name().unwrap())));
+        }
+        context.block_on(glib::timeout_future(Duration::from_millis(350)));
+        assert!(tray.arrow.is_visible());
+        let publish_position = || {
+            let a = tray.arrow.allocation();
+            let (x,y) = tray.arrow.translate_coordinates(&window,a.width()/2,a.height()/2).unwrap();
+            std::fs::write(folder.join("ready.tmp"),serde_json::json!({"arrow":[x,y],"height":window.allocated_height()}).to_string()).unwrap();
+            std::fs::rename(folder.join("ready.tmp"),folder.join("ready.json")).unwrap();
+        };
+        publish_position();
+        let wait = |predicate: &dyn Fn() -> bool| {
+            let until = Instant::now() + Duration::from_secs(8);
+            while !predicate() {
+                publish_position();
+                assert!(Instant::now() < until, "timed out: mapped={}, active={}", tray.popup.is_mapped(), window.is_active());
+                context.block_on(glib::timeout_future(Duration::from_millis(10)));
+            }
+        };
+        for i in 0..3 {
+            wait(&|| tray.popup.is_mapped());
+            std::fs::write(folder.join("phase"), format!("open-{i}")).unwrap();
+            wait(&|| !tray.popup.is_mapped());
+            assert!(tray.focus_handler.borrow().is_none());
+            assert_eq!(unsafe { gtk_layer_get_keyboard_mode(window.to_glib_none().0) }, 0, "closing must restore inert keyboard mode");
+            std::fs::write(folder.join("phase"), format!("closed-{i}")).unwrap();
+        }
+        unsafe { window.destroy(); }
+        for id in registrations { bus.unregister_object(id).unwrap(); }
     }
     #[test]
     #[ignore = "requires isolated GTK and session bus"]
@@ -1013,6 +1196,18 @@ mod gui_tests {
             assert!(!item.button.has_tooltip(), "native layer tooltip must stay disabled");
             assert_eq!(item._tip.popup.relative_to().unwrap(), item.button.clone().upcast::<gtk::Widget>(), "description must remain anchored after moving into overflow");
             assert_eq!(item._tip.popup.position(), gtk::PositionType::Top);
+        }
+        for _ in 0..3 {
+            tray.popup.show_all();
+            tray.popup.popup();
+            context.block_on(glib::timeout_future(Duration::from_millis(200)));
+            assert!(tray.popup.is_mapped(), "overflow must open normally");
+            assert!(tray.focus_handler.borrow().is_some());
+            let event = gtk::gdk::Event::new(gtk::gdk::EventType::FocusChange);
+            window.emit_by_name::<bool>("focus-out-event", &[&event]);
+            context.block_on(glib::timeout_future(Duration::from_millis(250)));
+            assert!(!tray.popup.is_mapped(), "losing host focus must dismiss hidden icons");
+            assert!(tray.focus_handler.borrow().is_none(), "closing must disconnect the host handler");
         }
         let weak = Rc::downgrade(&tray);
         let item_weak: Vec<_> = tray.items.borrow().values().map(Rc::downgrade).collect();

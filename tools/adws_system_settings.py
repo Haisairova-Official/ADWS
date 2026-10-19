@@ -212,7 +212,8 @@ class SystemSettingsWindow(Gtk.Window):
         self.empty_search = label('没有匹配的设置。', 'dim-label')
         self.empty_search.set_no_show_all(True)
         self.sidebar.pack_start(self.empty_search, False, False, 0)
-        version = config.load_json(config.PROJECT_ROOT / 'build-info.json').get('display_version', '')
+        build = config.load_json(config.PROJECT_ROOT / 'build-info.json')
+        version = build.get('display_name') or build.get('display_version', '')
         self.sidebar.pack_end(label('ADWS ' + version, 'dim-label'), False, False, 0)
         detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         detail.get_style_context().add_class('settings-detail')
@@ -433,7 +434,8 @@ class SystemSettingsWindow(Gtk.Window):
         desktop = self.display_session or os.environ.get('XDG_CURRENT_DESKTOP') or 'Wayland'
         desktop_names = {'niri':'Niri', 'hyprland':'Hyprland', 'kde':'KDE Plasma', 'gnome':'GNOME', 'xfce':'Xfce'}
         desktop = ' / '.join(desktop_names.get(part.casefold(), part) for part in desktop.split(':') if part)
-        version = self.config.load_json(self.config.PROJECT_ROOT / 'build-info.json').get('display_version', '')
+        build = self.config.load_json(self.config.PROJECT_ROOT / 'build-info.json')
+        version = build.get('display_name') or build.get('display_version', '')
         information.pack_start(label(desktop + ' · ADWS ' + version, 'settings-caption'), False, False, 0)
         hero.pack_start(information, True, True, 0)
         box.pack_start(hero, False, False, 0)

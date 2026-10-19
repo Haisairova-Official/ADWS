@@ -111,6 +111,8 @@ def build_info():
 
 
 def version_text(info):
+    if info.get('display_name'):
+        return info['display_name']
     if info.get('display_version'):
         return info['display_version']
     if info.get('release_label'):

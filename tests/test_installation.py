@@ -36,9 +36,11 @@ class InstallationTests(unittest.TestCase):
             file = self.bin / program
             file.write_text('#!/bin/sh\nexit 0\n')
             file.chmod(0o755)
-        # Capability checks inspect ELF module names; use the host binary only
-        # for this read-only probe. No bar is launched during installation.
-        shutil.copy2(shutil.which('waybar'), self.bin / 'waybar')
+        # Use a runnable ELF fixture rather than depending on the host Waybar
+        # package having Niri/CFFI modules. The installer never launches a bar.
+        shutil.copy2(shutil.which('true'), self.bin / 'waybar')
+        with (self.bin / 'waybar').open('ab') as binary:
+            binary.write(b'\0cffi/\0niri/workspaces\0')
         self.libs = self.home / '.local/lib/waybar'
         self.libs.mkdir(parents=True)
         for name in ('libniri_taskbar.so', 'libwaybar-space.so', 'libadws_panel.so'):
