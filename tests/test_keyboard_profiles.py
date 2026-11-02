@@ -48,9 +48,20 @@ class KeyboardProfiles(unittest.TestCase):
             self.assertNotIn('Super+', content)
             self.assertEqual(content.count('repeat=false'), 3)
             self.assertNotIn('Super_L', content)
-        self.assertIn('Ctrl repeat=false hotkey-overlay-title=null { toggle-overview;', keys.bindings('traditional'))
-        self.assertIn('Ctrl repeat=false hotkey-overlay-title=null { spawn "bash"', keys.bindings('reversed'))
-        self.assertIn('Ctrl repeat=false hotkey-overlay-title=null { spawn;', keys.bindings('waylander'))
+            self.assertEqual(content.count('release {'), 3)
+        self.assertIn('Ctrl repeat=false hotkey-overlay-title=null { release { toggle-overview;', keys.bindings('traditional'))
+        self.assertIn('Ctrl repeat=false hotkey-overlay-title=null { release { spawn "bash"', keys.bindings('reversed'))
+        self.assertIn('Ctrl repeat=false hotkey-overlay-title=null { release { spawn;', keys.bindings('waylander'))
+
+    def test_modern_grammar_wins_when_both_styles_validate(self):
+        with patch.object(keys.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run:
+            self.assertIs(keys.modifier_tap_style('/niri'), True)
+            self.assertEqual(run.call_count, 1)
+
+    def test_legacy_tap_grammar_remains_supported(self):
+        with patch.object(keys.subprocess, 'run', side_effect=[subprocess.CompletedProcess([], 1), subprocess.CompletedProcess([], 0)]):
+            self.assertIs(keys.modifier_tap_style('/niri'), False)
+        self.assertNotIn('release {', keys.bindings('traditional', release_only=False))
 
     @patch('adws_keyboard.shutil.which', return_value='/usr/bin/niri')
     @patch('adws_keyboard.subprocess.run', return_value=subprocess.CompletedProcess([], 1, '', 'unsupported'))

@@ -83,7 +83,7 @@ def build(source=None, jobs=2):
     binary = cache / 'target/release/niri'
     probe = workspace / 'modifier-probe.kdl'
     from adws_keyboard import bindings
-    probe.write_text(bindings('traditional'))
+    probe.write_text(bindings('traditional', release_only=False))
     run([str(binary), 'validate', '-c', str(probe)])
     bundle = workspace / 'bundle'; bundle.mkdir()
     shutil.copy2(binary, bundle / 'niri')

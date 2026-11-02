@@ -6,9 +6,17 @@
 
 **A simpler desktop experience for Niri.**
 
-稳定版本 / Stable: **1.35-R** · 内部版本 / Internal revision: **R** (`Pre-1.35`) · [更新记录 / Changelog](CHANGELOG.md)
+稳定版本 / Stable: **1.35-S** · 内部版本 / Internal revision: **S** (`Pre-1.35`) · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
+
+## 1.35-S 正式版 / Release
+
+修复新版 Niri 下 Super／Ctrl 提前触发、干扰组合快捷键的问题，兼容新旧松开触发语法。升级后请重新应用一次当前键位方案。
+
+Fix standalone Super/Ctrl actions firing before release and interfering with shortcuts. Support modern and legacy Niri tap bindings. Reapply your keyboard profile after upgrading.
+
+[本次更新 / Release notes](docs/release-1.35-S.md)
 
 ## 1.35-R 正式版 / Release
 
