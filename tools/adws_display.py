@@ -44,11 +44,12 @@ def outputs(session):
             logical = output.get('logical') or {}
             if index is None or not logical:
                 continue  # Never offer an unsafe enable/disable action on this screen.
-            result.append(dict(name=name, description=' '.join((output.get('make', ''), output.get('model', ''))).strip(), modes=modes, mode=modes[index], scale=logical['scale'], x=logical['x'], y=logical['y'], transform=TRANSFORMS.index(logical['transform'].casefold().replace('flipped90', 'flipped-90').replace('flipped180', 'flipped-180').replace('flipped270', 'flipped-270').lstrip('_').replace('_', '-'))))
+            result.append(dict(name=name, make=output.get('make'), model=output.get('model'), serial=output.get('serial'), description=' '.join((output.get('make', ''), output.get('model', ''))).strip(), modes=modes, mode=modes[index], scale=logical['scale'], x=logical['x'], y=logical['y'], transform=TRANSFORMS.index(logical['transform'].casefold().replace('flipped90', 'flipped-90').replace('flipped180', 'flipped-180').replace('flipped270', 'flipped-270').lstrip('_').replace('_', '-'))))
         for monitor in result:
             geometry = raw[monitor['name']]['logical']
             monitor['logical_geometry'] = [monitor['mode'], monitor['scale'], monitor['transform'], geometry.get('width'), geometry.get('height')]
-        return result
+        from adws_monitor_identity import assign
+        return assign(result)
     if session == 'hyprland':
         raw = json.loads(run(['hyprctl', '-j', 'monitors']))
         result = []

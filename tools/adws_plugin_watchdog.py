@@ -96,7 +96,12 @@ def monitor(command, instance, name, grace=15., limit=10.):
         store(record)
         deadline = time.monotonic()+grace
         stamp = None
+        host=os.environ.get('ADWS_PLUGIN_HOST_PID','')
+        host_pid=int(host) if host.isascii() and host.isdigit() else None
         while not stopped:
+            if host_pid is not None and os.getppid()!=host_pid:
+                stopped=True
+                break
             code = process.poll()
             if code is not None:
                 record.update(state='completed' if code == 0 else 'failed', reason='' if code == 0 else tr('运行器异常退出（状态 %s）') % code)

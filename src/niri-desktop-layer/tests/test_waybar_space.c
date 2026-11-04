@@ -62,7 +62,8 @@ int main(int argc, char **argv) {
     g_assert_true(gtk_style_context_has_class(style,"adws-split"));
     g_assert_false(gtk_style_context_has_class(style,"adws-docked"));
     gtk_style_context_add_class(style,"adws-has-windows");g_signal_emit_by_name(window,"adws-windows-changed");drain(50);
-    g_assert_true(gtk_style_context_has_class(style,"adws-docked"));
+    g_assert_cmpint(self->docked,==,TRUE);
+    g_assert_false(gtk_style_context_has_class(style,"adws-docked"));
     gtk_style_context_remove_class(style,"adws-has-windows");g_signal_emit_by_name(window,"adws-windows-changed");drain(50);
     g_assert_false(gtk_style_context_has_class(style,"adws-docked"));
     g_assert_cmpuint(self->sync,==,0);
@@ -102,7 +103,7 @@ int main(int argc, char **argv) {
     gtk_style_context_add_class(gtk_widget_get_style_context(back),"modules-right");
     gtk_widget_set_size_request(front,160,36);gtk_widget_set_size_request(back,160,36);
     gtk_box_pack_start(GTK_BOX(box),front,FALSE,FALSE,0);gtk_box_pack_end(GTK_BOX(box),back,FALSE,FALSE,0);
-    gtk_css_provider_load_from_data(css,".modules-left,.modules-right {background:#ff0000; border-radius:0;}",-1,NULL);
+    gtk_css_provider_load_from_data(css,".modules-left,.modules-right {background:#ff0000;} .modules-left {border-radius:12px 0 0 12px;} .modules-right {border-radius:0 12px 12px 0;}",-1,NULL);
     wbcffi_config_entry docked_pointed[]={{"split_panel","true"},{"split_center_corners","pointed"},{"position","bottom"},{"thickness","36"},{"panel_mode","docked"}};
     self=wbcffi_init(&info,docked_pointed,5);gtk_widget_show_all(window);drain(60);
     g_assert_true(self->segments[0]==front);g_assert_true(self->segments[2]==back);
@@ -114,7 +115,8 @@ int main(int argc, char **argv) {
         gtk_widget_draw(segment,cr);cairo_destroy(cr);cairo_surface_flush(surface);
         pixels=cairo_image_surface_get_data(surface);stride=cairo_image_surface_get_stride(surface);
         int outside=index?width-2:1, inside=index?1:width-2;
-        g_assert_cmpint(pixels[stride+outside*4+3],>,200); /* outside edge remains flat */
+        g_assert_cmpint(pixels[stride+outside*4+3],==,0); /* outside corners remain rounded while docked */
+        g_assert_cmpint(pixels[(height/2)*stride+outside*4+3],>,200);
         g_assert_cmpint(pixels[stride+inside*4+3],==,0); /* inside stays pointed while docked */
         g_assert_cmpint(pixels[(height/2)*stride+inside*4+3],>,200);
         cairo_surface_destroy(surface);

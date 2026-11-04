@@ -16,7 +16,7 @@ def locations(desktop_state=None):
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')
     state = Path(os.environ.get('XDG_STATE_HOME') or Path.home()/'.local/state')
     result = {name: config/name for name in (
-        'adws/sidebar.json', 'adws/default-terminal.json', 'adws/power-policy.json', 'adws/taskbar-layout.json', 'adws/taskbar-pins.json', 'adws/setup.json', 'adws/wallpaper.json', 'adws/wallpaper-library.json',
+        'adws/desktop-widgets.json', 'adws/sidebar.json', 'adws/default-terminal.json', 'adws/power-policy.json', 'adws/taskbar-layout.json', 'adws/taskbar-pins.json', 'adws/setup.json', 'adws/wallpaper.json', 'adws/wallpaper-library.json',
         'niri-desktop-layer/config.toml', 'mimeapps.list',
         'waybar/config-bottom.jsonc', 'waybar/style-bottom.css',
         'waybar/modules.jsonc', 'waybar/colors.css')}
@@ -85,6 +85,9 @@ def read_bundle(source):
             if name == 'adws/power-policy.json':
                 from adws_power_policy import validate
                 validate(value)
+            if name == 'adws/desktop-widgets.json':
+                from adws_desktop_widgets_model import normalize
+                normalize(value)
             if name == 'adws/taskbar-layout.json':
                 from adws_panel_options import validate
                 validate(value.get('options', {}))

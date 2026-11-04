@@ -371,6 +371,16 @@ impl Button {
                     if state.config().termination_mode() == "below" { append_terminate(&submenu, &state, *id); }
                     item.set_submenu(Some(&submenu)); menu.append(&item);
                 }
+                menu.append(&gtk::SeparatorMenuItem::new());
+                let close_all = gtk::MenuItem::with_label(crate::i18n::text("关闭所有项目卡", "Close all cards"));
+                let pane_members = members.clone();
+                let pane_state = state.clone();
+                close_all.connect_activate(move |item| {
+                    item.set_sensitive(false);
+                    let ids = pane_members.borrow().iter().map(|(id, _)| *id).collect();
+                    pane_state.niri().close_windows_background(ids);
+                });
+                menu.append(&close_all);
                 if state.config().termination_mode() == "shift" {
                     track_shift(&menu, terminate, close_items);
                 }

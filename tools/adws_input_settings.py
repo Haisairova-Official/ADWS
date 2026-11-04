@@ -302,6 +302,27 @@ class InputSettingsPage(Gtk.Box):
                 profile_card.pack_start(control, False, False, 0)
                 self.profile_buttons.append((key, control))
             shortcuts.pack_start(profile_card, False, False, 0)
+            self.vm_card = card('虚拟机模式', '聚焦 VMware 时把桌面快捷键交给虚拟机，切到其他窗口时自动恢复。')
+            self.vm_auto = compact_switch(Gtk.Switch())
+            self._row(self.vm_card, '跟随 VMware 焦点自动切换', self.vm_auto)
+            self.vm_shortcut = Gtk.Entry()
+            self.vm_shortcut.set_width_chars(25)
+            self.vm_shortcut.set_max_length(96)
+            self.vm_shortcut.set_placeholder_text('Ctrl+Alt+Shift+Q')
+            self._row(self.vm_card, '切换／恢复快捷键', self.vm_shortcut)
+            self.vm_card.pack_start(label('关闭自动切换后仍可使用快捷键。手动恢复会保持到离开当前 VMware 窗口。', 'dim-label'), False, False, 0)
+            self.vm_card.pack_start(label('切换时通过通知提示；恢复键提示仅在虚拟机模式下显示。', 'dim-label'), False, False, 0)
+            self.vm_status = label('', 'dim-label')
+            self.vm_card.pack_start(self.vm_status, False, False, 0)
+            self.vm_apply = Gtk.Button(label=tr('应用虚拟机模式设置'))
+            self.vm_apply.set_halign(Gtk.Align.END)
+            self.vm_apply.get_style_context().add_class('suggested-action')
+            self.vm_apply.connect('clicked', self.apply_vm_changes)
+            self.vm_card.pack_start(self.vm_apply, False, False, 0)
+            self.vm_auto.connect('notify::active', self.vm_changed)
+            self.vm_shortcut.connect('changed', self.vm_changed)
+            self.vm_card.set_sensitive(False)
+            shortcuts.pack_start(self.vm_card, False, False, 0)
         else:
             shortcuts.pack_start(card('快捷键','当前会话不支持单独轻按修饰键的方案。'),False,False,0)
         from adws_native_input import input_sections
@@ -319,13 +340,15 @@ class InputSettingsPage(Gtk.Box):
         row(box,title,control)
 
     def refresh(self, *_):
-        if 'input' in self.host.dirty:
+        if {'input', 'vm-mode'} & self.host.dirty:
             if not self.host.confirm('放弃尚未应用的修改？', '已应用的设置会保留。'):
                 return
         self.generation += 1
         generation = self.generation
         self.loading = True
         self.repeat_card.set_sensitive(False)
+        if self.session == 'niri':
+            self.vm_card.set_sensitive(False)
         self.status.set_text(tr('正在读取键盘设置…'))
         def worker():
             data = {}
@@ -340,6 +363,11 @@ class InputSettingsPage(Gtk.Box):
                 data['error'] = str(exc)
             if self.session == 'niri':
                 from adws_keyboard import modifier_taps_supported, current_profile
+                from adws_vm_mode import read_options
+                try:
+                    data['vm_options'] = read_options()
+                except Exception as exc:
+                    data['vm_error'] = str(exc)
                 try:
                     data['layouts'] = niri_layouts()
                 except Exception:
@@ -374,6 +402,14 @@ class InputSettingsPage(Gtk.Box):
                 if not layout:
                     self.layouts.set_tooltip_text(tr('无法读取当前键盘布局。'))
                 supported = data.get('profile_supported', False)
+                vm_options = data.get('vm_options')
+                self.vm_card.set_sensitive(vm_options is not None)
+                if vm_options is not None:
+                    self.vm_auto.set_active(vm_options['auto_switch'])
+                    self.vm_shortcut.set_text(vm_options['shortcut'])
+                    self.vm_status.set_text('')
+                else:
+                    self.vm_status.set_text(tr('无法读取虚拟机模式设置：%s') % data.get('vm_error', ''))
                 self.profile_hint.set_text(tr('当前方案：%s') % data.get('profile', '') if supported else tr('当前 Niri 不支持单独轻按修饰键的方案。'))
                 for key, button in self.profile_buttons:
                     button.set_sensitive(supported)
@@ -382,6 +418,7 @@ class InputSettingsPage(Gtk.Box):
                     button.profile_marker.set_visible(data.get('profile') == key)
             self.loading = False
             self.host.dirty.discard('input')
+            self.host.dirty.discard('vm-mode')
             self.host.update_footer()
             self._sensitivity()
             return False
@@ -392,6 +429,33 @@ class InputSettingsPage(Gtk.Box):
         self.rate.set_sensitive(enabled)
         self.delay.set_sensitive(enabled)
         self.apply_button.set_sensitive('input' in self.host.dirty)
+        if self.session == 'niri':
+            self.vm_apply.set_sensitive('vm-mode' in self.host.dirty)
+
+    def vm_changed(self, *_):
+        if not self.loading:
+            self.host.mark_dirty('vm-mode')
+        self._sensitivity()
+
+    def apply_vm_changes(self, *_, after=None):
+        if self.loading or not self.vm_card.get_sensitive():
+            return
+        from adws_vm_settings import apply_options
+        values = {'auto_switch': self.vm_auto.get_active(), 'shortcut': self.vm_shortcut.get_text()}
+        applied = {}
+        def job():
+            applied.update(apply_options(values)['options'])
+        def complete():
+            self.loading = True
+            self.vm_shortcut.set_text(applied['shortcut'])
+            self.loading = False
+            self.host.dirty.discard('vm-mode')
+            self.vm_status.set_text(tr('虚拟机模式设置已应用。'))
+            self._sensitivity()
+            self.host.update_footer()
+            if after:
+                after()
+        self.host.run_worker(job, complete)
 
     def changed(self, *_):
         if not self.loading:

@@ -19,7 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--offline', action='store_true', help='Use only cached Cargo dependencies')
-    parser.add_argument('--output', type=Path, default=ROOT / 'dist/ADWS1.35-S_for_arch.zip')
+    metadata = json.loads((ROOT / 'build-info.json').read_text())
+    version = metadata.get('display_version') or metadata['major_version']
+    parser.add_argument('--output', type=Path, default=ROOT / 'dist' / f'ADWS{version}_for_arch.zip')
     args = parser.parse_args()
     if platform.machine() != 'x86_64' or platform.freedesktop_os_release().get('ID') != 'arch':
         parser.error('Build this package on Arch Linux x86_64')
@@ -46,9 +48,14 @@ def main():
         files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
         # Font fallback migration is required by the generated layout and topbar.
         # Include it explicitly even in a working checkout before git staging.
-        files.extend(['tools/adws_popup_effect.py', 'src/niri-desktop-layer/integration/popup-effect.c', 'tools/adws_clipboard_pins.py', 'tools/adws_clipboard_preview.py', 'tools/adws_clipboard_gui.py', 'tools/adws_agenda.py', 'tools/adws_calendar.py', 'tools/adws_weather.py', 'tools/adws_agenda_preview.py', 'tools/adws_location.py', 'tools/adws_location_registration.py', 'tools/adws_tides.py', 'tools/adws_ocean.py', 'tools/adws_control_center.py', 'tools/adws_popup.py', 'tools/adws_fonts.py', 'tools/adws_app_scaling.py', 'tools/adws_sidebar.py', 'tools/adws_sidebar_widgets.py', 'tools/adws_sidebar_model.py', 'tools/adws_sidebar_board.py', 'tools/adws_sidebar_notifications.py', 'src/niri-desktop-layer/desktop_layer/open_with.py'])
+        files.extend(['tools/adws_desktop_preferences.py','tools/adws_desktop_groups.py','tools/adws_desktop_groups_model.py','tools/adws_monitor_identity.py','tools/adws_display_profile.py'])
+        files.extend(['tools/adws_settings_widgets.py','tools/adws_clock_face.py','tools/adws_plugin_settings.py','tools/adws_plugin_api.py','tools/adws_plugin.py','tools/adws_desktop_interactive.py','tools/adws_lyrics_media.py','tools/adws_plugin_manager.py','tools/adws_widget_style.py','tools/adws_components.py','tools/adws_desktop_widgets_model.py','tools/adws_desktop_plugin.py','tools/adws_desktop_widgets.py','tools/adws_desktop_widgets_settings.py'])
+        files.extend(['tools/adws_brightness_slider.py', 'tools/adws_popup_effect.py', 'src/niri-desktop-layer/integration/popup-effect.c', 'tools/adws_clipboard_pins.py', 'tools/adws_clipboard_preview.py', 'tools/adws_clipboard_gui.py', 'tools/adws_agenda.py', 'tools/adws_calendar.py', 'tools/adws_weather.py', 'tools/adws_agenda_preview.py', 'tools/adws_location.py', 'tools/adws_location_registration.py', 'tools/adws_tides.py', 'tools/adws_ocean.py', 'tools/adws_control_center.py', 'tools/adws_popup.py', 'tools/adws_fonts.py', 'tools/adws_app_scaling.py', 'tools/adws_sidebar.py', 'tools/adws_sidebar_widgets.py', 'tools/adws_sidebar_model.py', 'tools/adws_sidebar_board.py', 'tools/adws_sidebar_notifications.py', 'src/niri-desktop-layer/desktop_layer/open_with.py'])
         if not (ROOT/'tools/adws_fonts.py').is_file():
             raise RuntimeError('Missing required font migration module')
+        files.extend(str(p.relative_to(ROOT)) for p in (ROOT/'plugins/desktop-basic-pack').rglob('*') if p.is_file())
+        files.extend(['plugins/org.AkiACG-Community.desktopBasicPack_1.0.0.mplg','plugins/org.AkiACG-Community.desktopBasicPack_1.0.0.mplg.sha256'])
+        files.extend(['plugins/org.AkiACG_Community.NCMLyricsBar_1.2.0.mplg','plugins/org.AkiACG_Community.NCMLyricsBar_1.2.0.mplg.sha256'])
         roots = {'patches', 'config', 'docs', 'language', 'plugins', 'samples', 'scripts', 'src', 'tools', 'vendor'}
         top_files = {'adws','install.sh','README.md','Language.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','build-info.json','.gitignore'}
         excluded = {'target','__pycache__','.cache','.git','state','node_modules'}
@@ -74,7 +81,7 @@ def main():
         shutil.copy2(ROOT/'src/adws-start-menu/target/release/adws-start-menu', folder/'adws-start-menu')
         libraries={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.iterdir() if p.is_file()}
         metadata = json.loads((ROOT / 'build-info.json').read_text())
-        manifest={'version':metadata.get('display_version') or metadata['major_version'] + ' ' + metadata['release_label'],'os':'arch','arch':'x86_64','internal_revision':metadata.get('minor_version'),'sha256':libraries,
+        manifest={'version':metadata.get('display_version') or metadata['major_version'] + ' ' + metadata['release_label'],'os':'arch','arch':'x86_64','internal_revision':metadata.get('minor_version'),'build_version':metadata.get('build_version'),'sha256':libraries,
                   'source_tree_sha256':hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest()}
         (folder/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
         shutil.copy2(ROOT/'docs/arch-install.md',stage/'ARCH-INSTALL.md')

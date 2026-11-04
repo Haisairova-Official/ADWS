@@ -9,7 +9,7 @@ import tomllib
 @dataclass
 class Config:
     directory: str = ""
-    monitor: str = "primary"
+    monitor: str = "all"
     icon_size: int = 48
     cell_width: int = 112
     cell_height: int = 104

@@ -24,7 +24,9 @@ PAGES = (
     Page('desktop', '桌面与文字', '调整桌面图标、字体与网格。', 'video-display-symbolic', '工作空间', 'desktop appearance font icons 外观 字体 图标 网格'),
     Page('taskbar', '任务栏外观', '位置、分体、材质、配色与动效。', 'view-grid-symbolic', '工作空间', 'taskbar panel color animation radius split 颜色 动效 圆角 尖角 高度'),
     Page('waybar', 'Waybar 配置', '管理独立 Waybar 的尺寸、间距与组件排列。', 'view-top-bar-symbolic', '工作空间', 'waybar top panel 顶部栏 配置'),
-    Page('layout', '组件与插件', '排列组件，管理插件和时钟。', 'application-x-addon-symbolic', '工作空间', 'layout plugin component clock lyrics 布局 插件 组件 时钟 歌词'),
+    Page('plugins', '插件管理', '安装、更新和卸载桌面与任务栏共用的模组包。', 'application-x-addon-symbolic', '工作空间', 'plugins packages install update uninstall 模组 安装 更新 卸载'),
+    Page('desktop-widgets', '桌面插件配置', '添加桌面组件，配置布局和独立 CSS 样式。', 'view-grid-symbolic', '工作空间', 'desktop widgets css 桌面 小组件 模组 歌词'),
+    Page('layout', '任务栏插件配置', '添加任务栏组件，调整排列和组件设置。', 'application-x-addon-symbolic', '工作空间', 'layout plugin component clock lyrics 布局 插件 组件 时钟 歌词'),
     Page('start', '开始菜单', '启动器、按钮图样、菜单主题与键位。', 'view-app-grid-symbolic', '工作空间', 'start launcher keyboard rofi fuzzel 开始 启动器 快捷键'),
     Page('wallpaper', '壁纸', '选择图片与壁纸管理工具。', 'preferences-desktop-wallpaper-symbolic', '个性化', 'wallpaper background awww swww swaybg 壁纸 背景'),
     Page('sidebar', '侧边栏', '信息、小工具与天气。', 'view-list-symbolic', '工作空间', 'sidebar widgets weather 侧边栏 小工具 天气'),
@@ -151,7 +153,7 @@ class SystemSettingsWindow(Gtk.Window):
         for definition in available_pages():
             self.page_definitions.append(Page(*definition))
             self.system_page_keys.add(definition[0])
-        self.page_definitions.append(Page('input', '输入与快捷键', '键盘、输入法与桌面快捷键。', 'input-keyboard-symbolic', '设备与连接', 'input keyboard mouse shortcuts 输入 键盘 鼠标 快捷键'))
+        self.page_definitions.append(Page('input', '输入与快捷键', '键盘、输入法与桌面快捷键。', 'input-keyboard-symbolic', '设备与连接', 'input keyboard mouse shortcuts vmware virtual machine 输入 键盘 鼠标 快捷键 虚拟机 自动切换 恢复'))
         group_order = {'概览':0, '工作空间':1, '个性化':2, '设备与连接':3, '系统':4}
         self.page_definitions.sort(key=lambda page: (group_order.get(page.group, 3), page.key == 'about'))
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
@@ -320,6 +322,12 @@ class SystemSettingsWindow(Gtk.Window):
         return widget
 
     def build_page(self, key):
+        if key == 'plugins':
+            from adws_plugin_manager import PluginManager
+            return self.scroll(PluginManager(self))
+        if key == 'desktop-widgets':
+            from adws_desktop_widgets_settings import DesktopWidgetsSettings
+            return self.scroll(DesktopWidgetsSettings(self))
         if key in self.system_page_keys:
             from adws_system_pages import build_page
             content = build_page(key, self)
@@ -403,6 +411,8 @@ class SystemSettingsWindow(Gtk.Window):
                 from adws_settings_widgets import enhance_choices
                 enhance_choices(widget, translate=tr)
                 widget.show_all()
+            if key == 'layout' and key in self.pages:
+                self.owner('taskbar').layout_editor.refresh_components()
             self.current = key
             page = next(p for p in self.page_definitions if p.key == key)
             self.breadcrumb.set_text('ADWS  /  ' + tr(page.group))
@@ -737,6 +747,9 @@ class SystemSettingsWindow(Gtk.Window):
                 return
             if 'input' in self.dirty:
                 self.input_page.apply_changes(after=self.apply_changes)
+                return
+            if 'vm-mode' in self.dirty:
+                self.input_page.apply_vm_changes(after=self.apply_changes)
                 return
             if 'region' in self.dirty:
                 self.service_pages['region'].apply_pending(after=self.apply_changes)

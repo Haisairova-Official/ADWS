@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 # Resolve PyGObject overrides before per-output workers can access the modules.
 # Concurrent first imports can expose the raw Variant/GError GI types.
@@ -94,6 +95,55 @@ def ddc_args(device):
     return ['--display',str(index)]
 
 
+@contextmanager
+def hardware_lock(name, timeout=40):
+    """Coordinate helpers across bars, panels and scroll workers, off the UI thread."""
+    import fcntl
+    with (cache_root()/name).open('a') as lock:
+        deadline = time.monotonic()+timeout
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Brightness hardware busy; please retry')
+                time.sleep(.05)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def ddc_command(args, timeout):
+    # DDC access may hold GPU driver locks shared with the compositor. Multiple
+    # I2C buses on the same GPU must not be queried/written concurrently.
+    with hardware_lock('ddc-io.lock'):
+        return command(['ddcutil', *args], timeout=timeout)
+
+
+def ddc_brightness_command(device, operation, value=None):
+    """VCP 0x10 has the same continuous-value encoding across MCCS versions.
+
+    Discovery already checked this display. Avoid re-probing it and reading the
+    MCCS version on every drag/wheel edit. No read-back per write; explicit
+    refresh still reads the actual hardware value. Older ddcutil keeps a bounded
+    fallback if it does not accept the optional optimization flags.
+    """
+    selection = ddc_args(device)
+    action = [operation, '10', '--terse'] if operation == 'getvcp' else [operation, '10', str(value)]
+    fast = ['--skip-ddc-checks', '--mccs', '2.2']
+    if operation == 'setvcp': fast.append('--noverify')
+    try:
+        return ddc_command([*selection, *fast, *action], timeout=4 if operation == 'getvcp' else 5)
+    except RuntimeError as error:
+        message = str(error).lower()
+        if not any(marker in message for marker in ('unknown option', 'unrecognized option', 'unrecognised option')):
+            raise
+        return ddc_command([*selection, *(['--noverify'] if operation == 'setvcp' else []), *action],
+                           timeout=4 if operation == 'getvcp' else 5)
+
+
 def ddc_devices(force=False):
     path = cache_root()/'ddc.json'
     cached = read_json(path, {})
@@ -101,12 +151,14 @@ def ddc_devices(force=False):
     devices = {}
     if shutil.which('ddcutil'):
         try:
-            raw = command(['ddcutil','detect','--terse'], timeout=30)
+            raw = ddc_command(['detect','--terse'], timeout=30)
             devices = parse_ddc(raw)
             buses = parse_ddc_buses(raw)
             devices = {name:{'display':index, 'bus':buses.get(name)} for name,index in devices.items()}
         except (OSError, RuntimeError, subprocess.SubprocessError):
             # Keep the last successful connector mapping during transient failures.
+            # Back off failed discovery too, rather than retrying on every read.
+            write_json(path, {'time':time.time(), 'devices':cached.get('devices', {})})
             return cached.get('devices', {})
     write_json(path, {'time':time.time(),'devices':devices})
     return devices
@@ -140,14 +192,14 @@ def owned_night(record, output):
     except (OSError, KeyError, ValueError, IndexError): return False
 
 
-def cached_brightness(max_age=120):
-    """Fast initial view only; callers still refresh hardware in the background."""
+def cached_brightness(max_age=120, allow_empty=False):
+    """Cached observations; only explicit interaction should refresh DDC hardware."""
     snapshot = read_json(cache_root()/'brightness-snapshot.json', {})
     if not isinstance(snapshot, dict): return None
     stamp = snapshot.get('time')
     if type(stamp) not in (int, float) or not 0 <= time.time()-stamp <= max_age: return None
     items = snapshot.get('items')
-    if not isinstance(items, list) or not items: return None
+    if not isinstance(items, list) or (not items and not allow_empty): return None
     for item in items:
         if not isinstance(item, dict) or not isinstance(item.get('name'), str): return None
         if not isinstance(item.get('description'), str): return None
@@ -157,7 +209,24 @@ def cached_brightness(max_age=120):
     return items
 
 
-def brightness(force=False):
+def brightness(force=False, passive=False):
+    """Passive indicators never probe hardware, even with missing/expired cache.
+
+    Active requests share one short-lived snapshot across all output bars and
+    panels. Keep slow DDC discovery and I/O outside periodic status updates.
+    """
+    if passive:
+        return cached_brightness(max_age=86400, allow_empty=True) or []
+    requested = time.time()
+    with hardware_lock('brightness-read.lock', timeout=45):
+        snapshot = read_json(cache_root()/'brightness-snapshot.json', {})
+        cached = cached_brightness(max_age=2, allow_empty=True)
+        if cached is not None and (not force or snapshot.get('time', 0) >= requested):
+            return cached
+        return _read_brightness(force)
+
+
+def _read_brightness(force=False):
     started=time.time()
     from adws_display import detect_session, outputs
     session = detect_session()
@@ -177,7 +246,7 @@ def brightness(force=False):
             entry.update(color_provider='wlsunset',temperature=record.get('temperature',4500) if active else 6500,night=active)
         try:
             if name in ddcs:
-                raw = command(['ddcutil',*ddc_args(ddcs[name]),'getvcp','10','--terse'], timeout=4)
+                raw = ddc_brightness_command(ddcs[name], 'getvcp')
                 match = re.search(r'VCP\s+10\s+C\s+(\d+)\s+(\d+)',raw)
                 if not match or int(match[2])<=0: raise ValueError('No brightness response')
                 entry.update(provider='ddc',device=ddcs[name], maximum=int(match[2]),value=round(int(match[1])/int(match[2])*100))
@@ -225,9 +294,8 @@ def brightness_write(entry, action, value):
         value=number(value, 5, 100); provider=entry.get('provider')
         if provider=='ddc':
             device=entry['device']; maximum=entry['maximum']
-            args=ddc_args(device)
             if type(maximum) is not int or not 1<=maximum<=65535: raise ValueError('Invalid DDC device')
-            command(['ddcutil',*args,'setvcp','10',str(round(value*maximum/100))],timeout=5)
+            ddc_brightness_command(device, 'setvcp', round(value*maximum/100))
         elif provider=='backlight':
             device=entry['device']
             if not re.fullmatch('[A-Za-z0-9_.-]+',device): raise ValueError('Invalid backlight device')
@@ -318,8 +386,13 @@ def brightness_step_worker(fd):
             with (root/'brightness-queue.lock').open('w') as guard:
                 fcntl.flock(guard,fcntl.LOCK_EX)
                 pending=read_json(queue,{})
-                jobs=pending.get('jobs',{}) if time.time()-pending.get('time',0)<10 else {}
+                age=time.time()-pending.get('time',0)
+                queued=pending.get('jobs',{}) if age<10 else {}
+                # Wait for a short pause in a wheel gesture. A write on every
+                # incoming burst can stall the compositor even off our UI thread.
+                jobs=queued if age>=.2 else {}
                 if jobs:write_json(queue,{'time':time.time(),'jobs':{}})
+                elif queued:idle_since=time.monotonic()
                 elif time.monotonic()-idle_since>=1.2:
                     # Release under the queue lock so a last-moment enqueue cannot
                     # miss both this worker and the election for the next one.

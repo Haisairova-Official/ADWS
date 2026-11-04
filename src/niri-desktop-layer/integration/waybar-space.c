@@ -44,6 +44,9 @@ typedef struct {
     char *mode, *position;
     GtkStyleContext *window_style;
     gulong window_handler;
+    GtkCssProvider *transparent_style;
+    gulong clear_handler, map_handler, size_handler;
+    gboolean was_paintable;
 } Space;
 
 #ifdef SPACE_TEST
@@ -98,12 +101,14 @@ static gboolean sync_state(gpointer data) {
     self->sync = 0;
     if (!self->window) return G_SOURCE_REMOVE;
     GtkStyleContext *style=gtk_widget_get_style_context(GTK_WIDGET(self->window));
+    /* Legacy generated CSS uses this class to square corners. Docking now
+     * changes only margins; remove it even after a stylesheet reload. */
+    gtk_style_context_remove_class(style,"adws-docked");
     gboolean docked=g_strcmp0(self->mode,"docked")==0 || (g_strcmp0(self->mode,"auto")==0 && gtk_style_context_has_class(style,"adws-has-windows"));
     if (self->docked != docked) {
         gboolean initial=self->docked<0;
         if(g_getenv("ADWS_TASKBAR_TIMING"))g_printerr("ADWS_TASKBAR_TIMING space_dock=%d at_us=%lld\n",docked,(long long)g_get_monotonic_time());
         self->docked=docked;
-        if(docked) gtk_style_context_add_class(style,"adws-docked"); else gtk_style_context_remove_class(style,"adws-docked");
         stop_animation(self);
         self->target_gap=docked?0.:8.;
         if(!initial && self->animations && gtk_widget_get_mapped(GTK_WIDGET(self->window))) {
@@ -162,12 +167,49 @@ static gboolean draw_segment(GtkWidget *widget, cairo_t *cr, gpointer data) {
     GTK_WIDGET_GET_CLASS(widget)->draw(widget,cr);
     return TRUE;
 }
+/* The surface must be transparent independently of the user's GTK theme.
+ * Paint materials on the inner boxes only; a theme's opaque window backdrop or
+ * decoration shadow otherwise fills the pixels outside their rounded corners. */
+static gboolean clear_panel_surface(GtkWidget *widget, cairo_t *cr, gpointer data) {
+    (void)widget; (void)data;
+    cairo_save(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+    cairo_paint(cr);
+    cairo_restore(cr);
+    return FALSE; /* Keep normal child rendering and its material/clip paths. */
+}
+static void transparent_region(GtkWidget *widget, gpointer data) {
+    (void)data;
+    GdkWindow *surface=gtk_widget_get_window(widget);
+    if(surface)gdk_window_set_opaque_region(surface,NULL);
+}
+static void transparent_resize(GtkWidget *widget, GtkAllocation *allocation, gpointer data) {
+    (void)allocation;transparent_region(widget,data);
+}
+static void transparent_visual(GtkWidget *widget) {
+    if(GTK_IS_WINDOW(widget) && !gtk_widget_get_realized(widget)) {
+        GdkVisual *visual=gdk_screen_get_rgba_visual(gtk_widget_get_screen(widget));
+        if(visual)gtk_widget_set_visual(widget,visual);
+    }
+}
+
 static gboolean attach(gpointer data) {
     Space *self = data;
     self->sync = 0;
     GtkWidget *top = gtk_widget_get_toplevel(self->root);
     if (!GTK_IS_WINDOW(top)) return G_SOURCE_REMOVE;
     self->window = GTK_WINDOW(top);
+    transparent_visual(top);
+    self->was_paintable=gtk_widget_get_app_paintable(top);
+    gtk_widget_set_app_paintable(top,TRUE);
+    self->transparent_style=gtk_css_provider_new();
+    gtk_css_provider_load_from_data(self->transparent_style,
+        "window.adws-panel { background-color:transparent; background-image:none; border:none; box-shadow:none; }",-1,NULL);
+    gtk_style_context_add_provider(gtk_widget_get_style_context(top),GTK_STYLE_PROVIDER(self->transparent_style),GTK_STYLE_PROVIDER_PRIORITY_USER+100);
+    self->clear_handler=g_signal_connect(top,"draw",G_CALLBACK(clear_panel_surface),self);
+    self->map_handler=g_signal_connect(top,"map",G_CALLBACK(transparent_region),self);
+    self->size_handler=g_signal_connect(top,"size-allocate",G_CALLBACK(transparent_resize),self);
+    transparent_region(top,self);
     self->window_style=g_object_ref(gtk_widget_get_style_context(top));
     gtk_style_context_add_class(self->window_style,"adws-panel");
     if(self->split)gtk_style_context_add_class(self->window_style,"adws-split");
@@ -224,6 +266,7 @@ void *wbcffi_init(const wbcffi_init_info *info,
         g_free(clean);
     }
     self->root = GTK_WIDGET(info->get_root_widget(info->obj));
+    transparent_visual(gtk_widget_get_toplevel(self->root));
     /* This is a controller, not a visible module; it adds no spacing. */
     gtk_widget_set_no_show_all(self->root, TRUE);
     gtk_widget_hide(self->root);
@@ -238,6 +281,14 @@ void wbcffi_deinit(void *instance) {
         if(self->segment_draw[i])g_signal_handler_disconnect(self->segments[i],self->segment_draw[i]);
         g_object_remove_weak_pointer(G_OBJECT(self->segments[i]),(gpointer *)&self->segments[i]);
     }
+    if(self->window) {
+        if(self->clear_handler)g_signal_handler_disconnect(self->window,self->clear_handler);
+        if(self->map_handler)g_signal_handler_disconnect(self->window,self->map_handler);
+        if(self->size_handler)g_signal_handler_disconnect(self->window,self->size_handler);
+        gtk_widget_set_app_paintable(GTK_WIDGET(self->window),self->was_paintable);
+        if(self->transparent_style)gtk_style_context_remove_provider(gtk_widget_get_style_context(GTK_WIDGET(self->window)),GTK_STYLE_PROVIDER(self->transparent_style));
+    }
+    if(self->transparent_style)g_object_unref(self->transparent_style);
     if(self->window && self->occupancy_handler)g_signal_handler_disconnect(self->window,self->occupancy_handler);
     cancel(&self->sync);
     cancel(&self->release);

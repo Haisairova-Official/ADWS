@@ -1,7 +1,7 @@
 {
   "id": "org.AkiACG_Community.NCMLyricsBar",
   "name": "plugin.name",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "entry": "main.py",
   "description": "plugin.description",
   "license": "MIT",
@@ -99,5 +99,176 @@
   "adws": {
     "api": 1,
     "minVersion": "1.25"
-  }
+  },
+  "components": [
+    {
+      "id": "desktop_lyrics",
+      "target": "desktop",
+      "name": "desktop.name",
+      "description": "desktop.description",
+      "entry": "main.py",
+      "renderer": "panel.rows-v1",
+      "isSingleOnly": false,
+      "settingsSchema": [
+        {
+          "key": "show_translation",
+          "label": "settings.show_translation.label",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "show_romanization",
+          "label": "settings.show_romanization.label",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "show_furigana",
+          "label": "settings.show_furigana.label",
+          "hint": "settings.show_furigana.hint",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "romanization_fallback",
+          "label": "settings.romanization_fallback.label",
+          "hint": "settings.romanization_fallback.hint",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "show_progress",
+          "label": "settings.show_progress.label",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "show_spectrum",
+          "label": "settings.show_spectrum.label",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "show_context",
+          "label": "settings.show_context.label",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "lyric_font_size",
+          "label": "settings.lyric_font_size.label",
+          "type": "number",
+          "default": 28,
+          "min": 16,
+          "max": 64,
+          "step": 1
+        },
+        {
+          "key": "text_align",
+          "label": "settings.text_align.label",
+          "type": "choice",
+          "default": "center",
+          "choices": [
+            [
+              "left",
+              "左对齐"
+            ],
+            [
+              "center",
+              "居中"
+            ],
+            [
+              "right",
+              "右对齐"
+            ]
+          ]
+        },
+        {
+          "key": "font_family",
+          "label": "settings.font_family.label",
+          "type": "font",
+          "default": ""
+        },
+        {
+          "key": "primary_color",
+          "label": "settings.primary_color.label",
+          "type": "color",
+          "default": ""
+        },
+        {
+          "key": "secondary_color",
+          "label": "settings.secondary_color.label",
+          "type": "color",
+          "default": ""
+        },
+        {
+          "key": "separator_color",
+          "label": "settings.separator_color.label",
+          "type": "color",
+          "default": ""
+        },
+        {
+          "key": "offset_ms",
+          "label": "settings.offset_ms.label",
+          "type": "number",
+          "default": 0,
+          "min": -10000,
+          "max": 10000,
+          "step": 50
+        },
+        {
+          "key": "experimental_other_platforms",
+          "label": "settings.experimental_other_platforms.label",
+          "type": "boolean",
+          "default": false,
+          "hint": "settings.experimental_other_platforms.hint"
+        },
+        {
+          "key": "api_mode",
+          "label": "settings.api_mode.label",
+          "type": "choice",
+          "default": "netease",
+          "choices": [
+            [
+              "netease",
+              "网易云（默认）"
+            ],
+            [
+              "custom",
+              "自定义 API"
+            ]
+          ]
+        },
+        {
+          "key": "api_url",
+          "label": "settings.api_url.label",
+          "type": "url",
+          "default": "",
+          "hint": "settings.api_url.hint"
+        },
+        {
+          "key": "lyric_path",
+          "label": "settings.lyric_path.label",
+          "type": "string",
+          "default": "lrc.lyric",
+          "hint": "settings.lyric_path.hint"
+        },
+        {
+          "key": "translation_path",
+          "label": "settings.translation_path.label",
+          "type": "string",
+          "default": "tlyric.lyric",
+          "hint": "settings.translation_path.hint"
+        },
+        {
+          "key": "romanization_path",
+          "label": "settings.romanization_path.label",
+          "type": "string",
+          "default": "rlyric.lyric",
+          "hint": "settings.romanization_path.hint"
+        }
+      ],
+      "desktopStyle": "lyrics"
+    }
+  ]
 }

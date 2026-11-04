@@ -428,8 +428,25 @@ impl HoverPreview {
             self.set_progress(1.);
         }
         scroll.add(&items);
-        self.popup.add(&scroll);
-        scroll.show_all();
+        let pane = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        pane.pack_start(&scroll, true, true, 0);
+        if self.members.borrow().len() > 1 {
+            let close_all = gtk::Button::with_label(crate::i18n::text("关闭所有项目卡", "Close all cards"));
+            close_all.set_halign(gtk::Align::End);
+            close_all.set_tooltip_text(Some(crate::i18n::text("关闭此窗格中的所有窗口", "Close all windows in this pane")));
+            let weak = Rc::downgrade(self);
+            close_all.connect_clicked(move |button| {
+                button.set_sensitive(false);
+                if let Some(this) = weak.upgrade() {
+                    let ids = this.members.borrow().iter().map(|(id, _)| *id).collect();
+                    this.dismiss();
+                    this.state.niri().close_windows_background(ids);
+                }
+            });
+            pane.pack_start(&close_all, false, false, 0);
+        }
+        self.popup.add(&pane);
+        pane.show_all();
         self.popup.show();
         if peek {
             *self.capture.borrow_mut() =

@@ -28,6 +28,13 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(self.run_worker('pass'),0)
         self.assertEqual(watchdog.health('one')['state'],'completed')
 
+    def test_exited_desktop_host_stops_plugin_without_failure_alert(self):
+        with patch.dict(os.environ,{'ADWS_PLUGIN_HOST_PID':'0'}):
+            self.assertEqual(self.run_worker('import time;time.sleep(30)'),0)
+        self.assertEqual(watchdog.health('one')['state'],'stopped')
+        self.notice.assert_not_called()
+        self.assertEqual(list(watchdog.folder().glob('.*.beat')),[])
+
     def test_missing_interpreter_heartbeat_is_detected(self):
         self.assertEqual(self.run_worker('import time;time.sleep(30)'),1)
         self.assertEqual(watchdog.health('one')['state'],'failed')

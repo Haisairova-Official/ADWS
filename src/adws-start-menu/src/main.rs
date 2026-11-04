@@ -631,19 +631,84 @@ fn app_image(info: &gio::AppInfo, size: i32) -> gtk::Image {
 
 // Fetch current geometry from the taskbar instead of estimating the button's
 // position from configured padding. Missing/older taskbars retain the fallback.
-async fn taskbar_anchor() -> Option<Value> {
+// Wayland does not expose global pointer coordinates to an unfocused client.
+// Brief transparent, keyboard-free surfaces obtain a fresh pointer-enter from
+// the compositor. They are destroyed before the menu appears; no polling stays.
+async fn pointer_monitor() -> Option<i32> {
     let display = gdk::Display::default()?;
-    let monitor = display.default_seat().and_then(|s| s.pointer()).and_then(|p| {
-        let (_, x, y) = p.position(); display.monitor_at_point(x, y)
-    }).or_else(|| display.primary_monitor()).or_else(|| display.monitor(0))?;
-    let index = (0..display.n_monitors()).find(|&i| display.monitor(i).as_ref() == Some(&monitor))?;
+    if unsafe { gtk_layer_is_supported() } == 0 {
+        let (_, x, y) = display.default_seat()?.pointer()?.position();
+        let monitor = display.monitor_at_point(x, y)?;
+        return (0..display.n_monitors()).find(|&i| display.monitor(i).as_ref() == Some(&monitor));
+    }
+    let selected = Rc::new(std::cell::Cell::new(None));
+    let mut probes = Vec::new();
+    for index in 0..display.n_monitors() {
+        let Some(monitor) = display.monitor(index) else { continue; };
+        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        window.set_decorated(false);
+        window.set_app_paintable(true);
+        if let Some(visual) = gtk::prelude::WidgetExt::screen(&window).and_then(|s| s.rgba_visual()) {
+            window.set_visual(Some(&visual));
+        }
+        window.add_events(gdk::EventMask::ENTER_NOTIFY_MASK);
+        let found = selected.clone();
+        window.connect_enter_notify_event(move |_, _| {
+            found.set(Some(index)); glib::Propagation::Proceed
+        });
+        window.connect_draw(|_, context| {
+            context.set_operator(cairo::Operator::Source);
+            context.set_source_rgba(0., 0., 0., 0.);
+            let _ = context.paint();
+            glib::Propagation::Stop
+        });
+        unsafe {
+            let ptr = window.to_glib_none().0;
+            gtk_layer_init_for_window(ptr);
+            gtk_layer_set_namespace(ptr, c"adws-pointer-locator".as_ptr());
+            gtk_layer_set_layer(ptr, 3);
+            gtk_layer_set_monitor(ptr, monitor.to_glib_none().0);
+            gtk_layer_set_keyboard_mode(ptr, 0);
+            gtk_layer_set_exclusive_zone(ptr, -1);
+            for edge in 0..4 { gtk_layer_set_anchor(ptr, edge, 1); }
+        }
+        window.show_all();
+        probes.push(window);
+    }
+    display.flush();
+    for _ in 0..10 {
+        glib::timeout_future(Duration::from_millis(8)).await;
+        if selected.get().is_some() { break; }
+    }
+    for window in probes { unsafe { window.destroy(); } }
+    display.flush();
+    selected.get()
+}
+
+fn anchor_matches_output(anchor: &Value, index: i32, geometry: [i32; 4]) -> bool {
+    if let Some(values) = anchor["monitor_geometry"].as_array() {
+        values.len() == 4 && values.iter().zip(geometry).all(|(value, coordinate)| value.as_i64() == Some(coordinate as i64))
+    } else {
+        anchor["monitor"].as_i64() == Some(index as i64)
+    }
+}
+
+fn output_geometry(index: i32) -> Option<[i32; 4]> {
+    let area = gdk::Display::default()?.monitor(index)?.geometry();
+    Some([area.x(), area.y(), area.width(), area.height()])
+}
+
+async fn taskbar_anchor(index: i32) -> Option<Value> {
     let bus = gio::bus_get_future(gio::BusType::Session).await.ok()?;
     let reply = bus.call_future(Some("org.ADWS.Taskbar.Start"), "/org/ADWS/Taskbar/Start",
         "org.ADWS.Taskbar.Start", "GetAnchors", None, None,
         gio::DBusCallFlags::NO_AUTO_START, 150).await.ok()?;
     let (anchors,) = reply.get::<(Vec<String>,)>()?;
-    anchors.iter().filter_map(|s| serde_json::from_str::<Value>(s).ok())
-        .find(|a| a["monitor"].as_i64() == Some(index as i64))
+    let geometry = output_geometry(index)?;
+    let mut anchor = anchors.iter().filter_map(|s| serde_json::from_str::<Value>(s).ok())
+        .find(|a| anchor_matches_output(a, index, geometry))?;
+    anchor["monitor"] = Value::from(index);
+    Some(anchor)
 }
 
 struct CachedMenu {
@@ -671,8 +736,12 @@ impl CachedMenu {
                         let (x, y) = menu_origin(anchor, self.width, self.height, area.width(), area.height());
                         unsafe {
                             let ptr = self.window.upcast_ref::<gtk::Window>().to_glib_none().0;
+                            gtk_layer_set_monitor(ptr, monitor.to_glib_none().0);
                             gtk_layer_set_margin(ptr, 0, x);
                             gtk_layer_set_margin(ptr, 2, y);
+                            if let Some(backdrop) = &self.motion.backdrop {
+                                gtk_layer_set_monitor(backdrop.upcast_ref::<gtk::Window>().to_glib_none().0, monitor.to_glib_none().0);
+                            }
                         }
                     }
                 }
@@ -751,11 +820,27 @@ fn main() {
         let cache = cache.clone(); let dirty = catalog_dirty.clone();
         let hold = application.hold();
         glib::MainContext::default().spawn_local(async move {
-            let anchor = if anchor.is_some() || (smoke.is_some() && !layer_probe) { anchor } else { taskbar_anchor().await };
+            let anchor = if smoke.is_some() && !layer_probe { anchor } else {
+                let index = pointer_monitor().await
+                    .or_else(|| anchor.as_ref().and_then(|a| a["monitor"].as_i64()).and_then(|i| i32::try_from(i).ok()));
+                if let Some(index) = index {
+                    if anchor.as_ref().is_some_and(|a| output_geometry(index).is_some_and(|g| anchor_matches_output(a, index, g))) {
+                        let mut anchor = anchor;
+                        if let Some(value) = anchor.as_mut() { value["monitor"] = Value::from(index); }
+                        anchor
+                    }
+                    else { taskbar_anchor(index).await.or_else(|| {
+                        let monitor = gdk::Display::default()?.monitor(index)?;
+                        Some(serde_json::json!({"monitor":index,"edge":"bottom","x":16,
+                            "y":monitor.geometry().height()-16,"w":32,"h":0}))
+                    }) }
+                } else { anchor }
+            };
             let signature = serde_json::json!([root, theme, custom, options,
                 json_file(&config_home().join("adws/taskbar-pins.json")),
                 anchor.as_ref().and_then(|v| v["monitor"].as_i64()),
-                anchor.as_ref().and_then(|v| v["edge"].as_str())]);
+                anchor.as_ref().and_then(|v| v["edge"].as_str()),
+                anchor.as_ref().and_then(|v| v["monitor"].as_i64()).and_then(|i| output_geometry(i as i32))]);
             let refresh = dirty.replace(false);
             let reusable = cache.borrow().as_ref().is_some_and(|(key, _)| *key == signature) && !refresh;
             if reusable {
@@ -1613,6 +1698,14 @@ fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn anchor_geometry_survives_different_process_monitor_order() {
+        let anchor = serde_json::json!({"monitor":0,"monitor_geometry":[2560,0,1920,1080]});
+        assert!(anchor_matches_output(&anchor, 1, [2560,0,1920,1080]));
+        assert!(!anchor_matches_output(&anchor, 0, [0,0,2560,1440]));
+        assert!(anchor_matches_output(&serde_json::json!({"monitor":1}), 1, [2560,0,1920,1080]));
+    }
+
     #[test]
     #[ignore = "requires an isolated GTK display"]
     fn motion_reverses_without_resizing_the_input_surface() {

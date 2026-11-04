@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as temp:
         if isinstance(widget, Gtk.Button):
             start = widget.translate_coordinates(app.window, 0, 0)[0]
             assert start >= 0 and start + widget.get_allocated_width() <= app.window.get_allocated_width(), widget.get_label()
-    labels = row["box"].get_children()[1].get_children()
+    labels = row["name_label"].get_parent().get_children()
     assert row["name_label"].get_layout().is_ellipsized()
     assert labels[0].get_layout().is_ellipsized()
     badge = row["language_badge"]
@@ -74,7 +74,7 @@ with tempfile.TemporaryDirectory() as temp:
     assert dialog.animations is True
     assert values["font_family"] == "Sans"
     assert values["primary_color"].startswith("rgb")
-    assert values["interval"] == 0
+    assert values["offset_ms"] == 0
     assert dialog.dialog.get_transient_for() == app.window
     capture(dialog.dialog, "/tmp/adws-plugin-settings-preview.png")
     validate_settings({"api_mode": "custom", "api_url": "https://example.test/lyrics?title={title}"})
@@ -85,6 +85,17 @@ with tempfile.TemporaryDirectory() as temp:
     else:
         raise AssertionError("Invalid template accepted")
     dialog.dialog.destroy()
+    from adws_components import components
+    desktop_manifest=components(manifest,'desktop')[0]
+    desktop_dialog=SettingsDialog(app.window,'Desktop lyrics',desktop_manifest['settingsSchema'],{})
+    desktop_dialog.dialog.show_all();settle()
+    for key,default in [('show_translation',True),('show_romanization',False),('show_furigana',False),('show_progress',True),('show_spectrum',True),('romanization_fallback',True),('show_context',True)]:
+        control=desktop_dialog.controls[key][1]
+        assert isinstance(control,Gtk.Switch) and control.get_active()==default
+        assert control.get_allocated_width()<100
+        control.set_active(not default)
+        assert desktop_dialog.collect()[key] is not default
+    desktop_dialog.dialog.destroy()
     boolean = SettingsDialog(app.window, 'API types', [
         {'key':'enabled','type':'boolean','default':True},
         {'key':'fraction','type':'number','min':0,'max':1,'step':.1,'default':.5}], {})

@@ -25,7 +25,7 @@ class AsyncCard:
         self.closed=False;self.poll_source=0
         host.connect('destroy',self.dispose);self.box.connect('destroy',self.dispose)
 
-    def watch_visible(self, refresh, seconds):
+    def watch_visible(self, refresh, seconds, initial=None):
         def poll():
             if self.closed or self.host.closed or not self.box.get_mapped():
                 self.poll_source=0;return False
@@ -33,7 +33,7 @@ class AsyncCard:
         def mapped(*_):
             if self.closed:return
             def ready():
-                if not self.closed and self.box.get_mapped(): refresh()
+                if not self.closed and self.box.get_mapped(): (initial or refresh)()
             self.host.after_motion(ready)
             if not self.poll_source:self.poll_source=GLib.timeout_add_seconds(seconds,poll)
         self.box.connect('map',mapped);self.box.connect('unmap',self.stop_poll)
@@ -84,7 +84,13 @@ class LevelCard(AsyncCard):
         self.updating = False; self.write_timer = 0; self.revision = 0
         self.scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0 if kind == 'sound' else 5, 100, 1)
         self.scale.set_digits(0); self.scale.set_value_pos(Gtk.PositionType.RIGHT)
-        self.scale.set_sensitive(False); self.scale.connect('value-changed', self.changed)
+        self.scale.set_sensitive(False)
+        self.hardware_slider=None
+        if kind=='brightness':
+            from adws_brightness_slider import HardwareSlider
+            self.hardware_slider=HardwareSlider(self.scale,self.commit_brightness,
+                enabled=lambda:any(item.get('provider')=='ddc' for item in self.items))
+        else:self.scale.connect('value-changed', self.changed)
         self.box.pack_start(self.scale, False, False, 0)
         row = Gtk.Box(spacing=8)
         refresh = Gtk.Button.new_from_icon_name('view-refresh-symbolic', Gtk.IconSize.BUTTON)
@@ -98,13 +104,15 @@ class LevelCard(AsyncCard):
         if kind == 'brightness':
             cached = backend.cached_brightness()
             if cached: self.loaded(cached)
-        self.watch_visible(self.refresh,3 if kind=='sound' else 5)
+        if kind=='brightness':
+            self.watch_visible(lambda:self.refresh(passive=True),5,initial=self.refresh)
+        else:self.watch_visible(self.refresh,3)
         host.connect('destroy', self.close)
 
-    def refresh(self):
+    def refresh(self, passive=False):
         if self.closed or self.busy or self.write_timer or not self.box.get_mapped(): return
         revision = self.revision
-        self.job(backend.audio if self.kind == 'sound' else backend.brightness,
+        self.job(backend.audio if self.kind == 'sound' else lambda:backend.brightness(passive=passive),
                  lambda result: self.loaded(result) if revision == self.revision else None)
 
     def loaded(self, data):
@@ -122,7 +130,7 @@ class LevelCard(AsyncCard):
             else:
                 self.items = data
                 targets = backend.brightness_targets(data); available = bool(targets)
-                if targets: self.scale.set_value(sum(item['value'] for item in targets)/len(targets))
+                if targets:self.hardware_slider.set_value(sum(item['value'] for item in targets)/len(targets))
                 self.status.set_text(tr('所有可调节显示器') if targets else tr('无可用配置'))
             self.scale.set_sensitive(available)
         finally: self.updating = False
@@ -132,6 +140,12 @@ class LevelCard(AsyncCard):
         self.revision += 1
         if self.write_timer: GLib.source_remove(self.write_timer)
         self.write_timer = GLib.timeout_add(160, self.write)
+
+    def commit_brightness(self, value):
+        if self.updating or self.closed:return
+        self.revision+=1
+        items=self.items
+        self.job(lambda:backend.brightness_all(items,value),lambda _:None,'brightness')
 
     def write(self):
         self.write_timer = 0
@@ -151,6 +165,7 @@ class LevelCard(AsyncCard):
         self.job(lambda: backend.audio_write('sink', index, 'mute', value), lambda _: None, 'mute')
 
     def close(self, *_):
+        if self.hardware_slider:self.hardware_slider.unmap()
         if self.write_timer: GLib.source_remove(self.write_timer); self.write_timer = 0
         self.pending = {}
         self.dispose()

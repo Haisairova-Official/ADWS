@@ -58,7 +58,9 @@ def record(config=None):
         installed = Path.home() / '.local/lib/waybar' / name
         if source.is_file() and installed.is_file() and digest(source) == digest(installed):
             libraries[name] = digest(installed)
-    data['root'] = str(ROOT)
+    data['root'] = str(ROOT.resolve())
+    data['installation_role'] = 'development' if (ROOT / '.adws-development').exists() else 'installed'
+    data['build_method'] = 'prebuilt' if (ROOT / 'prebuilt/manifest.json').is_file() else 'source'
     from adws_templates import hashes
     data.setdefault('template_hashes', hashes(ROOT))
     save_inventory(data)
@@ -105,6 +107,8 @@ def remove_autostart():
 
 
 def remove_owned_files(keep_config):
+    from adws_vm_settings import uninstall as remove_vm_mode
+    remove_vm_mode()
     from adws_location_registration import remove_location_registration
     remove_location_registration()
     data = read_inventory()

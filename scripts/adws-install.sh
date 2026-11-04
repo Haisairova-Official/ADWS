@@ -32,6 +32,9 @@ fi
 if [ "${ADWS_INSTALL_TRANSACTION:-}" != "$ROOT" ]; then
     exec python3 "$ROOT/tools/adws_install_transaction.py"
 fi
+# Source-installed Niri uses the standard local prefix; append without shadowing
+# a custom compositor already selected by the user's PATH.
+case ":$PATH:" in *:/usr/local/bin:*) ;; *) export PATH="$PATH:/usr/local/bin" ;; esac
 python3 "$ROOT/tools/adws_setup.py"
 python3 "$ROOT/tools/adws_migrate.py"
 python3 "$ROOT/tools/adws_windows.py"

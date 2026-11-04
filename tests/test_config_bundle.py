@@ -40,6 +40,18 @@ class BundleTests(unittest.TestCase):
             archive.write_text(text)
             with self.assertRaises(ValueError): bundle.read_bundle(archive)
 
+    def test_desktop_widgets_are_included_and_validated(self):
+        import adws_desktop_widgets_model as widgets
+        target=bundle.locations()['adws/desktop-widgets.json']
+        data=widgets.add({}, {'key':'builtin:note'});widgets.save(data,target)
+        archive=self.root/'widgets.ad-yml';bundle.export_bundle(archive)
+        self.assertIn('adws/desktop-widgets.json',bundle.read_bundle(archive)['files'])
+        import json
+        document={'format':'adws-config','version':1,'files':{'adws/desktop-widgets.json':json.dumps({'version':99})}}
+        import yaml
+        archive.write_text(yaml.safe_dump(document))
+        with self.assertRaises(ValueError):bundle.read_bundle(archive)
+
     def test_write_failure_restores_previous_files(self):
         import adws_atomic
         targets = bundle.locations()

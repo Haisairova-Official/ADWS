@@ -150,8 +150,8 @@ static gchar *start_anchor(GtkWidget *w) {
         y += gtk_layer_get_anchor(bar,GTK_LAYER_SHELL_EDGE_TOP) ? gtk_layer_get_margin(bar,GTK_LAYER_SHELL_EDGE_TOP)
             : gtk_layer_get_anchor(bar,GTK_LAYER_SHELL_EDGE_BOTTOM) ? area.height-bh-gtk_layer_get_margin(bar,GTK_LAYER_SHELL_EDGE_BOTTOM) : (area.height-bh)/2;
         for (int i=0;i<gdk_display_get_n_monitors(display);i++) if(gdk_display_get_monitor(display,i)==monitor) index=i;
-        gchar *anchor=g_strdup_printf("{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"monitor\":%d,\"edge\":\"%s\"}",x,y,
-            gtk_widget_get_allocated_width(w),gtk_widget_get_allocated_height(w),index,s->position?s->position:"bottom");
+        gchar *anchor=g_strdup_printf("{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"monitor\":%d,\"monitor_geometry\":[%d,%d,%d,%d],\"edge\":\"%s\"}",x,y,
+            gtk_widget_get_allocated_width(w),gtk_widget_get_allocated_height(w),index,area.x,area.y,area.width,area.height,s->position?s->position:"bottom");
         return anchor;
     }
     return NULL;

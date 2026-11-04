@@ -88,6 +88,17 @@ def validate_manifest(manifest, members: set[str] | None = None) -> list[str]:
     errors = []
     if not isinstance(manifest, dict):
         return [_tr('plugin.json 必须是 JSON 对象')]
+    if "components" in manifest:
+        from adws_components import components
+        try:
+            declared = components(manifest)
+        except (ValueError, TypeError) as error:
+            return [str(error)]
+        if not declared:
+            return ['Package must declare at least one component']
+        return [error for component in declared for error in validate_manifest(component, members)]
+    if manifest.get('target') == 'desktop' and manifest.get('renderer') not in ('panel.text-v1','panel.rows-v1','desktop.widgets-v1'):
+        errors.append('Desktop components require a supported JSON renderer')
     if "isSingleOnly" in manifest and type(manifest["isSingleOnly"]) is not bool:
         errors.append(_tr("isSingleOnly 必须是布尔值 true 或 false。"))
     if "renderer" in manifest:
@@ -267,6 +278,7 @@ def _materialize(path: Path, cache: Path | None = None) -> Path:
     if not ok:
         raise ValueError("；".join(errors))
     manifest = load_manifest(path)
+    from adws_components import components
     cache = cache or cache_dir()
     dest = cache / manifest["id"] / manifest["version"]
     stamp = dest / ".adws-stamp.json"
@@ -280,7 +292,7 @@ def _materialize(path: Path, cache: Path | None = None) -> Path:
         try:
             data = json.loads(stamp.read_text(encoding="utf-8"))
             fresh = (isinstance(data, dict) and data.get("sha256") == digest
-                     and (dest / manifest["entry"]).is_file())
+                     and all((dest / item["entry"]).is_file() for item in components(manifest)))
         except (OSError, ValueError):
             fresh = False
     if fresh:
@@ -297,9 +309,11 @@ def _materialize(path: Path, cache: Path | None = None) -> Path:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(name) as src, open(target, "wb") as out:
                     shutil.copyfileobj(src, out)
-        entry = dest / manifest["entry"]
-        if entry.is_file():
-            os.chmod(entry, 0o755)
+        from adws_components import components
+        for item in components(manifest):
+            entry = dest / item["entry"]
+            if entry.is_file():
+                os.chmod(entry, 0o755)
         stamp.write_text(json.dumps({
             "source": str(path.resolve()),
             "mtime": mtime,
@@ -500,7 +514,8 @@ def cmd_run(args) -> int:
         return 1
     try:
         root = materialize(path)
-        manifest = load_manifest(path)
+        from adws_components import select
+        manifest = select(load_manifest(path), getattr(args, 'component', None))
     except ValueError as exc:
         print(_tr('准备运行失败：%s') % exc, file=sys.stderr)
         return 1
@@ -556,6 +571,7 @@ def arguments(argv=None):
     p.set_defaults(func=cmd_list)
 
     p = sub.add_parser("run", help=_tr('试跑已就位的 .mplg（--output-json）'))
+    p.add_argument("--component", help="包内组件 ID")
     p.add_argument("ref", help=_tr('.mplg 路径 / 文件名 / 包 id'))
     p.add_argument("--timeout", default=10.0)
     p.add_argument("--settings-json", default="{}")

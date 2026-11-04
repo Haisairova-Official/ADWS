@@ -67,6 +67,21 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(runtime.matches('desktop', ['python3', '/a/desktop-layer', '--preview']))
         self.assertFalse(runtime.matches('desktop', ['python3', '/a/start-desktop-layer']))
 
+    def test_desktop_stop_aborts_when_application_protection_fails(self):
+        with patch.object(runtime, 'pids', return_value=[123]), \
+             patch.object(runtime, 'protect_desktop_children', side_effect=RuntimeError('protection failed')), \
+             patch.object(runtime.os, 'kill') as kill:
+            with self.assertRaises(SystemExit):
+                runtime.main(['desktop', '--stop'])
+            kill.assert_not_called()
+
+    def test_taskbar_stop_does_not_modify_desktop_service(self):
+        with patch.object(runtime, 'pids', side_effect=[[123], []]), \
+             patch.object(runtime, 'protect_desktop_children') as protect, \
+             patch.object(runtime.os, 'kill'):
+            runtime.main(['taskbar', '--stop'])
+            protect.assert_not_called()
+
     def test_stop_and_kill_aliases(self):
         for component in ('desktop', 'taskbar'):
             for flag, sig in (('--stop', signal.SIGTERM), ('-S', signal.SIGTERM),

@@ -1,10 +1,17 @@
-# NCMLyricsBar 1.1.0
+# NCMLyricsBar 1.2.0
 
-ADWS 任务栏同步歌词插件 · Plugin API v1.0
+ADWS 任务栏／桌面同步歌词模组 · Plugin API v1.0
 
 **声明：本插件存在使用 vibe coding 的内容。本项目仍处于早期状态。**
 
 ## 最新更新
+
+**1.2.0　2026-10-23（配合 ADWS 桌面组件开发版）**
+
+- 一个模组包分别提供原任务栏歌词和新的桌面歌词，两者独立添加、设置和运行。
+- 桌面歌词支持自由拖动、缩放、锁定，双语显示与上一首／暂停／下一首控制，沿用原歌词缓存和 Watchdog。
+- 旧版任务栏入口及设置保持兼容，不会自动把任务栏实例搬到桌面。
+- 添加入口：设置 → 桌面小组件。完整宿主说明见 `docs/desktop-widgets.md`。
 
 **1.1.0　构建日期：2026-09-20**
 
@@ -28,10 +35,10 @@ ADWS 任务栏同步歌词插件 · Plugin API v1.0
 
 建议配合 **ADWS 1.27-A / Pre-1.30** 使用，获得本页全部交互、配色、竖排和动效。插件 API 最低声明为 ADWS 1.25，但仅升级插件包不会升级宿主的原生渲染组件。
 
-下载 `org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg` 后执行：
+下载 `org.AkiACG_Community.NCMLyricsBar_1.2.0.mplg` 后执行：
 
 ```sh
-adws mplg install ./org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg
+adws mplg install ./org.AkiACG_Community.NCMLyricsBar_1.2.0.mplg
 ```
 
 在“组件与插件”中启用 NCMLyricsBar。插件 ID 保持为 `org.AkiACG_Community.NCMLyricsBar`，升级时保留已有设置。
@@ -127,3 +134,35 @@ Plugin authors can set top-level `"isSingleOnly": true` for one active instance,
 ### 1.1.0 palette revision — 2026-10-05
 
 Previous/Next controls use transparent idle backgrounds and follow the taskbar's foreground, hover and pressed palette, including live color changes. This revision requires the updated ADWS native rows renderer; replacing only the plugin archive does not update host button styling.
+
+桌面歌词支持重复添加，每个实例的尺寸、位置、设置和自定义 GTK 3 CSS 独立保存。在“插件管理”安装包，在“桌面插件配置”添加或复制实例。
+
+### 桌面歌词显示
+
+默认以透明歌词显示，悬停显示拖动标题、上一首、播放／暂停、下一首、锁定与菜单；当前句突出，上下句弱化。菜单和组件设置都提供“显示翻译”“显示罗马音”“显示上下句”独立开关，按实例保存；默认开启翻译和上下句。可调当前句字号、左／中／右对齐，也可用实例 CSS 覆盖。
+
+罗马音读取歌词源的 `rlyric.lyric`，自定义接口可设置字段路径；没有对应数据时隐藏，不自动生成音译。翻译和罗马音匹配当前句时间戳，避免缺行时残留上一句译文。开启罗马音时会补充更新旧缓存，但不会反复请求没有罗马音的歌曲。
+
+媒体按钮绑定当前歌词对应的 MPRIS 播放器；播放／暂停图标随状态更新，不支持的操作灰显，调用失败或超时显示提示。
+
+### 日语汉字注音
+
+桌面歌词提供独立的「日语汉字注音」开关（默认关闭），将歌曲源提供的罗马音对齐到原歌词，用假名显示在汉字或连续汉字词组上方。不依赖在线翻译服务或额外词典；没有罗马音、存在多种对齐方式或不支持的拼写时保留原文。整行罗马音开关保持独立。只在含日语假名的歌曲歌词中启用匹配；连续汉字按词组注音，不推测逐字读法。计算结果使用有界缓存，同一句歌词不会随播放进度重复构建界面。
+
+译文紧贴当前歌词下方，不加标识；上下句以更淡、更小的文字和较大的间距区分。CSS 可使用 `.desktop-ruby .desktop-primary` 调整原文、`.desktop-furigana` 调整注音、`.desktop-secondary` 调整译文。
+
+### 备用罗马音来源
+
+桌面歌词的「自动查找备用罗马音」默认开启；仅在用户启用整行罗马音或日语汉字注音、主源没有罗马音且歌词含日语时使用。后台通过 [LRCLIB 公共 API](https://lrclib.net/docs) 查询歌曲名、歌手和时长，不需要账户或付费密钥。原歌词与译文先显示，备用查找使用独立后台线程，不阻塞切歌后的主源请求。可以在组件设置中关闭在线补全。
+
+只接受歌名、歌手、时长一致且多句读音能与原歌词对应的同步版本；不替换原歌词和译文，也不把无时间戳文本直接拼接到歌词中。成功结果共享原歌词缓存，查无结果缓存 6 小时，网络错误缓存 10 分钟；悬停注音或罗马音可以看到来源。备用库也可能缺少罗马音，此时保留原文，不保证每首歌都能补齐。
+
+长原文会先缩小字号（通常不低于设定字号的 72%，且不低于 18px；原字号已更小时保持原值），到达下限后分成两行居中。注音与对应汉字词组一起缩放、换行。极端长句两行仍放不下时省略末尾，不无限缩小。兼容网易云的 `romalrc` 和 `rlyric` 两种罗马音字段，旧的空读音缓存会自动重新读取一次。
+
+### 播放进度与条状频谱
+
+桌面歌词新增「显示播放进度」与「显示条状频谱」独立开关，默认开启，也可在组件菜单快速切换。进度条显示当前时间与总时长，直接使用播放器进度，不叠加歌词偏移；播放器不提供进度时灰显。支持拖动进度条跳转；松手时仅发送一次定位请求，拖动期间不会被播放状态刷新拉回。播放器不支持跳转时灰显；拖动期间切歌会取消旧定位，防止误跳新歌曲。
+
+频谱固定放在歌词下方的独立区域，组件高度不足时自动预留歌词空间，不覆盖上下句。频谱使用 CAVA 的真实系统播放输出，32 个柱条、最高约 30fps、平滑回落，颜色跟随 ADWS 主题；需要可选依赖 `cava`、`pactl` 与 PulseAudio / PipeWire-Pulse。只连接默认输出的 monitor，不采集麦克风，也不保存音频。多个桌面组件共享一个采样进程，暂停、隐藏或移除最后一个活动实例时停止采样；缺少依赖或音频输出不可用时显示静止基线并在悬停时提示。CSS 可使用 `.desktop-spectrum`、`.desktop-progress` 和 `.desktop-media`。
+
+注音支持空格分隔的连续汉字词组：罗马音没有给出逐字边界时，以合并词组注音，不猜单字读法。

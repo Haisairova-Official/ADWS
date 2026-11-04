@@ -1,0 +1,253 @@
+{
+  "id": "org.AkiACG-Community.desktopBasicPack",
+  "name": "桌面基础组件包",
+  "version": "1.0.0",
+  "description": "时钟、计时器、2048、16 格图片拼图、图片展示框和便签贴。",
+  "license": "MIT",
+  "adws": {
+    "api": 1,
+    "minVersion": "1.35"
+  },
+  "components": [
+    {
+      "id": "clock",
+      "name": "时钟",
+      "target": "desktop",
+      "entry": "clock.py",
+      "renderer": "desktop.widgets-v1",
+      "isSingleOnly": false,
+      "desktopSize": [
+        260,
+        220
+      ],
+      "settingsSchema": [
+        {
+          "key": "display",
+          "label": "时钟形式",
+          "type": "choice",
+          "default": "digital",
+          "choices": [
+            [
+              "digital",
+              "电子钟"
+            ],
+            [
+              "analog",
+              "指针钟"
+            ]
+          ]
+        },
+        {
+          "key": "face",
+          "label": "钟面样式",
+          "type": "choice",
+          "default": "retro",
+          "choices": [
+            [
+              "retro",
+              "复古 · 机械跳秒"
+            ],
+            [
+              "minimal",
+              "简洁 · 平滑扫秒"
+            ],
+            [
+              "railway",
+              "车站 · 节拍秒针"
+            ],
+            [
+              "orbit",
+              "星环 · 平滑扫秒"
+            ]
+          ],
+          "visibleWhen": {
+            "display": "analog"
+          }
+        },
+        {
+          "key": "second_hand",
+          "label": "显示秒针",
+          "type": "boolean",
+          "default": true,
+          "visibleWhen": {
+            "display": "analog"
+          }
+        },
+        {
+          "key": "face_image",
+          "label": "自定义钟面图片",
+          "type": "string",
+          "chooser": "image",
+          "default": "",
+          "hint": "留空使用内置钟面；图片裁成圆形，保留透明区域。",
+          "visibleWhen": {
+            "display": "analog"
+          }
+        },
+        {
+          "key": "dial_markers",
+          "label": "显示刻度与数字",
+          "type": "boolean",
+          "default": true,
+          "visibleWhen": {
+            "display": "analog"
+          }
+        },
+        {
+          "key": "timezone",
+          "label": "时区（留空跟随系统，如 Asia/Shanghai）",
+          "type": "string",
+          "default": ""
+        },
+        {
+          "key": "hour24",
+          "label": "24 小时制",
+          "type": "boolean",
+          "default": true,
+          "visibleWhen": {
+            "display": "digital"
+          }
+        },
+        {
+          "key": "seconds",
+          "label": "显示秒",
+          "type": "boolean",
+          "default": true,
+          "visibleWhen": {
+            "display": "digital"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer",
+      "name": "计时器",
+      "target": "desktop",
+      "entry": "timer.py",
+      "renderer": "desktop.widgets-v1",
+      "isSingleOnly": false,
+      "desktopSize": [
+        260,
+        240
+      ],
+      "settingsSchema": [
+        {
+          "key": "mode",
+          "label": "计时模式",
+          "type": "choice",
+          "default": "countdown",
+          "choices": [
+            [
+              "countdown",
+              "倒计时"
+            ],
+            [
+              "stopwatch",
+              "秒表"
+            ]
+          ]
+        },
+        {
+          "key": "minutes",
+          "label": "倒计时分钟数",
+          "type": "number",
+          "default": 25,
+          "min": 1,
+          "max": 1440,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "id": "game2048",
+      "name": "2048 小游戏",
+      "target": "desktop",
+      "entry": "game2048.py",
+      "renderer": "desktop.widgets-v1",
+      "isSingleOnly": false,
+      "desktopSize": [
+        300,
+        350
+      ],
+      "settingsSchema": []
+    },
+    {
+      "id": "puzzle",
+      "name": "16 格图片拼图",
+      "target": "desktop",
+      "entry": "puzzle.py",
+      "renderer": "desktop.widgets-v1",
+      "isSingleOnly": false,
+      "desktopSize": [
+        280,
+        410
+      ],
+      "settingsSchema": []
+    },
+    {
+      "id": "photo",
+      "name": "图片展示框",
+      "target": "desktop",
+      "entry": "photo.py",
+      "renderer": "desktop.widgets-v1",
+      "isSingleOnly": false,
+      "desktopSize": [
+        260,
+        300
+      ],
+      "settingsSchema": [
+        {
+          "key": "caption",
+          "label": "图片说明",
+          "type": "string",
+          "default": ""
+        },
+        {
+          "key": "fit",
+          "label": "图片适应方式",
+          "type": "choice",
+          "default": "contain",
+          "choices": [
+            [
+              "contain",
+              "完整显示"
+            ],
+            [
+              "cover",
+              "填满裁切"
+            ]
+          ]
+        },
+        {
+          "key": "image_size",
+          "label": "图片显示高度",
+          "type": "number",
+          "default": 190,
+          "min": 80,
+          "max": 640,
+          "step": 10
+        }
+      ]
+    },
+    {
+      "id": "note",
+      "name": "便签贴",
+      "target": "desktop",
+      "entry": "note.py",
+      "renderer": "desktop.widgets-v1",
+      "isSingleOnly": false,
+      "desktopSize": [
+        260,
+        220
+      ],
+      "settingsSchema": [
+        {
+          "key": "title",
+          "label": "便签标题",
+          "type": "string",
+          "default": ""
+        }
+      ]
+    }
+  ]
+}

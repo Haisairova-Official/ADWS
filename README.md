@@ -6,17 +6,25 @@
 
 **A simpler desktop experience for Niri.**
 
-稳定版本 / Stable: **1.35-S** · 内部版本 / Internal revision: **S** (`Pre-1.35`) · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.36-B** · 构建 / Build: **1.36.02** · [更新记录 / Changelog](CHANGELOG.md)
+
+版本规则：内部构建 `1.36.00` 对外显示 `1.36`；`1.36.01` 显示 `1.36-A`，`1.36.02` 显示 `1.36-B`。开发代号仅保留在构建元数据的 `codename` 字段。
 
 [中文](#中文) · [English](#english)
 
-## 1.35-S 正式版 / Release
+开发中：系统设置的“输入与快捷键 → 快捷键”新增 VMware 虚拟机模式，可开关焦点自动切换、修改切换／恢复键。切换使用系统通知，恢复键标识仅在虚拟机模式显示。
 
-修复新版 Niri 下 Super／Ctrl 提前触发、干扰组合快捷键的问题，兼容新旧松开触发语法。升级后请重新应用一次当前键位方案。
+In development: VMware mode in Settings → Input & shortcuts → Shortcuts supports focus switching and a configurable recovery shortcut. Mode changes use system notifications; the recovery badge appears only in VM mode.
 
-Fix standalone Super/Ctrl actions firing before release and interfering with shortcuts. Support modern and legacy Niri tap bindings. Reapply your keyboard profile after upgrading.
+## 开发中：桌面小组件
 
-[本次更新 / Release notes](docs/release-1.35-S.md)
+新增可拖动、缩放和锁定的桌面组件，含时钟、日历、便签与独立桌面歌词。模组包可同时提供桌面和任务栏组件，两类布局与实例分离。设置中分别管理模组包、任务栏实例与桌面实例；桌面组件支持重复添加、复制以及按实例自定义 GTK 3 CSS。[使用与开发说明](docs/desktop-widgets.md)。
+
+## 安装 Niri（1.36）
+
+`./install.sh` 会先识别已启用的登录管理器（SDDM、Plasma Login Manager、GDM、LightDM）。已有 Niri 及配置保持不变；缺少 Niri 时可选择系统软件源安装，或明确选择官方固定版本源码构建。安装前展示所需软件包和文件，不替换登录管理器、不切换当前会话。GDM 禁用 Wayland 或会话入口不可见时会提示具体原因。
+
+源码构建先检查已有 Cargo／Rustup 镜像，仅中文环境且未配置镜像时提供国内源选项。未提供的可选依赖会单独说明，例如缺少 `xwayland-satellite` 时不宣称已支持 X11 应用。
 
 ## 1.35-R 正式版 / Release
 
@@ -405,7 +413,7 @@ Manage `desktop` and `taskbar` separately with commands such as `adws taskbar -s
 
 When an update is available, the CLI asks `Y/n` (Enter accepts), and Settings presents OK / Cancel. Cancelling does not download or install the update. Stable releases are checked by default. Use `adws -u --preview` or `adws --update --preview`, or select “Beta channel (include prereleases)” on the About page in Settings, to include prereleases. The selection applies to the current check without changing the default channel. Checks use GitHub Releases; development branch commits must first be published as prereleases to be detected. Both version checks and package downloads use `ADWS_GITHUB_PROXY` in mainland China (default `https://gh-proxy.com/`), falling back to GitHub on failure. Elsewhere they access GitHub directly.
 
-Updates prefer a matching Arch x86_64 prebuilt package; otherwise they build the selected release from source, requiring Rust/Cargo, a C compiler and GTK development dependencies. Downloads, validation and builds finish in staging before a backed-up replacement. User settings, pins, images and desktop state are preserved; only previously running ADWS components are restarted. Failed installations attempt to restore the previous version. Logs are saved to `~/.local/state/adws/update-*.log`; installation backups are kept in hidden directories beside the installation. Run updates from the installed `adws` command; Git development checkouts are protected.
+Updates prefer a matching Arch x86_64 prebuilt package; otherwise they build the selected release from source, requiring Rust/Cargo, a C compiler and GTK development dependencies. Downloads, validation and builds finish in staging before a backed-up replacement. User settings, pins, images and desktop state are preserved; only previously running ADWS components are restarted. Failed installations attempt to restore the previous version. Logs are saved to `~/.local/state/adws/update-*.log`; installation backups are kept in hidden directories beside the installation. Run updates from the installed `adws` command; Registered source installations can update normally, even when they contain `.git`. Explicit `.adws-development` markers protect developer workspaces.
 
 ### Plugins and samples
 
@@ -475,7 +483,7 @@ Existing wallpaper services are preserved unless you confirm switching. Images r
 
 交互参考 Windows 通知中心与小组件面板，工具分区参考 [StatIndet/quickshell](https://github.com/StatIndet/quickshell)，实现由 ADWS 独立编写。
 
-中文环境下，源码构建前询问是否为本次构建使用 [RsProxy](https://rsproxy.cn/) 国内 Cargo 镜像；其他语言环境不询问。不会修改全局 Cargo 配置，系统软件包仍使用系统的软件源。
+源码构建前检查 Cargo 用户目录、实际构建目录及其父目录的 `config`／`config.toml` 和源相关环境变量；已有源配置（包括国内镜像、自定义源、离线 vendor）直接沿用，不叠加新的源。配置无法解析时报告文件位置，修复后再继续。没有现成源配置时，仅在中文环境询问是否为本次构建使用 [RsProxy](https://rsproxy.cn/) 国内 Cargo 镜像；其他语言环境不询问。不会修改全局 Cargo 配置，系统软件包仍使用系统的软件源。
 
 侧边栏也可在“组件与插件 → 添加组件”中作为内置任务栏组件添加。左键切换侧边栏，右键打开侧边栏设置；可拖动位置或移除，仅允许添加一个。不会自动改变已有布局。
 

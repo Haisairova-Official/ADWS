@@ -126,7 +126,7 @@ def execute(root, manifest, overrides, timeout=30):
                         rows = 'panel.rows-v1' in manifest.get('interfaces', []) or manifest.get('renderer') == 'panel.rows-v1'
                         required = 'primary' if rows else 'text'
                         if not isinstance(payload.get(required), str): raise ValueError('Missing text field: ' + required)
-                        for field in ('text', 'primary', 'secondary', 'tooltip', 'alt'):
+                        for field in ('text', 'primary', 'secondary', 'tooltip', 'alt', 'romanization', 'previous', 'next'):
                             if field in payload and not isinstance(payload[field], str): raise ValueError('Invalid text field: ' + field)
                         classes = payload.get('class', '')
                         if not isinstance(classes, str) and not (isinstance(classes, list) and all(isinstance(c, str) for c in classes)):
@@ -178,6 +178,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('package', nargs='?')
     parser.add_argument('--worker-spec-json', help=argparse.SUPPRESS)
+    parser.add_argument('--component')
     parser.add_argument('--settings-json', default='{}')
     parser.add_argument('--timeout', type=float, default=30)
     args = parser.parse_args()
@@ -188,7 +189,8 @@ def main():
     from adws_plugin import load_manifest, materialize
     path = Path(args.package)
     try:
-        return dispatch(materialize(path), load_manifest(path), json.loads(args.settings_json), args.timeout)
+        from adws_components import select
+        return dispatch(materialize(path), select(load_manifest(path), args.component), json.loads(args.settings_json), args.timeout)
     except BrokenPipeError:
         return 0
     except (OSError, ValueError) as error:

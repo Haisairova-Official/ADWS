@@ -53,12 +53,23 @@ def version_key(text):
     if not match:
         raise ValueError(_tr('无法识别版本号：%s') % text)
     major, patch, minor = match.groups()
+    # From 1.36 onward, .00 is the unsuffixed base and .01 == -A, .02 == -B.
+    # Keep historical release ranking unchanged for older release series.
+    if Decimal(major) >= Decimal('1.36'):
+        letter = bool(minor and len(minor)==1 and minor.isalpha())
+        revision = int(patch) if patch is not None else ord(minor.upper())-ord('A')+1 if letter else 0
+        if patch is not None and letter and revision != ord(minor.upper())-ord('A')+1:
+            raise ValueError(_tr('无法识别版本号：%s') % text)
+        channel = 0 if minor and minor.lower()=='development' else 26.5 if minor and minor.lower()=='pre-release' else 27
+        return Decimal(major), revision, channel
     rank = 27 if minor is None or minor.lower() in ('release', 'released') else 26.5 if minor.lower() == 'pre-release' else 0 if minor.lower() == 'development' else ord(minor.upper()) - ord('A') + 1
     return Decimal(major), int(patch or 0), rank
 
 
 def current_version():
     info = json.loads((ROOT / 'build-info.json').read_text())
+    if info.get('build_version'):
+        return info['build_version']
     if info.get('display_version'):
         return info['display_version']
     suffix = info.get('release_label') or info.get('minor_version') or 'Release'

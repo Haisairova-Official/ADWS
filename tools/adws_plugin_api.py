@@ -7,7 +7,7 @@ from pathlib import PurePosixPath, Path
 from adws_i18n import chinese
 from adws_update import version_key, current_version
 
-ID = re.compile(r'[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+')
+ID = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_][A-Za-z0-9_-]*)+')
 TYPES = {'string', 'number', 'boolean', 'choice', 'color', 'font', 'url'}
 CONTROLS = {'play-pause', 'previous', 'next'}
 ALIASES = {'org.adws.neteaselyrics': 'org.AkiACG_Community.NCMLyricsBar'}
@@ -81,7 +81,8 @@ def normalize(manifest):
 
 def public_errors(manifest):
     errors = []
-    if manifest.get('renderer') not in ('panel.text-v1', 'panel.rows-v1'): errors.append('Unsupported renderer')
+    if manifest.get('renderer') not in ('panel.text-v1', 'panel.rows-v1', 'desktop.widgets-v1'): errors.append('Unsupported renderer')
+    if manifest.get('renderer')=='desktop.widgets-v1' and manifest.get('target')!='desktop':errors.append('Interactive widgets require the desktop host')
     host = manifest.get('adws', {})
     if not isinstance(host, dict): return errors + ['adws must be an object']
     if type(host.get('api', 1)) is not int or host.get('api', 1) != 1: errors.append('Unsupported Plugin API version')
@@ -117,12 +118,13 @@ def localized(manifest, archive):
     if not isinstance(table, dict) or any(not isinstance(v, str) for v in table.values()):
         raise ValueError('Plugin locale must be an object of strings')
     def tr(value): return table.get(value, value)
-    for key in ('name', 'description'):
-        if isinstance(result.get(key), str): result[key] = tr(result[key])
-    for field in result.get('settingsSchema', []):
-        for key in ('label', 'hint'):
-            if key in field: field[key] = tr(field[key])
-        if field.get('type') == 'choice': field['choices'] = [[key, tr(label)] for key, label in field['choices']]
+    for value in [result, *result.get('components', [])]:
+        for key in ('name', 'description'):
+            if isinstance(value.get(key), str): value[key] = tr(value[key])
+        for field in value.get('settingsSchema', []):
+            for key in ('label', 'hint'):
+                if key in field: field[key] = tr(field[key])
+            if field.get('type') == 'choice': field['choices'] = [[key, tr(label)] for key, label in field['choices']]
     return result
 
 

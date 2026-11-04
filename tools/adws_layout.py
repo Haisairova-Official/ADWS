@@ -137,7 +137,7 @@ def save_layout(data: dict, path: Path | None = None) -> Path:
     return target
 
 
-def scan_available_plugins() -> list[dict]:
+def scan_available_plugins(target="taskbar") -> list[dict]:
     """扫描插件目录中的 .mplg，返回带 manifest 的条目。"""
     results = []
     for path in mplg.scan_packages(plugin_dir()):
@@ -153,7 +153,11 @@ def scan_available_plugins() -> list[dict]:
             key = item["manifest"]["id"]
             if key not in chosen or mplg.api1.package_version(item["manifest"]["version"]) > mplg.api1.package_version(chosen[key]["manifest"]["version"]):
                 chosen[key] = item
-    return [item for item in results if not item.get("ok")] + list(chosen.values())
+    from adws_components import components
+    entries = [item for item in results if not item.get("ok")]
+    for item in chosen.values():
+        entries.extend({**item, "manifest": mplg.api1.normalize(component)} for component in components(item['manifest'], target))
+    return entries
 
 
 def plugin_by_id(package_id: str) -> dict | None:
@@ -730,6 +734,8 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
                 # Let the isolated runner report invalid saved settings, not abort the whole layout.
                 settings = item.get('settings', {})
             command = shlex.join(['env', 'ADWS_PLUGIN_INSTANCE='+item['instance'], sys.executable, str(mplg.project_root() / 'tools/adws_plugin_runner.py'), str(item['file']), '--settings-json', json.dumps(settings, ensure_ascii=False)])
+            if item['manifest'].get('componentId'):
+                command += ' ' + shlex.join(['--component', item['manifest']['componentId']])
             settings_command = shlex.join([
                 sys.executable, str(PROJECT_ROOT / "tools/adws_layout.py"),
                 "gui", "--plugin", item["package"]+"#"+item["instance"],

@@ -464,3 +464,26 @@ def enhance_choices(container, translate=lambda text: text):
 
     visit(container)
     return enhanced
+
+
+def guard_combo_scroll(container):
+    """Closed native combos never change their value on wheel/touchpad input."""
+    def forward(control,event):
+        if control.get_property('popup-shown'):
+            return False
+        parent=control.get_parent()
+        while parent is not None:
+            if isinstance(parent,Gtk.ScrolledWindow):
+                parent.emit('scroll-event',event.copy())
+                break
+            parent=parent.get_parent()
+        return True
+    def visit(widget):
+        if isinstance(widget,Gtk.ComboBox):
+            if not getattr(widget,'_adws_scroll_guard',False):
+                widget._adws_scroll_guard=True
+                widget.add_events(Gdk.EventMask.SCROLL_MASK|Gdk.EventMask.SMOOTH_SCROLL_MASK)
+                widget.connect('scroll-event',forward)
+        elif isinstance(widget,Gtk.Container):
+            for child in widget.get_children():visit(child)
+    visit(container)

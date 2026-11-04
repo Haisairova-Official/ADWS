@@ -9,6 +9,7 @@ gi.require_version('PangoCairo', '1.0')
 from gi.repository import Gdk, GLib, GObject, Gtk, Pango, PangoCairo
 
 import adws_display as backend
+import adws_desktop_preferences as desktop_preferences
 from adws_i18n import tr
 
 
@@ -274,6 +275,7 @@ class DisplaySettingsPage(Gtk.Box):
         self.loaded = False
         self.active = True
         self.preview_timer = 0
+        self.guard = None
         self.input_drafts = {}
         self.connect('destroy', self.destroyed)
         arrangement = section('排列显示器', '拖动显示器调整位置；靠近边缘时自动吸附。点击显示器可单独设置。')
@@ -289,6 +291,12 @@ class DisplaySettingsPage(Gtk.Box):
         toolbar.pack_end(refresh, False, False, 0)
         arrangement.pack_start(toolbar, False, False, 0)
         self.pack_start(arrangement, False, False, 0)
+        default_section = section('ADWS 默认屏幕', '默认桌面图标和仅限主屏幕的小组件显示于此；开始菜单跟随鼠标所在屏幕。')
+        self.default_monitor = Gtk.ComboBoxText()
+        self.default_monitor.connect('changed', self.default_monitor_changed)
+        default_section.pack_start(self.default_monitor, False, False, 0)
+        default_section.pack_start(caption('选择后立即生效；屏幕断开时临时使用系统默认屏幕。', 'settings-caption'), False, False, 0)
+        self.pack_start(default_section, False, False, 0)
         self.details = section('显示器设置')
         self.monitor_title = caption('', 'settings-section-title')
         self.details.pack_start(self.monitor_title, False, False, 0)
@@ -326,7 +334,11 @@ class DisplaySettingsPage(Gtk.Box):
         self.details.pack_start(self.input_error, False, False, 0)
         self.pack_start(self.details, False, False, 0)
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        footer.pack_start(caption('显示更改仅用于当前会话。测试后有 15 秒确认，未确认会恢复全部显示器。', 'settings-caption'), False, False, 0)
+        footer.pack_start(caption('测试后有 15 秒确认，未确认会恢复全部显示器。', 'settings-caption'), False, False, 0)
+        self.persist_switch = Gtk.CheckButton(label=tr('由 ADWS 保存 Niri 显示配置（换接口后按屏幕身份恢复）'))
+        self.persist_switch.set_active(self.host.display_session == 'niri')
+        self.persist_switch.set_sensitive(self.host.display_session == 'niri')
+        footer.pack_start(self.persist_switch, False, False, 0)
         actions = Gtk.Box(spacing=8)
         reset = Gtk.Button(label=tr('撤销排列修改')); reset.connect('clicked', lambda *_: self.discard_changes())
         self.test_button = Gtk.Button(label=tr('测试显示设置')); self.test_button.get_style_context().add_class('suggested-action')
@@ -334,6 +346,8 @@ class DisplaySettingsPage(Gtk.Box):
         actions.pack_end(self.test_button, False, False, 0); actions.pack_end(reset, False, False, 0)
         footer.pack_start(actions, False, False, 0); self.pack_start(footer, False, False, 0)
         self.details.set_sensitive(False); self.test_button.set_sensitive(False)
+        from adws_settings_widgets import guard_combo_scroll
+        guard_combo_scroll(self)
         GLib.idle_add(self.refresh)
 
     @staticmethod
@@ -364,11 +378,38 @@ class DisplaySettingsPage(Gtk.Box):
         self.host.run_worker(job, success)
         return False
 
+    def default_monitor_changed(self, combo):
+        if self.loading or combo.get_active_id() is None:return
+        identity=combo.get_active_id()
+        current=desktop_preferences.load()
+        if identity==current['default_monitor']:return
+        output=next((m for m in self.pending if m.get('monitor_id',m['name'])==identity),{})
+        try:
+            desktop_preferences.save(identity, output.get('name',''), output.get('description',''))
+        except OSError as error:
+            dialog=Gtk.MessageDialog(transient_for=self.host,modal=True,message_type=Gtk.MessageType.ERROR,
+                                     buttons=Gtk.ButtonsType.CLOSE,text=tr('无法保存默认屏幕'))
+            dialog.format_secondary_text(str(error));dialog.run();dialog.destroy()
+            self.loading=True;combo.set_active_id(current['default_monitor']);self.loading=False
+
     def set_outputs(self, monitors):
         self.input_drafts.clear()
         self.original = copy.deepcopy(monitors)
         self.pending = copy.deepcopy(monitors)
         self.loaded = True
+        self.loading = True
+        self.default_monitor.remove_all()
+        self.default_monitor.append('primary', tr('跟随系统默认'))
+        saved=desktop_preferences.load()
+        connected={'primary'}
+        for output in monitors:
+            identity=output.get('monitor_id',output['name']);connected.add(identity)
+            self.default_monitor.append(identity, output.get('description',output['name'])+' · '+output['name'])
+        if saved['default_monitor'] not in connected:
+            self.default_monitor.append(saved['default_monitor'],(saved.get('label') or saved['default_monitor'])+' · '+tr('未连接'))
+        self.default_monitor.set_active_id(saved['default_monitor'])
+        self.default_monitor.set_sensitive(bool(monitors))
+        self.loading = False
         if self.selected not in [m['name'] for m in monitors]:
             self.selected = monitors[0]['name'] if monitors else None
         for child in self.monitor_buttons.get_children():
@@ -512,7 +553,14 @@ class DisplaySettingsPage(Gtk.Box):
             mapped = {m['name']: m for m in current}
             if set(mapped) != {m['name'] for m in old} or any(not backend.same_settings(m, mapped[m['name']]) for m in old):
                 raise RuntimeError(tr('显示器状态已在其他地方更改，请重新检测后再试。'))
-            touched.extend(backend.preview_all(self.host.display_session, old, new))
+            from adws_display_profile import PreviewGuard
+            self.guard = PreviewGuard(self.host.display_session, old)
+            try:
+                touched.extend(backend.preview_all(self.host.display_session, old, new))
+            except Exception:
+                self.guard.finish(False)
+                self.guard = None
+                raise
         def shown():
             self.ask_keep(old, new, touched)
         self.host.run_worker(job, shown)
@@ -543,13 +591,36 @@ class DisplaySettingsPage(Gtk.Box):
                 GLib.source_remove(self.preview_timer); self.preview_timer = 0
             dialog.destroy()
         if response == Gtk.ResponseType.OK:
-            self.set_outputs(new)
+            should_persist = self.persist_switch.get_active() and self.host.display_session == 'niri'
+            def save():
+                try:
+                    if should_persist:
+                        from adws_display_profile import persist
+                        persist(new)
+                    if self.guard: self.guard.finish(True)
+                except Exception:
+                    if self.guard: self.guard.finish(False)
+                    backend.restore_all(self.host.display_session, touched)
+                    raise
+                finally:
+                    self.guard = None
+            self.host.run_worker(save, lambda: self.set_outputs(new))
         else:
-            self.host.run_worker(lambda: backend.restore_all(self.host.display_session, touched),
-                                 lambda: self.set_outputs(old))
+            def restore():
+                try:
+                    backend.restore_all(self.host.display_session, touched)
+                    if self.guard: self.guard.finish(True)
+                except Exception:
+                    if self.guard: self.guard.finish(False)
+                    raise
+                finally:
+                    self.guard = None
+            self.host.run_worker(restore, lambda: self.set_outputs(old))
 
     def destroyed(self, *_):
         self.active = False
+        if self.guard: self.guard.finish(False)
+        self.guard = None
 
 
 # Catalogue entries are exported for the language catalogue maintenance tools.

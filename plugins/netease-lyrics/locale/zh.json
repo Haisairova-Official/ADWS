@@ -14,5 +14,20 @@
   "settings.lyric_path.label": "JSON 原文字段",
   "settings.lyric_path.hint": "例如 lrc.lyric 或 syncedLyrics；接口直接返回 LRC 文本时无需填写。",
   "settings.translation_path.label": "JSON 译文字段",
-  "settings.translation_path.hint": "例如 tlyric.lyric；没有翻译可留空。"
+  "settings.translation_path.hint": "例如 tlyric.lyric；没有翻译可留空。",
+  "desktop.name": "网易云桌面歌词",
+  "desktop.description": "可自由拖动、调整大小和锁定的独立桌面歌词。",
+  "settings.show_translation.label": "显示翻译",
+  "settings.show_romanization.label": "显示罗马音",
+  "settings.show_context.label": "显示上下句",
+  "settings.romanization_path.label": "罗马音字段",
+  "settings.romanization_path.hint": "自定义 API 中同步罗马音 LRC 的字段路径；没有对应数据时隐藏。",
+  "settings.lyric_font_size.label": "当前句字号",
+  "settings.text_align.label": "歌词对齐",
+  "settings.show_furigana.label": "日语汉字注音",
+  "settings.show_furigana.hint": "根据歌曲罗马音在汉字上方显示假名；无法可靠对齐时保留原文。",
+  "settings.romanization_fallback.label": "自动查找备用罗马音",
+  "settings.romanization_fallback.hint": "开启罗马音或注音后，缺失时向 LRCLIB 查询歌曲名、歌手和时长，并校验读音；不影响原歌词显示。",
+  "settings.show_progress.label": "显示播放进度",
+  "settings.show_spectrum.label": "显示条状频谱"
 }

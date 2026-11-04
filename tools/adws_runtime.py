@@ -30,6 +30,35 @@ def matches(component, argv):
     return False
 
 
+def protect_desktop_children(targets):
+    """Migrate an already-running legacy unit before sending its main PID a signal.
+
+    setsid() does not escape a systemd cgroup. Killing the whole unit can kill
+    application helpers even if GIO has moved their main process to a scope.
+    """
+    unit = 'niri-desktop-layer.service'
+    result = subprocess.run(['systemctl', '--user', 'show', unit,
+                             '-p', 'MainPID', '-p', 'KillMode'],
+                            capture_output=True, text=True, timeout=5)
+    if result.returncode:
+        raise RuntimeError('Cannot inspect desktop service before stopping it: ' + result.stderr.strip())
+    props = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
+    if int(props.get('MainPID', '0')) not in targets or props.get('KillMode') == 'process':
+        return
+    folder = Path('/run/user') / str(os.getuid()) / 'systemd/user' / (unit + '.d')
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / '90-adws-preserve-applications.conf'
+    path.write_text('[Service]\nKillMode=process\n', encoding='utf-8')
+    result = subprocess.run(['systemctl', '--user', 'daemon-reload'],
+                            capture_output=True, text=True, timeout=5)
+    if result.returncode:
+        raise RuntimeError('Cannot protect launched applications: ' + result.stderr.strip())
+    result = subprocess.run(['systemctl', '--user', 'show', unit, '-p', 'KillMode', '--value'],
+                            capture_output=True, text=True, timeout=5)
+    if result.returncode or result.stdout.strip() != 'process':
+        raise RuntimeError('Desktop service still uses group termination; stop was cancelled.')
+
+
 def pids(component):
     result = []
     for entry in Path('/proc').iterdir():
@@ -281,8 +310,7 @@ def main(argv=None, quiet=False):
         if targets:
             return 0
         if args.component == 'desktop':
-            env = dict(os.environ)
-            env.pop('GDK_BACKEND', None)
+            env = taskbar_environment()
             result = subprocess.call([str(ROOT / 'src/niri-desktop-layer/start-desktop-layer')], env=env, stdout=subprocess.DEVNULL)
             if result == 0:
                 launch_restore()
@@ -300,6 +328,11 @@ def main(argv=None, quiet=False):
         launch_power()
         launch(automatic=True)
         return 0
+    if args.component == 'desktop' and targets:
+        try:
+            protect_desktop_children(targets)
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+            parser.exit(1, str(error) + '\n')
     for pid in targets:
         try:
             os.kill(pid, signal.SIGKILL if args.kill else signal.SIGTERM)

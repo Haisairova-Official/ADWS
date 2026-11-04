@@ -242,13 +242,28 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(library.readlink(),original)
         self.verify_old()
 
-    def test_git_checkout_and_other_install_root_are_protected(self):
-        (self.root/'.git').mkdir()
+    def test_explicit_development_and_other_install_root_are_protected(self):
+        (self.root/'.adws-development').touch()
         with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
-        (self.root/'.git').rmdir()
+        (self.root/'.adws-development').unlink()
         self.record.write_text(json.dumps({'root':str(self.home/'other')}))
         with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
         self.mocks[3].assert_not_called()
+
+    def test_registered_source_checkout_can_update_and_keeps_git_backup(self):
+        (self.root/'.git').mkdir()
+        (self.root/'.git/HEAD').write_text('test source history')
+        upgrade.install_update(self.result, lambda _: None)
+        record = json.loads(self.record.read_text())
+        self.assertEqual(record['installation_role'], 'installed')
+        self.assertEqual((Path(record['last_update_backup'])/'source/.git/HEAD').read_text(), 'test source history')
+
+    def test_unregistered_checkout_is_not_overwritten(self):
+        (self.root/'.git').mkdir()
+        self.record.unlink()
+        with self.assertRaises(RuntimeError):
+            upgrade.install_update(self.result, lambda _: None)
+        self.control.assert_not_called()
 
     def test_concurrent_update_is_rejected(self):
         with upgrade.update_lock(),self.assertRaises(RuntimeError):

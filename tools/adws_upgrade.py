@@ -301,6 +301,8 @@ def replace_installation(root, prepared, libraries, log):
             changed_libraries.append(name)
             atomic_copy(root / relative, libdir / name)
         data['root'] = str(root)
+        data['installation_role'] = 'installed'
+        data['build_method'] = 'prebuilt' if (root / 'prebuilt/manifest.json').is_file() else 'source'
         data['template_hashes'] = new_templates
         data['libraries'] = {name: hashlib.sha256((libdir / name).read_bytes()).hexdigest() for name in LIBRARIES}
         data['last_update_backup'] = str(backup)
@@ -379,7 +381,7 @@ def installed_version(root):
     data = json.loads((root / 'build-info.json').read_text())
     if not isinstance(data, dict):
         raise ValueError(_tr('无法识别安装包版本。'))
-    text = data.get('display_version') or f"{data.get('major_version', '')} {data.get('release_label') or data.get('minor_version') or 'Release'}"
+    text = data.get('build_version') or data.get('display_version') or f"{data.get('major_version', '')} {data.get('release_label') or data.get('minor_version') or 'Release'}"
     if not isinstance(text, str):
         raise ValueError(_tr('无法识别安装包版本。'))
     return version_key(text)
@@ -397,8 +399,14 @@ def install_update(result, progress=print, transfer_progress=None):
         if (not isinstance(info, dict) or not isinstance(info.get('root', ''), str)
                 or not isinstance(info.get('template_hashes', {}), dict)):
             raise ValueError(_tr('安装记录无效，请重新安装 ADWS 后重试。'))
-        if (root / '.git').exists() or (root / '.git').is_symlink() or Path(info.get('root') or root).resolve() != root:
-            raise RuntimeError(_tr('请从已安装的 ADWS 更新；开发检出目录不会被覆盖。'))
+        # A git checkout can also be a legitimate source installation. Protect
+        # explicit development trees and unrelated installations, not build type.
+        if (root / '.adws-development').exists() or info.get('installation_role') == 'development':
+            raise RuntimeError(_tr('当前目录标记为开发工作区，请从已安装的 ADWS 更新。'))
+        if info.get('root') and Path(info['root']).resolve() != root:
+            raise RuntimeError(_tr('当前运行目录与安装记录不一致，请从已安装的 ADWS 启动更新。'))
+        if not info.get('root') and ((root / '.git').exists() or (root / '.git').is_symlink()):
+            raise RuntimeError(_tr('此源码目录尚未登记安装，请先运行 install.sh，再使用自动更新。'))
         current = installed_version(root)
         if expected <= current:
             raise RuntimeError(_tr('目标版本不比当前版本新，请重新检查更新。'))

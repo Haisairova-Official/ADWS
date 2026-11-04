@@ -66,6 +66,8 @@ class InstallationTests(unittest.TestCase):
             file=self.bin/program;file.write_text('#!/bin/sh\n'+script+'\n');file.chmod(0o755)
 
     def install(self, answer="y\n1\nn\n"):
+        # New installations offer a validated Niri starter config before building.
+        if not (self.config/'niri/config.kdl').exists():answer="y\n"+answer
         # A fake HOME does not isolate /proc. Replace process discovery in the
         # transaction driver before invoking the real installer in this fixture.
         driver = """

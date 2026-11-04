@@ -39,10 +39,16 @@ def status(kind, output=None):
         level=round(item['volume']) if item else None
         icon='audio-volume-muted-symbolic' if not item or item.get('mute') else 'audio-volume-high-symbolic' if level>65 else 'audio-volume-medium-symbolic' if level>30 else 'audio-volume-low-symbolic'
     else:
-        items=backend.brightness_targets(backend.brightness(),output)
+        data=backend.brightness(passive=True)
+        if not data:
+            return {'icon':'display-brightness-symbolic','text':tr('点击读取亮度'),
+                    'available':None,'state':'unread'}
+        items=backend.brightness_targets(data,output)
         level=round(sum(item['value'] for item in items)/len(items)) if items else None
         icon='display-brightness-symbolic'
     result={'icon':icon,'text':f'{level}%' if level is not None else '—','available':level is not None}
+    if kind=='brightness' and level is not None:
+        result['text']+=tr('（上次读取）')
     if level is None:result['error']=tr('未找到可用的默认声音输出，请连接或选择声音输出设备。' if kind=='sound' else '未找到可调节亮度的显示器；请检查背光、DDC/CI 或软件亮度服务。')
     if kind=='sound' and level is None:
         result['state']='no-device';result['icon']='audio-volume-muted-symbolic'
@@ -202,13 +208,16 @@ def run(kind, detailed, anchor=None, output=None):
             self.error=Gtk.Label(label='',xalign=0,wrap=True);self.error.get_style_context().add_class('error')
             self.body.pack_end(self.error,False,False,0)
 
-        def scale(self,parent,title,value,callback,vertical=False,low=0,high=100):
+        def scale(self,parent,title,value,callback,vertical=False,low=0,high=100,hardware=False):
             label=Gtk.Label(label=title,xalign=0,wrap=True,max_width_chars=18 if vertical else 42);parent.pack_start(label,False,False,0)
             control=Gtk.Scale.new_with_range(Gtk.Orientation.VERTICAL if vertical else Gtk.Orientation.HORIZONTAL,low,high,1 if high==100 else 100)
             control.set_digits(0);control.set_value(value);control.set_hexpand(not vertical)
             if vertical:control.set_inverted(True);control.set_size_request(60,150);control.set_value_pos(Gtk.PositionType.BOTTOM)
             control.connect('notify::sensitive',lambda c,_:label.set_sensitive(c.get_sensitive()))
-            control.connect('value-changed',lambda c:callback(c.get_value()))
+            if hardware:
+                from adws_brightness_slider import HardwareSlider
+                control.hardware_slider=HardwareSlider(control,callback)
+            else:control.connect('value-changed',lambda c:callback(c.get_value()))
             parent.pack_start(control,False,False,0);return control
 
         def sound(self,data):
@@ -280,7 +289,8 @@ def run(kind, detailed, anchor=None, output=None):
                 targets=backend.brightness_targets(items,output)
                 level=sum(item['value'] for item in targets)/len(targets) if targets else 100
                 slider=self.scale(self.body,tr('所有可调显示器') if not output else output,level,
-                                  lambda v:self.queue(('all','brightness'),lambda:backend.brightness_all(targets,v)),low=5)
+                                  lambda v:self.queue(('all','brightness'),lambda:backend.brightness_all(targets,v)),low=5,
+                                  hardware=any(i.get('provider')=='ddc' for i in targets))
                 slider.set_sensitive(bool(targets))
                 if not targets:self.body.pack_start(Gtk.Label(label=tr('无可用配置'),xalign=0),False,False,0)
                 return
@@ -292,7 +302,7 @@ def run(kind, detailed, anchor=None, output=None):
                     content.pack_start(divider,False,False,0)
                 panel=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=8);content.pack_start(panel,False,False,0)
                 name=item['name'];title=item['description']+' · '+name
-                slider=self.scale(panel,title,item.get('value') or 100,lambda v,i=item:self.queue((i['name'],'brightness'),lambda:backend.brightness_write(i,'brightness',v)),low=5)
+                slider=self.scale(panel,title,item.get('value') or 100,lambda v,i=item:self.queue((i['name'],'brightness'),lambda:backend.brightness_write(i,'brightness',v)),low=5,hardware=item.get('provider')=='ddc')
                 slider.set_sensitive(bool(item.get('provider')))
                 if not item.get('provider'):
                     unavailable=Gtk.Label(label=tr('无可用配置'),xalign=0);unavailable.set_sensitive(False)

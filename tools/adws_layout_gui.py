@@ -247,8 +247,7 @@ class LayoutWindow:
         popover = Gtk.Popover.new(more)
         popover.get_style_context().add_class('adws-settings-popover')
         actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        for caption, callback in [('安装 .mplg…', self.on_add_plugin), ('刷新组件', lambda *_: self.refresh_components()),
-                                  ('恢复默认布局', self.on_reset), ('打开插件目录', self.on_open_plugin_dir)]:
+        for caption, callback in [('刷新组件', lambda *_: self.refresh_components()), ('恢复默认布局', self.on_reset)]:
             button = Gtk.Button(label=_tr(caption))
             button.connect('clicked', lambda button, fn=callback: (popover.popdown(), fn(button)))
             actions.pack_start(button, False, False, 0)
@@ -512,7 +511,8 @@ class LayoutWindow:
             options.update(self.get_preview_options())
         if 'start_label' not in options:
             import html
-            definition = adws_layout.launcher_definition()
+            try:definition = adws_layout.launcher_definition()
+            except (OSError, ValueError):definition = {}
             options['start_label'] = html.unescape(str(definition.get('format') or _tr('开始')))
         rows = []
         for row in self.rows:

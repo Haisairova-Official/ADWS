@@ -17,16 +17,6 @@ class PanelOptionsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate({'split_center_corners': 'invalid'})
 
-    def test_docking_squares_only_outside_corners(self):
-        for edge in ('top', 'bottom', 'left', 'right'):
-            css = styles({'position': edge, '_surface_radius': '17px'})
-            vertical = edge in ('left','right')
-            self.assertIn('.modules-left {border-radius:' + ('0 0 17px 17px' if vertical else '0 17px 17px 0') + ';}', css)
-            self.assertIn('.modules-right {border-radius:' + ('17px 17px 0 0' if vertical else '17px 0 0 17px') + ';}', css)
-            self.assertIn('.modules-center {border-radius:17px;}', css)
-        css = styles({'split_center_corners': 'pointed', '_surface_radius': '17px'})
-        self.assertIn('.modules-center {border-radius:0;}', css)
-
     def test_pointed_two_segments_reserve_tip_and_content_buffer(self):
         for edge in ('top', 'bottom', 'left', 'right'):
             css = styles({'position': edge, 'split_panel': True,
@@ -35,8 +25,9 @@ class PanelOptionsTests(unittest.TestCase):
             self.assertIn('padding:' + ('5px 0 23px 0' if vertical else '0 23px 0 5px') + ';', css)
             self.assertIn('padding:' + ('23px 0 5px 0' if vertical else '0 5px 0 23px') + ';', css)
             self.assertNotIn('.modules-center {', css)
-            for slot in ('left', 'right'):
-                self.assertIn(f'.modules-{slot} {{border-radius:0;}}', css)
+            self.assertNotIn('adws-docked',css)
+            self.assertIn('border-radius:' + ('12px 12px 0 0' if vertical else '12px 0 0 12px') + ';',css)
+            self.assertIn('border-radius:' + ('0 0 12px 12px' if vertical else '0 12px 12px 0') + ';',css)
 
     def test_every_edge_and_two_lanes(self):
         for position in ('top','bottom','left','right'):
@@ -116,7 +107,7 @@ class PanelOptionsTests(unittest.TestCase):
         self.assertEqual(result['cffi/desktop-space']['panel_mode'],'auto')
         self.assertIn('window_animations',result['cffi/desktop-space'])
         self.assertIn('animation_duration',result['cffi/desktop-space'])
-        self.assertIn('adws-docked > box { border-radius:0;',styles({}))
+        self.assertNotIn('adws-docked',styles({}))
         from adws_panel_options import surface_from_css
         appearance=surface_from_css('window#waybar > box {background:#123456; border-radius:19px;}')
         for material in ('solid','mica','acrylic','candy'):
@@ -124,6 +115,25 @@ class PanelOptionsTests(unittest.TestCase):
             self.assertIn('#123456',css)
             self.assertIn('19px',css)
             self.assertNotIn('.modules-center {',css)
+    def test_radius_survives_all_docking_modes(self):
+        for mode in ('floating','auto','docked'):
+            for edge in ('top','bottom','left','right'):
+                for radius in ('0','19px','8px 12px 16px 20px'):
+                    css=styles({'panel_mode':mode,'position':edge,'_surface_radius':radius})
+                    self.assertNotIn('adws-docked',css)
+                    self.assertIn(f'border-radius:{radius};',css)
+                    for slot in ('left','center','right'):
+                        line=next(line for line in css.splitlines() if f'.modules-{slot} ' in line)
+                        self.assertIn(f'border-radius:{radius};',line)
+        for edge, front, back in (
+            ('bottom','19px 0 0 19px','0 19px 19px 0'),
+            ('left','19px 19px 0 0','0 0 19px 19px'),
+        ):
+            css=styles({'panel_mode':'docked','position':edge,'split_center_corners':'pointed','_surface_radius':'19px'})
+            for slot, expected in (('left',front),('right',back),('center','0')):
+                line=next(line for line in css.splitlines() if f'.modules-{slot} ' in line)
+                self.assertIn(f'border-radius:{expected};',line)
+
     def test_docked_edges_and_termination_choices(self):
         for edge in ('top','bottom','left','right'):
             cfg={}

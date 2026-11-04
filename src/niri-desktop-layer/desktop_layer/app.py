@@ -75,7 +75,7 @@ def palette_file_candidates() -> list[Path]:
     """配色来源：优先读当前 Waybar 使用的 matugen colors.css。"""
     return [
         Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "waybar/colors.css",
-        Path(__file__).resolve().parents[2] / "config/waybar/colors.css",
+        Path(__file__).resolve().parents[3] / "config/waybar/colors.css",
     ]
 
 
@@ -182,6 +182,7 @@ def arguments(argv=None):
     parser.add_argument("--config", type=Path, help=_tr('配置文件'))
     parser.add_argument("--state", type=Path, help=_tr('布局状态文件'))
     parser.add_argument("--directory", type=Path, help=_tr('覆盖桌面目录，用于预览或测试'))
+    parser.add_argument("--icon-groups", action="store_true", help="Show folder groups in preview mode (enabled by default on the desktop)")
     parser.add_argument("--monitor", help="primary / all / DP-1 / 0")
     parser.add_argument("--preview", action="store_true", help=_tr('以普通窗口预览，不创建 layer'))
     parser.add_argument("--smoke-test", type=float, metavar="SECONDS", help=_tr('运行指定秒数后自动退出'))
@@ -531,6 +532,8 @@ def run_gui(args, cfg, directory):
                 self.text(cr, entry.name, x + 5, y + cfg.icon_size + 14, width - 10)
 
         def draw_contents(self, cr):
+            if self.owner.group_manager:
+                return
             for key, rect in self.rects.items():
                 self.draw_icon(cr, key, rect)
             x, y, width, height = self.toolbar
@@ -597,8 +600,14 @@ def run_gui(args, cfg, directory):
 
         def key_press(self, _widget, event):
             LOG.debug(_tr('桌面按键：keyval=%s'), event.keyval)
+            focus=self.get_focus()
+            if hasattr(self,'desktop_widgets') and focus is not None and focus.is_ancestor(self.desktop_widgets.fixed):
+                return False  # Let notes/buttons receive keys before desktop shortcuts.
+
             if self.rename_input is not None:
                 # Editing shortcuts belong to the entry, never the desktop selection.
+                return False
+            if self.owner.group_manager and focus is not None and any(focus.is_ancestor(layer.fixed) for layer in self.owner.group_manager.layers):
                 return False
             if self.owner.overview_active or self.owner.hidden:
                 return False
@@ -926,6 +935,11 @@ def run_gui(args, cfg, directory):
                 widget.set_active(active)
                 widget.connect("toggled", lambda w: (LOG.info(_tr('菜单开关：%s=%s'), label, w.get_active()), callback(w.get_active())))
                 parent.append(widget)
+            if self.owner.group_manager:
+                item(menu, _tr('创建图标组'), lambda: self.owner.group_manager.edit(self), 'folder-new-symbolic')
+                item(menu, _tr('默认显示器…'), lambda: self.owner.group_manager.choose_default(self), 'video-display-symbolic')
+            item(menu, _tr('桌面小组件…'), lambda: open_adws_config('desktop-widgets'), 'view-grid-symbolic')
+            separator(menu)
             if self.owner.hidden:
                 item(menu, _tr('显示桌面图标'), self.owner.toggle)
                 separator(menu)
@@ -935,7 +949,7 @@ def run_gui(args, cfg, directory):
                 item(menu, _tr('桌面配置…'), self.show_desktop_settings, 'video-display-symbolic')
                 item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
                 return menu
-            if not key:
+            if not key and not self.owner.group_manager:
                 new_menu = submenu(_tr('新建'))
                 item(new_menu, _tr('文件夹'), lambda: self.create_item("folder", "folder"))
                 item(new_menu, _tr('文本文档'), lambda: self.create_item("text", "text.txt"))
@@ -1480,6 +1494,9 @@ def run_gui(args, cfg, directory):
             self.overview_watcher = None
             self.taskbar_watcher = None
             self.started = False
+            self.widget_manager = None
+            self.group_manager = None
+            self.groups_enabled = not args.preview or getattr(args,'icon_groups',False)
             self.refresh_pending = 0
             self.monitors_pending = 0
             self.watchers = []
@@ -1494,7 +1511,7 @@ def run_gui(args, cfg, directory):
             self.connect("shutdown", self.shutdown)
 
         def startup(self, *_):
-            for name, callback in [("quit", self.quit), ("toggle", self.toggle), ("refresh", self.refresh)]:
+            for name, callback in [("quit", self.request_quit), ("toggle", self.toggle), ("refresh", self.refresh)]:
                 action = Gio.SimpleAction.new(name, None)
                 action.connect("activate", lambda _a, _p, callback=callback: callback())
                 self.add_action(action)
@@ -1504,9 +1521,17 @@ def run_gui(args, cfg, directory):
                 GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, sig, self.on_signal)
             GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, self.on_toggle_signal)
 
+        def request_quit(self):
+            # End nested GTK dialog loops before exiting the application loop.
+            for window in list(Gtk.Window.list_toplevels()):
+                if isinstance(window,Gtk.Dialog):
+                    window.response(Gtk.ResponseType.CANCEL)
+                    window.destroy()
+            self.quit()
+
         @logged_action(_tr('接收停止信号'))
         def on_signal(self):
-            self.quit()
+            self.request_quit()
             return False
 
         def on_toggle_signal(self):
@@ -1542,6 +1567,13 @@ def run_gui(args, cfg, directory):
                     LOG.warning(_tr('忽略无法读取的布局状态: %s'), exc)
             if not args.preview and cfg.visibility_marker:
                 self.taskbar_watcher = MarkerVisibility(cfg.visibility_marker, self.set_hidden).start()
+            tools = Path(__file__).resolve().parents[3] / 'tools'
+            if str(tools) not in sys.path: sys.path.insert(0, str(tools))
+            from adws_desktop_widgets import Manager
+            self.widget_manager = Manager(self, self.state_file.with_name('desktop-widgets.json') if args.preview else None)
+            if self.groups_enabled:
+                from adws_desktop_groups import Manager as GroupManager
+                self.group_manager = GroupManager(self, self.state_file.with_name('desktop-groups.json'), directory, self.positions)
             self.refresh()
             self.rebuild_monitors()
             display = Gdk.Display.get_default()
@@ -1567,6 +1599,8 @@ def run_gui(args, cfg, directory):
                 if view.menu:
                     view.menu.popdown()
                 view.apply_input_region()
+                if hasattr(view, 'desktop_widgets'): view.desktop_widgets.visibility()
+                if hasattr(view, 'desktop_groups'): view.desktop_groups.visibility()
                 view.area.queue_draw()
 
         def finish_test(self):
@@ -1576,6 +1610,7 @@ def run_gui(args, cfg, directory):
         def theme_changed(self, *_):
             for view in self.views:
                 view.invalidate_icons()
+                if hasattr(view,'desktop_widgets'): view.desktop_widgets.theme()
 
         def refresh(self):
             LOG.debug(_tr('刷新桌面文件列表'))
@@ -1583,7 +1618,7 @@ def run_gui(args, cfg, directory):
                 GLib.source_remove(self.refresh_pending)
                 self.refresh_pending = 0
             try:
-                self.entries = sort_entries(scan_desktop(directory, cfg.show_hidden), cfg.sort_by, cfg.sort_descending, cfg.folders_first)
+                self.entries = [] if self.group_manager else sort_entries(scan_desktop(directory, cfg.show_hidden), cfg.sort_by, cfg.sort_descending, cfg.folders_first)
                 self.status = None
                 self.scan_count += 1
             except OSError as exc:
@@ -1591,6 +1626,7 @@ def run_gui(args, cfg, directory):
                 LOG.warning(_tr('无法读取桌面: %s'), exc)
                 self.entries = []
             self.by_path = {str(e.path): e for e in self.entries}
+            if self.group_manager: self.group_manager.refresh()
             for view in self.views:
                 view.icons.clear()
                 view.relayout()
@@ -1611,6 +1647,8 @@ def run_gui(args, cfg, directory):
             for watcher in self.watchers:
                 watcher.cancel()
             self.watchers.clear()
+            if self.group_manager:
+                return
             for path in (directory, directory.parent):
                 if not path.is_dir():
                     continue
@@ -1638,7 +1676,21 @@ def run_gui(args, cfg, directory):
             monitors = [display.get_monitor(i) for i in range(display.get_n_monitors())]
             named = [(monitor, connector_name(monitor, i)) for i, monitor in enumerate(monitors)]
             primary = display.get_primary_monitor()
-            if cfg.monitor == "all":
+            identities = {}
+            if self.group_manager and not args.preview:
+                try:
+                    from adws_display import outputs, detect_session
+                    if detect_session() == "niri":
+                        discovered = outputs("niri")
+                        identities = {item["name"]: item for item in discovered}
+                        for monitor, key in named:
+                            if key not in identities:
+                                geometry = monitor.get_geometry()
+                                candidates = [item for item in discovered if item['x'] == geometry.x and item['y'] == geometry.y]
+                                if len(candidates) == 1: identities[key] = candidates[0]
+                except Exception as error:
+                    LOG.warning("Monitor identity discovery: %s", error)
+            if self.group_manager or cfg.monitor == "all":
                 targets = named
             elif cfg.monitor == "primary":
                 targets = [next(((m, k) for m, k in named if m == primary),
@@ -1653,7 +1705,24 @@ def run_gui(args, cfg, directory):
                 view.destroy()
             if args.preview:
                 targets = targets[:1]
-            self.views = [DesktopWindow(self, m, k) for m, k in targets]
+            self.views = []
+            for m, k in targets:
+                identity = identities.get(k, {})
+                view = DesktopWindow(self, m, identity.get('monitor_id', k))
+                view.connector_key = k
+                view.monitor_label = identity.get('description', k)
+                self.views.append(view)
+            if self.group_manager:
+                # Migrate old connector-bound groups only when identity is known.
+                for row in self.group_manager.data['groups']:
+                    if row['monitor'] in identities:
+                        row['monitor'] = identities[row['monitor']]['monitor_id']
+                self.group_manager.save()
+                from adws_desktop_groups import Layer as GroupLayer
+                for view in self.views: view.desktop_groups = GroupLayer(self.group_manager, view)
+            if self.widget_manager:
+                from adws_desktop_widgets import DesktopLayer
+                for view in self.views: view.desktop_widgets = DesktopLayer(self.widget_manager, view)
             if self.overview_active:
                 self.overview_changed(True)
             return False
@@ -1771,6 +1840,8 @@ def run_gui(args, cfg, directory):
                 view.selection.clear()
                 view.cancel_rename()
                 view.fade.set_hidden(self.hidden)
+                if hasattr(view, 'desktop_widgets'): view.desktop_widgets.visibility()
+                if hasattr(view, 'desktop_groups'): view.desktop_groups.visibility()
                 view.apply_input_region()
 
         @logged_action(_tr('打开终端'))
@@ -1817,6 +1888,8 @@ def run_gui(args, cfg, directory):
 
         @logged_action(_tr('退出桌面'))
         def shutdown(self, *_):
+            if self.group_manager: self.group_manager.close()
+            if self.widget_manager: self.widget_manager.close()
             if self.taskbar_watcher:
                 self.taskbar_watcher.close()
             if self.overview_watcher:

@@ -72,6 +72,8 @@ patches=[patch('adws_display.detect_session',return_value='niri'),patch('adws_di
     patch.object(accounts,'bus_call',side_effect=AssertionError('Live account operation forbidden')),
     patch.object(keyboard,'read_niri_repeat',return_value={'rate':25,'delay':500}),
     patch.object(keyboard,'niri_layouts',return_value={'names':['English (US)','Chinese'],'current_idx':0}),
+    patch('adws_vm_mode.read_options',return_value={'auto_switch':True,'shortcut':'Ctrl+Alt+Shift+Q'}),
+    patch('adws_vm_settings.apply_options',side_effect=lambda values:{'options':values}),
     patch('adws_keyboard.modifier_taps_supported',return_value=True),patch('adws_keyboard.current_profile',return_value='traditional')]
 with ExitStack() as stack:
     for item in patches:stack.enter_context(item)
@@ -89,6 +91,23 @@ with ExitStack() as stack:
         if key=='input':
             page=window.input_page
             page.tabs.stack.set_visible_child_name('shortcuts');pump();shot(window,'shortcuts')
+            assert page.vm_auto.get_active()
+            assert page.vm_shortcut.get_text()=='Ctrl+Alt+Shift+Q'
+            assert not page.vm_apply.get_sensitive()
+            page.vm_auto.set_active(False)
+            page.vm_shortcut.set_text('Ctrl+Alt+Shift+R')
+            assert window.dirty=={'vm-mode'},window.dirty
+            page.tabs.stack.set_visible_child_name('keyboard')
+            page.tabs.stack.set_visible_child_name('shortcuts')
+            assert page.vm_shortcut.get_text()=='Ctrl+Alt+Shift+R'
+            from adws_vm_settings import apply_options
+            window.apply_changes();pump(.5)
+            apply_options.assert_called_once_with({'auto_switch':False,'shortcut':'Ctrl+Alt+Shift+R'})
+            assert not errors,errors
+            assert not window.dirty,window.dirty
+            scroll=window.pages[key].get_vadjustment();scroll.set_value(scroll.get_upper()-scroll.get_page_size())
+            pump();shot(window,'vm-mode')
+            scroll.set_value(0)
             page.tabs.stack.set_visible_child_name('methods');pump();shot(window,'input-methods')
             page.tabs.stack.set_visible_child_name('keyboard')
             page.rate.set_value(32);assert 'input' in window.dirty

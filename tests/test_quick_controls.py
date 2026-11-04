@@ -29,7 +29,7 @@ class Controls(unittest.TestCase):
         self.assertEqual(backend.parse_ddc(text),{'DP-2':1,'HDMI-A-1':2})
         with patch.object(backend,'command') as command,patch.object(backend,'cache_root',return_value=Path('/tmp')):
             backend.brightness_write({'name':'DP-2','provider':'ddc','device':1,'maximum':200},'brightness',50)
-            self.assertEqual(command.call_args.args[0],['ddcutil','--display','1','setvcp','10','100'])
+            self.assertEqual(command.call_args.args[0],['ddcutil','--display','1','--skip-ddc-checks','--mccs','2.2','--noverify','setvcp','10','100'])
             for value in (-1,101,float('nan'),float('inf'),True):
                 with self.assertRaises(ValueError):backend.brightness_write({'name':'DP-2'},'brightness',value)
             with self.assertRaises(ValueError):backend.brightness_write({'name':'../../evil'},'brightness',50)
@@ -54,7 +54,8 @@ class Controls(unittest.TestCase):
         with patch.object(backend,'cache_root',return_value=Path('/tmp')),patch.object(backend,'read_json',return_value=cached),patch.object(backend.shutil,'which',return_value='/usr/bin/ddcutil'),patch.object(backend,'command',side_effect=RuntimeError('timeout')) as command,patch.object(backend,'write_json') as write:
             self.assertEqual(backend.ddc_devices(),cached['devices'])
             command.assert_called_once_with(['ddcutil','detect','--terse'],timeout=30)
-            write.assert_not_called()
+            self.assertEqual(write.call_args.args[1]['devices'],cached['devices'])
+            self.assertGreater(write.call_args.args[1]['time'],0)
 
     def test_audio_fallback_and_real_app_volume(self):
         with patch.object(backend,'audio',return_value={'sinks':[]}):
@@ -100,9 +101,9 @@ class Controls(unittest.TestCase):
                {'name':'DP-2','provider':'gamma','value':60},
                {'name':'DP-3','provider':None,'value':None}]
         with patch.object(backend,'brightness',return_value=items):
-            self.assertEqual(controls.status('brightness')['text'],'40%')
-            self.assertEqual(controls.status('brightness','')['text'],'40%')
-            self.assertEqual(controls.status('brightness','DP-2')['text'],'60%')
+            self.assertTrue(controls.status('brightness')['text'].startswith('40%'))
+            self.assertTrue(controls.status('brightness','')['text'].startswith('40%'))
+            self.assertTrue(controls.status('brightness','DP-2')['text'].startswith('60%'))
             self.assertFalse(controls.status('brightness','DP-3')['available'])
 
     def test_parallel_gamma_variants_and_service_errors(self):

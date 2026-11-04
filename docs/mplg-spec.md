@@ -35,7 +35,7 @@ MyPlugin/
 必需：`id`、`name`、`version`、`entry`、`renderer`。可选：`description`、`adws`、
 `defaults`、`settingsSchema`、`isSingleOnly` 及作者/许可证等说明。
 
-- ID 至少两个以点分隔的非空段，允许 ASCII 字母、数字、下划线，区分大小写。
+- ID 至少两个以点分隔的非空段，允许 ASCII 字母、数字、下划线及段内连字符，区分大小写。
   安装后以 ID 标识配置，不随显示名变化。
 - 插件版本采用 `主.次.修订`，可有预发布/构建后缀；多个已安装版本选择最高版本。
 - `entry` 为包内文件，禁止绝对路径、反斜杠、冒号、`.`、`..` 路径段与符号链接。
@@ -168,3 +168,16 @@ Package dictionaries in `locale/zh.json` and `locale/en.json` translate manifest
 and schema labels; missing keys remain literal. The application `language/`
 catalogue is separate. Use `plugins/sample` as the minimal runnable example.
 Old manifests remain supported through a compatibility adapter.
+
+## 多宿主组件包（开发版）
+
+可用 `components` 声明独立的 `taskbar` 和 `desktop` 组件；旧顶层入口保持任务栏兼容。宿主互不迁移实例，包版本统一。结构、单例规则与运行命令见 [桌面组件文档](desktop-widgets.md)。
+
+
+## 开发版：声明式桌面交互组件
+
+`target: "desktop"` 的组件可声明 `renderer: "desktop.widgets-v1"`，详情见 [桌面小组件](desktop-widgets.md)。仅适用于本次开发版，不改变旧任务栏接口。示例为 [desktopBasicPack](../plugins/desktop-basic-pack/README.md)。
+
+桌面基础包的设置支持可选 `visibleWhen: {"choiceKey": "value"}`，也可引用布尔选项；多个条件同时满足时显示。隐藏只影响界面，保留设置值。例如指针钟隐藏电子钟的 24 小时制选项。
+
+字符串设置可使用 `chooser: "image"`，提供本地图片选择按钮；空值表示使用内置图像，有值时保存前验证可读取、非目录且不超过 32 MiB。

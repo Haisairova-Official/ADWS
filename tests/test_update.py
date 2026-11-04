@@ -10,6 +10,24 @@ from adws_i18n import message
 
 
 class UpdateTests(unittest.TestCase):
+    def test_numeric_build_revisions_match_public_letters(self):
+        import json,tempfile
+        import adws_runtime,adws_upgrade
+        for number,public in [(0,'1.36'),(1,'1.36-A'),(2,'1.36-B'),(26,'1.36-Z')]:
+            build=f'1.36.{number:02}'
+            self.assertEqual(update.version_key(build),update.version_key(public))
+            metadata={'major_version':'1.36','minor_version':f'{number:02}','build_version':build,
+                      'display_version':public,'display_name':public,'help_version':public,'codename':'Limonene'}
+            self.assertEqual(adws_runtime.version_text(metadata),public)
+            with tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);(root/'build-info.json').write_text(json.dumps(metadata))
+                with patch.object(update,'ROOT',root):self.assertEqual(update.current_version(),build)
+                self.assertEqual(adws_upgrade.installed_version(root),update.version_key(public))
+        self.assertLess(update.version_key('1.36'),update.version_key('1.36-A'))
+        self.assertLess(update.version_key('1.36-A'),update.version_key('1.36-B'))
+        self.assertLess(update.version_key('1.36.01 Pre-release'),update.version_key('1.36-A'))
+        self.assertGreater(update.version_key('1.36-A Pre-release'),update.version_key('1.36'))
+
     def test_weight_boundaries_in_each_language(self):
         for language, first, second in [('zh_CN.UTF-8', '未检测到更新。', '您是最新的！'), ('en_US.UTF-8', 'No updates found.', "You're up to date!")]:
             with patch.dict(os.environ, {'LC_ALL':language, 'LANGUAGE':''}):

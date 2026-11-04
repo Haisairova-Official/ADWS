@@ -11,6 +11,7 @@
 - [HelloWorld 示例](sample/README.md)
 - [Hello 面板示例](examples/hello-panel/README.md)
 - [NCMLyricsBar 歌词插件](netease-lyrics/README.md)
+- [desktopBasicPack 桌面基础组件包](desktop-basic-pack/README.md)：时钟、计时器、2048、16 格图片拼图、相框和便签。
 
 ## English
 
@@ -29,3 +30,7 @@ The host shares validated display text per instance in the login runtime directo
 宿主为每份插件实例启动独立 watchdog，监测 Python 和 Rust 运行器的事件循环心跳。运行器异常退出或持续无响应时显示系统提示，并在“组件与插件”中将对应组件标黄、显示异常原因；其他实例继续运行。正常停止、移除或重载不报警，恢复正常运行后自动清除标记，同一实例一分钟内不重复弹出异常提示。不会自动无限重启。插件作者无需增加心跳代码，也不会因旧协议插件在暂停时没有歌词更新而误报。
 
 An independent watchdog monitors each instance's Python/Rust supervisor event loop. Unexpected exits or sustained loss of responsiveness produce a desktop notification and a yellow warning with the reason in Components and Plugins. Normal stop/removal/reload does not warn; a healthy restart clears the warning. Alerts are limited to one per instance per minute. There is no unbounded restart loop, and plugins need no heartbeat implementation; legacy streams may remain quiet while paused.
+
+## 独立的桌面与任务栏组件
+
+一个 `.mplg` 可通过 `components` 同时提供两类组件，共享包版本和安装目录；各自在对应设置页面添加，布局和实例配置不共用。旧插件保留原任务栏行为。字段、示例和 NCMLyricsBar 1.2.0 测试说明见 [桌面组件文档](../docs/desktop-widgets.md)。

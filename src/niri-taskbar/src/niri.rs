@@ -59,6 +59,20 @@ impl Niri {
         reply::typed!(Handled, reply)
     }
 
+    /// Close only this pane's snapshot, without blocking GTK or killing processes.
+    pub fn close_windows_background(&self, mut ids: Vec<u64>) {
+        ids.sort_unstable();
+        ids.dedup();
+        let niri = *self;
+        std::thread::spawn(move || {
+            for id in ids {
+                if let Err(error) = niri.close_window(id) {
+                    tracing::warn!(id, %error, "Close pane window failed");
+                }
+            }
+        });
+    }
+
     /// Force-terminate the process owning this window; one process may own several windows.
     pub fn terminate_window(&self, id: u64) {
         std::thread::spawn(move || {
@@ -170,4 +184,39 @@ mod focus_tests {
         unsafe { if let Some(old)=old {std::env::set_var("NIRI_SOCKET",old);} else {std::env::remove_var("NIRI_SOCKET");} }
         std::fs::remove_file(path).unwrap();
     }
+    #[test]
+    #[ignore = "changes fixture NIRI_SOCKET; run in isolation"]
+    fn close_pane_is_nonblocking_deduplicated_and_survives_missing_window() {
+        use std::{io::{BufRead, BufReader, Write}, os::unix::net::UnixListener,
+                  sync::mpsc, time::{Duration, Instant}};
+        let path=std::env::temp_dir().join(format!("adws-close-pane-{}.sock",std::process::id()));
+        let listener=UnixListener::bind(&path).unwrap();
+        let old=std::env::var_os("NIRI_SOCKET");
+        unsafe { std::env::set_var("NIRI_SOCKET",&path); }
+        let (tx,rx)=mpsc::channel();
+        let server=std::thread::spawn(move || {
+            for expected in [101,103] {
+                let (mut socket,_)=listener.accept().unwrap();
+                socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                let mut line=String::new();
+                BufReader::new(socket.try_clone().unwrap()).read_line(&mut line).unwrap();
+                let value:serde_json::Value=serde_json::from_str(&line).unwrap();
+                assert_eq!(value["Action"]["CloseWindow"]["id"],expected);
+                std::thread::sleep(Duration::from_millis(150));
+                let reply=if expected==101 {serde_json::json!({"Err":"Window already gone"})}
+                          else {serde_json::json!({"Ok":"Handled"})};
+                writeln!(socket,"{reply}").unwrap();
+                tx.send(expected).unwrap();
+            }
+        });
+        let start=Instant::now();
+        super::Niri::new().close_windows_background(vec![103,101,103]);
+        assert!(start.elapsed()<Duration::from_millis(100));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(),101);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(),103);
+        server.join().unwrap();
+        unsafe { if let Some(old)=old {std::env::set_var("NIRI_SOCKET",old);} else {std::env::remove_var("NIRI_SOCKET");} }
+        std::fs::remove_file(path).unwrap();
+    }
+
 }

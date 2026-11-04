@@ -313,10 +313,6 @@ def create_preview(select, move=None):
                 cursors[row['slot']]+=length+6*scale
                 slots[row['slot']].append((row,layout,image,rect))
                 self.hits.append((rect,row['instance']))
-            workspaces={w['id'] for w in self.live.get('workspaces',[]) if w.get('is_active')}
-            docked=values['panel_mode']=='docked' or (values['panel_mode']=='auto' and any(
-                not w.get('is_floating') and not w.get('is_minimized') and (not workspaces or w.get('workspace_id') in workspaces)
-                for w in self.live.get('windows',[])))
             def fill(rect,slot=None):
                 x,y,rw,rh=rect
                 pointed=values['split_panel'] and values['split_center_corners']=='pointed' and slot is not None
@@ -326,7 +322,7 @@ def create_preview(select, move=None):
                     if vertical: cr.translate(x+rw,y);cr.rotate(math.pi/2);rw,rh=rh,rw
                     else: cr.translate(x,y)
                     front,back=slot!='left',slot!='right'
-                    r=0 if docked else min(radius*scale,rh/2)
+                    r=min(radius*scale,rh/2)
                     tip=min(rh/2,rw/2)
                     cr.move_to(tip if front else r,0)
                     if back:
@@ -340,7 +336,7 @@ def create_preview(select, move=None):
                     cr.close_path();cr.clip()
                     x,y=0,0
                 else:
-                    self.rounded(cr,*rect,0 if docked and slot is None else radius*scale);cr.clip()
+                    self.rounded(cr,*rect,radius*scale);cr.clip()
                 mode=values['panel_material']
                 alpha={'solid':1.,'mica':.90,'acrylic':.66,'candy':.82}[mode]
                 cr.set_source_rgba(bg.red,bg.green,bg.blue,bg.alpha*alpha);cr.paint()
