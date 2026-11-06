@@ -60,7 +60,7 @@ class InstallationTests(unittest.TestCase):
             'rustc': 'printf "rustc 1.87.0\\n"',
             'cargo': 'if [ "$1" = --version ]; then printf "cargo 1.87.0\\n"; exit 0; fi; mkdir -p target/release\nprintf test > target/release/libniri_taskbar.so\nprintf test > target/release/adws-plugin-runner\nprintf test > target/release/adws-start-menu',
             'make': 'exit 0',
-            'fc-list': 'printf "Symbols Nerd Font\\n"',
+            'fc-list': 'case "$*" in *charset*) printf "20-10ffff\\n" ;; *) printf "Symbols Nerd Font\\n" ;; esac',
             'cc': 'while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; printf test > "$1"; exit 0; fi; shift; done',
         }.items():
             file=self.bin/program;file.write_text('#!/bin/sh\n'+script+'\n');file.chmod(0o755)

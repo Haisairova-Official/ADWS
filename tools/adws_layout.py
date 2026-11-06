@@ -287,8 +287,80 @@ def desktop_space_library_path(layout: dict, base: dict | None) -> Path:
         current = base[INTERNAL_SPACE_MODULE].get("module_path")
         if current:
             return Path(current).expanduser()
+    installed = Path.home() / ".local/lib/waybar/libwaybar-space.so"
+    if installed.is_file():
+        return installed
     candidate = PROJECT_ROOT / "src/niri-desktop-layer/integration/libwaybar-space.so"
-    return candidate if candidate.is_file() else Path.home() / ".local/lib/waybar/libwaybar-space.so"
+    return candidate if candidate.is_file() else installed
+
+
+def desktop_space_relocation_plan(config_home, source_migration, *, home=None):
+    """Review a generated source-tree library reference before installation.
+
+    Only an exact default path under a registered installation (or a proven
+    installer snapshot) is owned. Custom library paths and explicit layout
+    overrides are preserved. Runtime rendering does not infer old ownership.
+
+    The result uses the top-bar relocation transaction format, so its existing
+    ``verify_before``/``apply`` functions can validate and back up this plan.
+    Native preparation installs the stable target for source and prebuilt
+    installations before normal layout rendering checks the library.
+    """
+    from adws_install_topbar_migration import (
+        SCHEMA, _migration_evidence, _historical_roots, _hash, _edits, json_strings,
+    )
+    from adws_install_source_migration import _bytes
+
+    config = Path(config_home).expanduser().absolute()
+    result = {'schema_version': SCHEMA, 'files': {}, 'source_hashes': {},
+              'snapshot_targets': [], 'replacements': [], 'conflicts': [],
+              'restart_profiles': [], 'limitations': [], 'source_migration': None,
+              'reviewed_roots': [], 'status': 'none'}
+    try:
+        evidence = _migration_evidence(source_migration)
+        if not evidence:
+            return result
+        result['source_migration'] = evidence
+        paths = (config / 'adws/taskbar-layout.json', config / 'waybar/config-bottom.jsonc')
+        raw_layout, raw_config = (_bytes(path) for path in paths)
+        for path, raw in zip(paths, (raw_layout, raw_config)):
+            result['source_hashes'][str(path)] = _hash(raw) if raw is not None else None
+        if raw_layout is not None:
+            data = json.loads(raw_layout)
+            if not isinstance(data, dict) or not isinstance(data.get('options', {}), dict):
+                raise ValueError('Invalid taskbar layout library options')
+            if data.get('options', {}).get('desktop_space_library'):
+                result['limitations'].append('Explicit desktop-space library override retained.')
+                return result
+        if raw_config is None:
+            return result
+        text = raw_config.decode('utf-8')
+        leaves = json_strings(text)
+        reference = next((row for row in leaves
+                          if row[0] == (INTERNAL_SPACE_MODULE, 'module_path')), None)
+        if reference is None:
+            return result
+        field, value, start, end = reference
+        origins = _historical_roots(evidence)
+        relative = Path('src/niri-desktop-layer/integration/libwaybar-space.so')
+        origin = next((root for root in origins if value == str(root / relative)), None)
+        if origin is None:
+            # Includes environment expressions, a user's custom library, and
+            # source-looking paths without any installation ownership evidence.
+            return result
+        target = Path(home or Path.home()).expanduser().absolute() / '.local/lib/waybar/libwaybar-space.so'
+        proof = origins[origin]
+        result['reviewed_roots'].append({'root': str(origin), **proof})
+        result['source_hashes'].update(proof['source_hashes'])
+        result['files'][str(paths[1])] = _edits(text, [(start, end, json.dumps(str(target), ensure_ascii=False))])
+        result['snapshot_targets'] = [str(paths[1])]
+        result['replacements'].append({'kind': 'desktop-space-library', 'path': str(paths[1]),
+                                       'field': list(field), 'before': value, 'after': str(target)})
+        result['status'] = 'ready'
+    except (OSError, ValueError, TypeError, KeyError, IndexError, RecursionError) as exc:
+        result['conflicts'].append({'kind': 'desktop-space-library-relocation', 'detail': str(exc)})
+        result['status'] = 'blocked'
+    return result
 
 
 def _module_key(module: str) -> str:
@@ -705,14 +777,11 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
                 result["max_width"] = int(configured_max)
             return result
         if module == INTERNAL_SPACE_MODULE:
-            base_def = cfg.get(module)
-            current = base_def.get("module_path") if isinstance(base_def, dict) else None
             return {
                 "panel_mode": panel["panel_mode"], "split_panel": panel["split_panel"], "position": panel["position"],
                 "split_center_corners": panel["split_center_corners"], "thickness": panel["thickness"],
                 "window_animations": panel["window_animations"], "animation_duration": panel["animation_duration"],
-                "module_path": str(desktop_space_library_path(layout, cfg)
-                                   if not current else Path(current).expanduser()),
+                "module_path": str(desktop_space_library_path(layout, cfg)),
             }
         if module.startswith(PLUGIN_PREFIXES):
             item = next((entry for entry in items

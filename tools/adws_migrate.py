@@ -59,10 +59,8 @@ def move_tree(old: Path, new: Path, messages: list[str]) -> bool:
         os.replace(old, new)
         messages.append(_tr("已迁移：%s → %s") % (old, new))
         return True
-    preserved = backup_name(old)
-    os.replace(old, preserved)
-    messages.append(_tr("ADWS 目录已存在，旧 MNWS 数据已保留在：%s") % preserved)
-    return True
+    raise ValueError('Legacy and current directories both exist; preserve and review before migration: '
+                     + str(old) + ' -> ' + str(new))
 
 
 COMMAND_KEYS = {'exec', 'exec-if', 'command', 'launcher_command', 'start_launcher_command',
@@ -174,6 +172,23 @@ def retire_link(path: Path, messages: list[str]) -> None:
         messages.append(_tr("已移除旧命令入口：%s") % path)
 
 
+def install_bundled_plugin(data_home: Path, root: Path, messages: list[str]) -> None:
+    """Initialize the bundled package without migrating personal directories."""
+    official = root / "plugins/org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg"
+    if official.is_file():
+        plugin_dir = data_home / "adws/plugins"
+        plugin_dir.mkdir(parents=True, exist_ok=True)
+        target = plugin_dir / official.name
+        content = official.read_bytes()
+        if not exists(target) or target.read_bytes() != content:
+            if exists(target):
+                backup = backup_name(target)
+                shutil.copy2(target, backup)
+                messages.append(_tr('原插件包已备份：%s') % backup)
+            from adws_atomic import replace_files
+            replace_files({target: content})
+
+
 def migrate(
     config_home: Path,
     state_home: Path,
@@ -188,6 +203,12 @@ def migrate(
     # Validate both records before moving any tree or replacing a package.
     old_record = read_record(state_home/'mnws/install-record.json')
     read_record(state_home/'adws/install-record.json')
+    # Check all four destinations before the first move; a generated ADWS
+    # fragment must never cause the old active tree to become an unused backup.
+    for folder in (config_home, state_home, data_home, cache_home):
+        if exists(folder/'mnws') and exists(folder/'adws'):
+            raise ValueError('Legacy and current directories both exist; preserve and review before migration: '
+                             + str(folder/'mnws') + ' -> ' + str(folder/'adws'))
     roots = []
     # XDG paths change independently of the installation source directory.
     for directory in (config_home, state_home, data_home, cache_home):
@@ -221,18 +242,7 @@ def migrate(
         if not exists(retired):
             os.replace(plugin_dir, retired)
             messages.append(_tr("旧插件已保留在：%s") % retired)
-    official = root / "plugins/org.AkiACG_Community.NCMLyricsBar_1.1.0.mplg"
-    if official.is_file():
-        plugin_dir.mkdir(parents=True, exist_ok=True)
-        target = plugin_dir / official.name
-        content = official.read_bytes()
-        if not exists(target) or target.read_bytes() != content:
-            if exists(target):
-                backup = backup_name(target)
-                shutil.copy2(target, backup)
-                messages.append(_tr('原插件包已备份：%s') % backup)
-            from adws_atomic import replace_files
-            replace_files({target: content})
+    install_bundled_plugin(data_home, root, messages)
 
     for name in ('taskbar-layout.json', 'taskbar-pins.json', 'setup.json', 'wallpaper.json'):
         rewrite(config_home/'adws'/name, messages, roots)
@@ -268,7 +278,16 @@ def main() -> int:
     data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share")
     cache = Path(os.environ.get("XDG_CACHE_HOME") or home / ".cache")
     try:
-        messages = migrate(config, state, data, cache, home / ".local/bin", home / ".local/lib/waybar")
+        if sys.argv[1:] == ['--managed-init']:
+            from adws_install_workflow import approved_plan
+            from adws_install_legacy import initialize_managed_install
+            messages = initialize_managed_install(approved_plan(), root=ROOT)
+        elif sys.argv[1:]:
+            raise ValueError('Unknown migration arguments')
+        elif os.environ.get('ADWS_INSTALL_MANAGED') == '1' or os.environ.get('ADWS_INSTALL_PLAN'):
+            raise ValueError('Managed installation requires a reviewed legacy plan; implicit migration is disabled')
+        else:
+            messages = migrate(config, state, data, cache, home / ".local/bin", home / ".local/lib/waybar")
     except (OSError, ValueError) as error:
         print(_tr('迁移未完成：%s') % error, file=sys.stderr)
         return 1

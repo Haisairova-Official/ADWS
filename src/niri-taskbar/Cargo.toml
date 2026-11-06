@@ -15,10 +15,8 @@ anyhow = "1.0.100"
 async-channel = "2.5.0"
 async-stream = "0.3.6"
 bitflags = "2.10.0"
-freedesktop-icons = "0.4.0"
 futures = "0.3.31"
 itertools = "0.14.0"
-linicon = "2.3.0"
 niri-ipc = { path = "../../vendor/niri-ipc" }
 regex = "1.12.2"
 serde = { version = "1.0.228", features = ["derive"] }

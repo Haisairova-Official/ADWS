@@ -8,7 +8,7 @@ import stat
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
@@ -129,6 +129,48 @@ class InstallTests(unittest.TestCase):
         self.mocks[4].side_effect=RuntimeError('compiler failed')
         with self.assertRaises(RuntimeError):upgrade.install_update(self.result,lambda _:None)
         self.control.assert_not_called();self.verify_old()
+
+    def test_prebuilt_abi_failure_stops_before_old_install_is_touched(self):
+        from adws_prebuilt import NAMES
+        with zipfile.ZipFile(self.source, 'a') as archive_file:
+            hashes = {}
+            for name in NAMES:
+                data = ('candidate ' + name).encode()
+                hashes[name] = hashlib.sha256(data).hexdigest()
+                archive_file.writestr('ADWS/prebuilt/' + name, data)
+            archive_file.writestr('ADWS/prebuilt/manifest.json', json.dumps({
+                'version': '1.28-A', 'os': 'arch', 'arch': 'x86_64', 'sha256': hashes}))
+        self.mocks[2].return_value = ('https://github.com/fixture.zip', None, True)
+        self.patches[4].stop()
+        report = {'compatible': False, 'status': 'incompatible', 'errors': [
+            {'component': 'adws-start-menu', 'detail': "GLIBC_2.99 not found"}]}
+        with patch.object(upgrade, 'run') as build, \
+             patch.object(upgrade, 'inspect_prebuilt_compatibility', return_value=report), \
+             patch.dict(os.environ, {'ADWS_INSTALL_MANAGED': '1'}), \
+             patch('adws_install_workflow.approved_plan', return_value={'build_fallback': True}):
+            with self.assertRaisesRegex(RuntimeError, 'GLIBC_2.99'):
+                upgrade.install_update(self.result, lambda _: None)
+        self.control.assert_not_called()
+        self.verify_old()
+        self.assertTrue(all(call.args[0][1:3] == ['-m', 'compileall'] for call in build.call_args_list))
+        log = next(self.state.glob('update-*.log')).read_text()
+        self.assertIn('Prebuilt compatibility:', log)
+        self.assertIn('GLIBC_2.99', log)
+
+    def test_source_provenance_does_not_use_unused_prebuilt_directory(self):
+        with zipfile.ZipFile(self.source, 'a') as archive_file:
+            archive_file.writestr('ADWS/prebuilt/manifest.json', '{}')
+        upgrade.install_update(self.result, lambda _: None)
+        self.assertEqual(json.loads(self.record.read_text())['build_method'], 'source')
+
+    def test_mixed_component_provenance_is_rejected_before_stopping(self):
+        self.mocks[4].return_value = {
+            name: Path('prebuilt' if index == 0 else 'binaries') / name
+            for index, name in enumerate(upgrade.LIBRARIES)}
+        with self.assertRaises(RuntimeError):
+            upgrade.install_update(self.result, lambda _: None)
+        self.control.assert_not_called()
+        self.verify_old()
 
     def test_version_mismatch_and_downgrade_never_install(self):
         archive(self.source,'9.0 Release')
@@ -321,14 +363,15 @@ class InstallTests(unittest.TestCase):
     def test_prebuilt_libraries_are_verified_before_install(self):
         folder=self.root/'prebuilt';folder.mkdir()
         hashes={}
-        for name in upgrade.LIBRARIES:
+        from adws_prebuilt import NAMES
+        for name in NAMES:
             (folder/name).write_text(name)
             hashes[name]=hashlib.sha256(name.encode()).hexdigest()
         manifest={'version':'1.27-D','os':'arch','arch':'x86_64','sha256':hashes}
         (folder/'manifest.json').write_text(json.dumps(manifest))
         # Restore the real verifier while replacing only external build/ldd calls.
         self.patches[4].stop()
-        with (self.home/'build.log').open('ab') as log, patch.object(upgrade,'run'), patch.object(upgrade.shutil,'which',return_value=None):
+        with (self.home/'build.log').open('ab') as log, patch.object(upgrade,'run'), patch.object(upgrade.shutil,'which',return_value=None), patch.object(upgrade,'inspect_prebuilt_compatibility',return_value={'compatible':True}):
             self.assertEqual(set(upgrade.prepare_libraries(self.root,True,log)),set(upgrade.LIBRARIES))
             (folder/upgrade.LIBRARIES[0]).write_text('corrupt')
             with self.assertRaises(ValueError):upgrade.prepare_libraries(self.root,True,log)
@@ -375,7 +418,7 @@ class NativeSupervisorUpgradeTests(unittest.TestCase):
                 (folder/name).write_bytes(b'artifact')
                 hashes[name] = hashlib.sha256(b'artifact').hexdigest()
             (folder/'manifest.json').write_text(json.dumps({'version':'1.35 Development','os':'arch','arch':'x86_64','sha256':hashes}))
-            with patch.object(upgrade, 'run'), patch.object(upgrade.shutil, 'which', return_value=None):
+            with patch.object(upgrade, 'run'), patch.object(upgrade.shutil, 'which', return_value=None), patch.object(upgrade, 'inspect_prebuilt_compatibility', return_value={'compatible':True}):
                 paths = upgrade.prepare_libraries(root, True, io.BytesIO())
                 self.assertEqual(set(paths), set(upgrade.LIBRARIES))
                 installed = root/'libexec/adws-plugin-runner'

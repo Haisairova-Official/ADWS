@@ -21,10 +21,10 @@ class FeatureTests(unittest.TestCase):
   with patch.dict(os.environ,{'NIRI_SOCKET':'/tmp/test.sock'}):self.assertEqual(controls.session_command('logout'),['niri','msg','action','quit','--skip-confirmation'])
   self.assertEqual(controls.session_command('poweroff'),['systemctl','poweroff'])
  def test_clipboard_binary_round_trip_without_shell(self):
-  with patch.object(clipboard,'run',side_effect=[b'\x89PNG\x00example',b'']) as run:
+  with patch.object(clipboard,'run',return_value=b'\x89PNG\x00example') as decode,patch.object(clipboard,'copy_data') as copy:
    clipboard.copy_entry('4\t[[ binary data ]]')
-   self.assertEqual(run.call_args_list[1].args[0],['wl-copy'])
-   self.assertEqual(run.call_args_list[1].kwargs['input'],b'\x89PNG\x00example')
+   decode.assert_called_once_with(['cliphist','decode'],input=b'4\t[[ binary data ]]\n')
+   copy.assert_called_once_with(b'\x89PNG\x00example')
  def test_toggle_rechecks_pid_and_never_signals_topbar(self):
   with tempfile.TemporaryDirectory() as name,patch.dict(os.environ,{'XDG_STATE_HOME':name}),patch('adws_runtime.pids',return_value=[111,222]),patch.object(controls,'identity',side_effect=['A','B','A','C']),patch.object(controls.os,'kill') as kill:
    result=controls.toggle();self.assertEqual(result['class'],'disabled')

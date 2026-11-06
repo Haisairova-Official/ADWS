@@ -10,6 +10,7 @@ import sys
 import tempfile
 import tomllib
 from adws_launcher import ask
+from adws_install_transaction import checked_run
 from adws_health import dependency_errors, check
 from adws_waybar_compat import ensure_waybar, resolve_waybar
 
@@ -21,13 +22,9 @@ PACKAGES = {
 }
 
 # Runtime functionality is required even when native binaries are prebuilt.
-for packages in PACKAGES.values():
-    packages['capture']=['grim','slurp','wl-clipboard']
-    packages['preview-session']=['wireplumber']
-PACKAGES['apt-get']['preview']=['pipewire','python3-gst-1.0','gir1.2-gstreamer-1.0',
-    'gir1.2-gst-plugins-base-1.0','gstreamer1.0-pipewire','gstreamer1.0-plugins-base','gstreamer1.0-plugins-good']
-PACKAGES['pacman']['preview']=['pipewire','gst-python','gst-plugin-pipewire','gst-plugins-base','gst-plugins-good']
-PACKAGES['dnf']['preview']=['pipewire','python3-gstreamer1','pipewire-gstreamer','gstreamer1-plugins-base','gstreamer1-plugins-good']
+from adws_install_features import legacy_runtime_packages
+for manager, groups in legacy_runtime_packages().items():
+    PACKAGES[manager].update(groups)
 
 PACKAGES['apt-get']['waybar-build'] = ['git', 'build-essential', 'meson', 'ninja-build', 'cmake', 'pkg-config',
  'libgtkmm-3.0-dev', 'libjsoncpp-dev', 'libsigc++-2.0-dev', 'libfmt-dev', 'libspdlog-dev',
@@ -43,7 +40,34 @@ PACKAGES['dnf']['waybar-build'] = ['git', 'gcc-c++', 'meson', 'ninja-build', 'cm
  'pulseaudio-libs-devel', 'libnl3-devel', 'systemd-devel', 'libevdev-devel']
 
 
+def approved_plan():
+    if not (os.environ.get('ADWS_INSTALL_PLAN') or os.environ.get('ADWS_INSTALL_MANAGED') == '1'):
+        return None
+    from adws_install_workflow import approved_plan as load
+    plan = load()
+    if plan is None:
+        raise RuntimeError('NEW_PLAN_REQUIRED: missing approved installation plan')
+    return plan
+
+
 def confirm(prompt):
+    plan = approved_plan()
+    if plan is not None:
+        # Exact prompts only. A newly added decision must first become part of
+        # the plan the user reviewed; it must not silently inherit a blanket yes.
+        choices = {
+            _tr('是否快速安装预构建组件？无需 Rust/Cargo 或 C 编译器。'): (plan.get('prebuilt', True) is True or isinstance(plan.get('prebuilt'), dict) and plan['prebuilt'].get('status') == 'verified'),
+            _tr('是否现在构建并安装这些组件？首次构建可能需要下载依赖。'): plan.get('build_fallback', False),
+            _tr('是否构建官方 Waybar 0.14.0？将补齐构建依赖并安装到用户专用目录，不替换系统 Waybar。'): plan.get('build_fallback', False),
+            _tr('是否尝试通过系统软件源安装或更新 Waybar？'): 'waybar' in plan.get('package_candidates', []),
+            _tr('未检测到 Nerd Fonts。是否安装官方符号字体，避免任务栏图标显示为方框？（约 3 MB）'): plan.get('fonts', True),
+            _tr('是否安装以上文件？保留当前登录管理器，不切换当前会话。'): plan.get('niri_method') in ('repository', 'source'),
+            _tr('源码构建需要新版本 Rust。是否通过官方 rustup 安装／更新 stable 工具链？不会移除系统 Rust。'): plan.get('niri_method') == 'source',
+            '是否为本次构建使用国内 Rust 镜像源（RsProxy）？': plan.get('mirror') == 'rsproxy',
+        }
+        if prompt not in choices:
+            raise RuntimeError('NEW_PLAN_REQUIRED: ' + prompt)
+        return choices[prompt] is True
     while True:
         answer = ask(prompt + '（Y/n/Ctrl+C）').lower()
         if answer in ('', 'y'):
@@ -53,25 +77,54 @@ def confirm(prompt):
         print(_tr('请输入 y 或 n。'))
 
 
-def install_packages(programs=(), groups=()):
-    manager = next((name for name in PACKAGES if shutil.which(name)), None)
+def install_packages(programs=(), groups=(), *, system_upgrade=False):
+    plan = approved_plan()
+    manager = (plan.get('features', {}).get('manager') or plan.get('manager')) if plan else None
+    if manager and (manager not in PACKAGES or not shutil.which(manager)):
+        raise RuntimeError('NEW_PLAN_REQUIRED: package manager changed: ' + str(manager))
+    manager = manager or next((name for name in PACKAGES if shutil.which(name)), None)
     if not manager:
         raise RuntimeError(_tr('暂不支持自动补齐此系统的依赖，请按 README 手动安装后重新运行 install.sh。'))
+    if system_upgrade and not (manager == 'pacman' and plan is not None and plan.get('system_upgrade') is True):
+        raise RuntimeError('NEW_PLAN_REQUIRED: full system upgrade was not approved for this Arch installation')
     packages = list(programs)
     for group in groups:
         packages.extend(PACKAGES[manager][group])
         if group == 'python':
             packages.append({'apt-get': 'python3-yaml', 'pacman': 'python-yaml', 'dnf': 'python3-pyyaml'}[manager])
     packages = list(dict.fromkeys(packages))
+    if not packages and not system_upgrade: return
+    if any(not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9+_.:@/-]*', name) for name in packages):
+        raise ValueError('Invalid package name')
+    if plan is not None:
+        unexpected = set(packages) - set(plan.get('package_candidates', []))
+        if unexpected:
+            raise RuntimeError('NEW_PLAN_REQUIRED: unapproved packages: ' + ', '.join(sorted(unexpected)))
+        if manager == 'pacman' and plan.get('system_upgrade') and not system_upgrade:
+            # The central package step owns the complete reviewed transaction.
+            # Build/repair helpers must not refresh and upgrade the system again
+            # after configuration deployment has started.
+            from adws_niri_install import installed_packages
+            missing = set(packages) - installed_packages(manager, packages)
+            if missing:
+                raise RuntimeError('NEW_PLAN_REQUIRED: dependencies missing after the reviewed system upgrade: ' + ', '.join(sorted(missing)))
+            return
     print(_tr('准备安装：') + ', '.join(packages))
-    if not confirm(_tr('是否补齐以上依赖？')):
+    if plan is None and not confirm(_tr('是否补齐以上依赖？')):
         raise RuntimeError(_tr('已取消安装；补齐依赖后可重新运行 install.sh。'))
-    command = [manager, '-S' if manager == 'pacman' else 'install', *packages]
+    flags = (['--needed', '--noconfirm'] if manager == 'pacman' else ['-y']) if plan else []
+    if system_upgrade:
+        from adws_install_arch_packages import execution_command
+        # The package manager presents its freshly resolved transaction for
+        # confirmation; a stale preview must not silently approve new upgrades.
+        command=execution_command(packages)
+    else:
+        command = [manager, '-S' if manager == 'pacman' else 'install', *flags, *packages]
     if os.geteuid() != 0:
         if not shutil.which('sudo'):
             raise RuntimeError(_tr('缺少 sudo，请由管理员安装以上软件包后重试。'))
         command.insert(0, 'sudo')
-    subprocess.run(command, check=True)
+    checked_run(command, check=True)
 
 
 def atomic_install(source, target, mode=0o644):
@@ -187,7 +240,8 @@ def prepare():
     errors = dependency_errors()
     if errors:
         print('\n'.join(errors))
-        missing = [name for name in ('systemctl', 'thunar') if not shutil.which(name)]
+        programs = ('systemctl',) if approved_plan() is not None else ('systemctl', 'thunar')
+        missing = [name for name in programs if not shutil.which(name)]
         missing = ['systemd' if name == 'systemctl' else name for name in missing]
         groups = ['python'] if any('Python/GTK' in error for error in errors) else []
         from adws_runtime_dependencies import missing_dependencies, install_groups
@@ -201,8 +255,18 @@ def prepare():
         errors = dependency_errors()
         if errors:
             raise RuntimeError(_tr('补齐后仍有问题：\n') + '\n'.join(errors) + _tr('\n请检查系统软件源和当前 Python 环境后重试。'))
-    from adws_fonts import ensure_fonts
-    ensure_fonts(confirm, install_packages)
+    from adws_fonts import ensure_fonts, require_text_fonts, ensure_text_fonts
+    if approved_plan() is not None:
+        # Package decisions belong to the reviewed plan, never add an unseen
+        # repair here after configuration deployment has already begun.
+        require_text_fonts()
+    else:
+        manager=next((name for name in PACKAGES if shutil.which(name)),None)
+        if manager is None:raise RuntimeError('无法确定文字字体的软件包来源。')
+        ensure_text_fonts(install_packages,manager)
+    fonts_ready = ensure_fonts(confirm, install_packages)
+    if approved_plan() is not None and not fonts_ready:
+        raise RuntimeError(_tr('符号字体安装或验证失败；安装尚未完成，请查看前面的下载或依赖错误后重试。'))
     library_dir = Path.home() / '.local/lib/waybar'
     from adws_prebuilt import install as install_prebuilt
     prebuilt = install_prebuilt(ROOT, library_dir, confirm, atomic_install)
@@ -225,25 +289,25 @@ def prepare():
                 break
         build_env = choose_build_mirror(build_env)
         if 'libniri_taskbar.so' in missing:
-            subprocess.run(['bash', str(ROOT / 'adws'), 'build-taskbar'], check=True, env=build_env)
-        subprocess.run(cargo_build_command(build_env, ROOT / 'src/adws-runtime'),
+            checked_run(['bash', str(ROOT / 'adws'), 'build-taskbar'], check=True, env=build_env)
+        checked_run(cargo_build_command(build_env, ROOT / 'src/adws-runtime'),
                        cwd=ROOT / 'src/adws-runtime', check=True,
                        env={key: value for key, value in build_env.items() if key != 'CARGO_TARGET_DIR'})
         atomic_install(ROOT / 'src/adws-runtime/target/release/adws-plugin-runner',
                        ROOT / 'libexec/adws-plugin-runner', mode=0o755)
-        subprocess.run(cargo_build_command(build_env, ROOT / 'src/adws-start-menu'),
+        checked_run(cargo_build_command(build_env, ROOT / 'src/adws-start-menu'),
                        cwd=ROOT / 'src/adws-start-menu', check=True,
                        env={key: value for key, value in build_env.items() if key != 'CARGO_TARGET_DIR'})
         atomic_install(ROOT / 'src/adws-start-menu/target/release/adws-start-menu',
                        ROOT / 'libexec/adws-start-menu', mode=0o755)
         if 'libadws_panel.so' in missing:
-            subprocess.run(['make', '-C', str(ROOT / 'src/panel-rows')], check=True)
+            checked_run(['make', '-C', str(ROOT / 'src/panel-rows')], check=True)
             atomic_install(ROOT / 'src/panel-rows/libadws_panel.so', library_dir / 'libadws_panel.so')
         if 'libwaybar-space.so' in missing:
             flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk+-3.0', 'gtk-layer-shell-0', 'wayland-client'], text=True)
             with tempfile.TemporaryDirectory(prefix='adws-build-') as directory:
                 output = Path(directory) / 'libwaybar-space.so'
-                subprocess.run(['cc', '-shared', '-fPIC', '-O2', str(ROOT / 'src/niri-desktop-layer/integration/waybar-space.c'), '-o', str(output), *shlex.split(flags), '-lm'], check=True)
+                checked_run(['cc', '-shared', '-fPIC', '-O2', str(ROOT / 'src/niri-desktop-layer/integration/waybar-space.c'), '-o', str(output), *shlex.split(flags), '-lm'], check=True)
                 atomic_install(output, library_dir / output.name)
     if check(preinstall=True):
         raise RuntimeError(_tr('仍有配置问题需要处理，请按上面的提示修复后再次运行 install.sh；现有配置不会被强制覆盖。'))
@@ -254,7 +318,7 @@ def main():
     try:
         if sys.argv[1:] == ['--cargo-build']:
             env = choose_build_mirror(build_environment())
-            subprocess.run(cargo_build_command(env), env=env, check=True)
+            checked_run(cargo_build_command(env), env=env, check=True)
             return 0
         if sys.argv[1:] == ['--build-path']:
             print(build_environment()['PATH'])

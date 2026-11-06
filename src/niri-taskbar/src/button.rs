@@ -1,11 +1,9 @@
-use std::{cell::RefCell, fmt::Debug, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use waybar_cffi::gtk::{
-    self as gtk, Border, CssProvider, IconLookupFlags, IconSize, IconTheme, ReliefStyle,
-    StateFlags,
+    self as gtk, Border, CssProvider, IconSize, ReliefStyle, StateFlags,
     gdk_pixbuf::Pixbuf,
     prelude::*,
-
 };
 
 use crate::state::State;
@@ -47,10 +45,6 @@ thread_local! {
         }
 
         css
-    };
-
-    static ICON_THEME: IconTheme = {
-        IconTheme::default().unwrap_or_default()
     };
 
     static ACTIVE_CONTEXT_MENU: RefCell<Option<gtk::Menu>> = RefCell::new(None);
@@ -434,7 +428,7 @@ impl Button {
     #[tracing::instrument(level = "TRACE")]
     fn connect_size_allocate(&self) {
         let last_size = Rc::new(RefCell::new(None));
-        let icon_path = Rc::new(RefCell::new(None::<PathBuf>));
+        let icon_path = Rc::new(RefCell::new(None::<crate::icon::Source>));
         if let Some(id) = self.app_id.clone() {
             let cache = self.state.icon_cache().clone();
             let path = icon_path.clone();
@@ -502,32 +496,9 @@ impl Button {
                     // Now we know the size, we can actually load the image.
                     let image =
                         Self::icon_image(icon_path.borrow().as_ref(), button, size).unwrap_or_else(|| {
-                            // If we can't find an application icon, then we need to use a
-                            // fallback.
-                            static FALLBACK_ICON: &str = "application-x-executable";
-
-                            // We'll try to look the icon up in the default icon theme, since then
-                            // we can load up the actual image and control its scaling and display.
-                            ICON_THEME
-                                .with(|theme| {
-                                    theme.lookup_icon_for_scale(
-                                        FALLBACK_ICON,
-                                        size,
-                                        button.scale_factor(),
-                                        IconLookupFlags::empty(),
-                                    )
-                                })
-                                .and_then(|info| {
-                                    Self::icon_image(info.filename().as_ref(), button, size)
-                                })
-                                .unwrap_or_else(|| {
-                                    // But, if all else fails, we'll just use the default button
-                                    // size and YOLO it.
-                                    gtk::Image::from_icon_name(
-                                        Some(FALLBACK_ICON),
-                                        IconSize::Button,
-                                    )
-                                })
+                            let image=gtk::Image::from_icon_name(Some("application-x-executable"),IconSize::Invalid);
+                            image.set_pixel_size(size);
+                            image
                         });
 
                     // Finally, we can set the button image. Doing this from the callback doesn't
@@ -544,13 +515,18 @@ impl Button {
     }
 
     fn icon_image(
-        icon_path: Option<&PathBuf>,
+        icon_path: Option<&crate::icon::Source>,
         button: &gtk::Button,
         size: i32,
     ) -> Option<gtk::Image> {
+        let path = match icon_path? {
+            crate::icon::Source::Themed(names) => {
+                return Some(crate::icon::themed_image(names, size));
+            }
+            crate::icon::Source::File(path) => path,
+        };
         let size = size * button.scale_factor();
-
-        icon_path
+        Some(path)
             .and_then(
                 |path| match Pixbuf::from_file_at_scale(path, size, size, true) {
                     Ok(pixbuf) => Some(pixbuf),
@@ -796,10 +772,85 @@ impl Drop for Button {
 #[cfg(test)]
 mod action_tests {
     use super::*;
+    use std::path::PathBuf;
     use gtk::glib::translate::{IntoGlib, ToGlibPtr};
     fn settle() {
         for _ in 0..20 { while gtk::events_pending(){gtk::main_iteration();} std::thread::sleep(std::time::Duration::from_millis(5)); }
     }
+    #[test]
+    #[ignore = "requires an isolated GTK display and process"]
+    fn icons_follow_live_theme_without_resizing() {
+        use crate::icon::{Cache, Source};
+        let root=std::env::temp_dir().join(format!("adws-icon-theme-{}",std::process::id()));
+        let applications=root.join("applications");
+        std::fs::create_dir_all(&applications).unwrap();
+        // Set before GTK/GIO initializes its process-wide XDG directories.
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME",&root);
+            std::env::set_var("XDG_DATA_DIRS",format!("{}:/usr/local/share:/usr/share",root.display()));
+        }
+        let write_icon=|theme:&str,name:&str,color:&str| {
+            let dir=root.join("icons").join(theme);
+            std::fs::create_dir_all(dir.join("32x32/apps")).unwrap();
+            std::fs::write(dir.join("index.theme"),format!("[Icon Theme]\nName={theme}\nInherits=hicolor\nDirectories=32x32/apps\n[32x32/apps]\nSize=32\nType=Fixed\nContext=Applications\n")).unwrap();
+            let path=dir.join("32x32/apps").join(format!("{name}.svg"));
+            std::fs::write(&path,format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="{color}"/></svg>"##)).unwrap();
+            path
+        };
+        write_icon("ThemeA","adws-themed-fixture","#ff0000");
+        write_icon("ThemeB","adws-themed-fixture","#0000ff");
+        write_icon("ThemeA","application-x-executable","#ff0000");
+        write_icon("ThemeB","application-x-executable","#0000ff");
+        write_icon("hicolor","org.adws.ThemeFixture","#00ff00");
+        let file=write_icon("hicolor","adws-original","#00ff00");
+        for (id,icon) in [("org.adws.ThemeFixture","adws-themed-fixture"),("org.adws.Original","adws-original"),("org.adws.File",file.to_str().unwrap())] {
+            std::fs::write(applications.join(format!("{id}.desktop")),format!("[Desktop Entry]\nType=Application\nName={id}\nExec=true\nIcon={icon}\n")).unwrap();
+        }
+        gtk::init().unwrap();
+        let theme=gtk::IconTheme::default().unwrap();
+        theme.prepend_search_path(root.join("icons"));
+        let settings=gtk::Settings::default().unwrap();
+        settings.set_gtk_icon_theme_name(Some("ThemeA"));
+        let cache=Cache::default();
+        let source=cache.lookup("org.adws.ThemeFixture").unwrap();
+        assert!(matches!(&source,Source::Themed(names) if names[0]=="adws-themed-fixture"));
+        assert_eq!(cache.lookup("org.adws.File"),Some(Source::File(file)));
+        let window=gtk::Window::new(gtk::WindowType::Toplevel);
+        let row=gtk::Box::new(gtk::Orientation::Horizontal,0);
+        let button=gtk::Button::new();
+        let image=Button::icon_image(Some(&source),&button,32).unwrap();
+        let original=Button::icon_image(cache.lookup("org.adws.Original").as_ref(),&button,32).unwrap();
+        let fallback=Button::icon_image(cache.lookup("org.adws.Missing").as_ref(),&button,32).unwrap();
+        let unknown=gtk::Image::from_icon_name(Some("application-x-executable"),IconSize::Invalid);
+        unknown.set_pixel_size(32);
+        row.add(&image);row.add(&original);row.add(&fallback);row.add(&unknown);window.add(&row);window.show_all();settle();
+        let pixel=|image:&gtk::Image| {
+            let mut surface=gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32,image.allocated_width(),image.allocated_height()).unwrap();
+            {
+                let cr=gtk::cairo::Context::new(&surface).unwrap();
+                image.draw(&cr);
+            }
+            surface.flush();
+            let offset=(surface.stride()*(image.allocated_height()/2)+4*(image.allocated_width()/2)) as usize;
+            let data=surface.data().unwrap();
+            u32::from_ne_bytes(data[offset..offset+4].try_into().unwrap()) & 0xffffff
+        };
+        assert_eq!(pixel(&image),0xff0000,"desktop Icon= must win over hicolor app ID");
+        assert_eq!(pixel(&original),0x00ff00,"unmodified apps inherit their original artwork");
+        let allocation=image.allocation();
+        for (name,color) in [("ThemeB",0x0000ff),("ThemeA",0xff0000),("ThemeB",0x0000ff)] {
+            settings.set_gtk_icon_theme_name(Some(name));settle();
+            assert_eq!(pixel(&image),color,"existing GtkImage must follow live theme");
+            assert_eq!(pixel(&original),0x00ff00);
+            assert_eq!(pixel(&fallback),color,"missing app uses the live default icon");
+            assert_eq!(pixel(&unknown),color,"unknown app default icon also refreshes");
+            assert_eq!(image.allocation(),allocation,"theme refresh must not resize taskbar");
+            assert_eq!(cache.lookup("org.adws.ThemeFixture"),Some(source.clone()));
+        }
+        unsafe {window.destroy();}
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     #[ignore = "requires nested Wayland compositor and external real-input driver"]
     fn wayland_layer_shift_menu() {

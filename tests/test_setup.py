@@ -60,3 +60,78 @@ class SetupTests(unittest.TestCase):
                 setup.atomic_install(source, target)
                 self.assertEqual(old.read(), b'old')
             self.assertEqual(target.read_bytes(), b'new')
+
+
+class ManagedSetupTests(unittest.TestCase):
+    def plan(self, **values):
+        return {'features': {'manager': 'pacman'}, 'package_candidates': ['waybar', 'fontconfig'],
+                'build_fallback': False, 'niri_method': 'repository', **values}
+
+    def test_known_choices_reuse_plan_without_prompt(self):
+        with patch.object(setup, 'approved_plan', return_value=self.plan()), patch.object(setup, 'ask') as ask:
+            self.assertTrue(setup.confirm(_tr('是否快速安装预构建组件？无需 Rust/Cargo 或 C 编译器。')))
+            self.assertFalse(setup.confirm(_tr('是否现在构建并安装这些组件？首次构建可能需要下载依赖。')))
+            with self.assertRaisesRegex(RuntimeError, 'NEW_PLAN_REQUIRED'):
+                setup.confirm('Unreviewed decision')
+            ask.assert_not_called()
+
+    def test_exact_approved_packages_only(self):
+        with patch.object(setup, 'approved_plan', return_value=self.plan()), patch.object(setup.shutil,'which',return_value='/bin/tool'), patch.object(setup.os,'geteuid',return_value=0), patch.object(setup.subprocess,'run') as run:
+            setup.install_packages(['waybar'])
+            run.assert_called_once_with(['pacman','-S','--needed','--noconfirm','waybar'],check=True)
+            run.reset_mock()
+            with self.assertRaisesRegex(RuntimeError, 'NEW_PLAN_REQUIRED.*unapproved'):
+                setup.install_packages(['unreviewed-package'])
+            run.assert_not_called()
+
+    def test_package_manager_change_needs_new_plan(self):
+        with patch.object(setup, 'approved_plan', return_value=self.plan()), patch.object(setup.shutil,'which',return_value=None), patch.object(setup.subprocess,'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'NEW_PLAN_REQUIRED'):
+                setup.install_packages(['waybar'])
+            run.assert_not_called()
+
+    def test_explicit_arch_upgrade_uses_whole_transaction_and_keeps_final_confirmation(self):
+        with patch.object(setup,'approved_plan',return_value=self.plan(system_upgrade=True)), patch.object(setup.shutil,'which',return_value='/bin/tool'), patch.object(setup.os,'geteuid',return_value=0), patch.object(setup,'checked_run') as run:
+            setup.install_packages(['waybar'],system_upgrade=True)
+            run.assert_called_once_with(['pacman','--config','/etc/pacman.conf','-Syu','--needed','--','waybar'],check=True)
+            self.assertNotIn('--noconfirm',run.call_args.args[0])
+
+    def test_downstream_dependencies_after_upgrade_never_repeat_package_transaction(self):
+        with patch.object(setup,'approved_plan',return_value=self.plan(system_upgrade=True)), patch.object(setup.shutil,'which',return_value='/bin/tool'), patch('adws_niri_install.installed_packages',return_value={'waybar','fontconfig'}) as installed, patch.object(setup,'checked_run') as run:
+            setup.install_packages(['waybar'])
+            installed.assert_called_once_with('pacman',['waybar'])
+            run.assert_not_called()
+            installed.return_value=set()
+            with self.assertRaisesRegex(RuntimeError,'NEW_PLAN_REQUIRED.*missing.*waybar'):
+                setup.install_packages(['waybar'])
+            run.assert_not_called()
+
+    def test_full_upgrade_requires_explicit_arch_plan_authorization(self):
+        plans=[None,self.plan(),self.plan(system_upgrade=False),self.plan(system_upgrade=True,features={'manager':'apt-get'})]
+        for proposal in plans:
+            with self.subTest(plan=proposal), patch.object(setup,'approved_plan',return_value=proposal), patch.object(setup.shutil,'which',return_value='/bin/tool'), patch.object(setup,'checked_run') as run, patch.object(setup,'ask') as ask:
+                with self.assertRaisesRegex(RuntimeError,'NEW_PLAN_REQUIRED.*not approved'):
+                    setup.install_packages(['waybar'],system_upgrade=True)
+                run.assert_not_called();ask.assert_not_called()
+
+    def test_niri_source_build_does_not_run_a_second_full_upgrade(self):
+        import os
+        import adws_niri_install as niri
+        packages=niri.BUILD_PACKAGES['pacman']
+        class StopBeforeBuild(Exception):pass
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'XDG_CACHE_HOME':directory}), patch.object(setup,'approved_plan',return_value=self.plan(system_upgrade=True,package_candidates=packages)), patch.object(setup.shutil,'which',side_effect=lambda name:None if name=='niri' else '/bin/'+name), patch.object(setup.os,'geteuid',return_value=0), patch('adws_niri_install.installed_packages',return_value=set(packages)), patch.object(setup,'checked_run') as run, patch.object(niri,'checked_run',side_effect=StopBeforeBuild):
+            setup.install_packages(packages,system_upgrade=True)
+            with self.assertRaises(StopBeforeBuild):
+                niri.build_source(lambda _:True,setup.install_packages,'pacman')
+            self.assertEqual(run.call_count,1,'Niri source dependency check must not repeat the full upgrade')
+            self.assertIn('-Syu',run.call_args.args[0])
+
+    def test_managed_mode_without_approved_plan_fails_closed(self):
+        with patch.dict(setup.os.environ, {'ADWS_INSTALL_MANAGED':'1'},clear=True), patch('adws_install_workflow.approved_plan', return_value=None):
+            with self.assertRaisesRegex(RuntimeError, 'NEW_PLAN_REQUIRED'):
+                setup.approved_plan()
+
+    def test_source_consent_is_independent_of_other_builds(self):
+        with patch.object(setup, 'approved_plan', return_value=self.plan(build_fallback=True,niri_method='repository')):
+            self.assertTrue(setup.confirm(_tr('是否现在构建并安装这些组件？首次构建可能需要下载依赖。')))
+            self.assertFalse(setup.confirm(_tr('源码构建需要新版本 Rust。是否通过官方 rustup 安装／更新 stable 工具链？不会移除系统 Rust。')))

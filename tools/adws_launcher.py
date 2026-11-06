@@ -102,6 +102,28 @@ def install_launcher(program):
     raise RuntimeError(_tr('无法识别包管理器，请手动安装启动器，或选择 ADWS 开始菜单。'))
 
 
+def installation_plan(config_home):
+    config=Path(config_home)
+    existing=[p for p in (config/'adws/taskbar-layout.json',config/'waybar/modules.jsonc') if p.exists() or p.is_symlink()]
+    return {'policy':'preserve' if existing else 'initialize',
+            'existing':[str(p) for p in existing],
+            'description':'保留开始按钮已有启动器与自定义命令。' if existing else '首次配置使用 ADWS 开始菜单。'}
+
+
+def apply_install_plan():
+    from adws_install_workflow import approved_plan
+    reviewed=approved_plan()
+    if not reviewed or 'launcher_plan' not in reviewed:raise RuntimeError('NEW_PLAN_REQUIRED: launcher policy was not reviewed')
+    policy=reviewed['launcher_plan']['policy']
+    if policy=='preserve':return
+    if policy!='initialize':raise ValueError('Invalid launcher policy')
+    config=Path(reviewed['config_home'])
+    if (config/'adws/taskbar-layout.json').exists():raise RuntimeError('Launcher configuration appeared after review; keep it and generate a new plan')
+    command=native_menu_command()
+    configure(config/'waybar/modules.jsonc',command)
+    save_selection(command)
+
+
 def save_selection(command):
     from adws_layout import load_layout, save_layout
     layout = load_layout()
@@ -144,11 +166,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--select', action='store_true')
     parser.add_argument('--terminal', action='store_true')
+    parser.add_argument('--apply-install-plan',action='store_true')
     parser.add_argument('--save-selection')
     parser.add_argument('--apply', nargs=2, metavar=('PATH', 'COMMAND'))
     args = parser.parse_args()
     try:
-        if args.terminal:
+        if args.apply_install_plan:
+            apply_install_plan()
+        elif args.terminal:
             launch_terminal()
         elif args.save_selection:
             save_selection(args.save_selection)

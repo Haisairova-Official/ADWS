@@ -26,6 +26,9 @@ def main():
     if platform.machine() != 'x86_64' or platform.freedesktop_os_release().get('ID') != 'arch':
         parser.error('Build this package on Arch Linux x86_64')
     sys.path.insert(0, str(ROOT/'tools'))
+    from adws_install_package import assert_complete, packaging_additions
+    # Reject an incomplete source payload before expensive native compilation.
+    assert_complete(ROOT)
     from adws_setup import build_environment, choose_build_mirror, cargo_build_command
     build_env = build_environment()
     if not args.offline: build_env = choose_build_mirror(build_env)
@@ -46,6 +49,7 @@ def main():
         # Stage only Git-tracked source, including reviewed additions in the index.
         # Native binaries are injected explicitly below after their release builds.
         files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
+        files.extend(packaging_additions(ROOT))
         # Font fallback migration is required by the generated layout and topbar.
         # Include it explicitly even in a working checkout before git staging.
         files.extend(['tools/adws_runtime_dependencies.py','tools/adws_desktop_preferences.py','tools/adws_desktop_groups.py','tools/adws_desktop_groups_model.py','tools/adws_monitor_identity.py','tools/adws_display_profile.py'])
@@ -72,6 +76,7 @@ def main():
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source,destination)
             hashes[name] = hashlib.sha256(source.read_bytes()).hexdigest()
+        assert_complete(stage)
         folder=stage/'prebuilt';folder.mkdir()
         for name, source in [('libniri_taskbar.so', ROOT/'src/niri-taskbar/target/release/libniri_taskbar.so'), ('libadws_panel.so',ROOT/'src/panel-rows/libadws_panel.so')]:
             shutil.copy2(source,folder/name)
@@ -85,6 +90,7 @@ def main():
                   'source_tree_sha256':hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest()}
         (folder/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
         shutil.copy2(ROOT/'docs/arch-install.md',stage/'ARCH-INSTALL.md')
+        assert_complete(stage, require_prebuilt=True)
         args.output.parent.mkdir(parents=True,exist_ok=True)
         with zipfile.ZipFile(args.output,'w',zipfile.ZIP_DEFLATED) as archive:
             for file in sorted(stage.rglob('*')):

@@ -111,6 +111,58 @@ class UninstallTests(unittest.TestCase):
         self.assertTrue(self.lib.exists())
         self.assertEqual(command.readlink(), self.base / 'another-adws')
 
+    def test_unified_starts_remove_only_owned_desktop_and_taskbar(self):
+        from adws_install_startup import BEGIN, END
+        starts=[['env','XMODIFIERS=@im=fcitx','bash',str(self.root/'adws'),'desktop','-s'],
+                ['bash',str(self.root/'adws'),'taskbar','--start'],['adws','-s'],
+                ['mako'],['wl-paste','--type','text','--watch','cliphist','store'],['fcitx5'],
+                ['bash','/custom/adws','desktop','-s'],['bash','-c','adws -s && custom-action'],
+                ['env','PATH=/custom/bin','adws','-s']]
+        lines=['spawn-at-startup '+' '.join(json.dumps(arg) for arg in argv) for argv in starts]
+        self.niri.write_text('input {}\n'+BEGIN+'\n'+'\n'.join(lines)+'\n'+END+'\n')
+        self.run_answers(['y','n'])
+        after=self.niri.read_text()
+        for line in lines[:3]:self.assertNotIn(line,after)
+        for line in lines[3:]:self.assertIn(line,after)
+        self.assertIn('input {}',after)
+
+    def test_new_managed_rules_removed_but_edited_rules_preserved(self):
+        import hashlib
+        from adws_install_niri import BEGIN, END
+        rules='window-rule { match app-id="^adws-config$"; open-floating true; }\n'
+        digest=hashlib.sha256(rules.encode()).hexdigest()
+        include=self.niri.parent/('.adws-install-'+digest[:20]+'.kdl');include.write_text(rules)
+        block=BEGIN+'\ninclude '+json.dumps(include.name)+'\n'+END+'\n'
+        self.niri.write_text('input {}\n'+block)
+        removal.remove_autostart();self.assertEqual(self.niri.read_text(),'input {}\n')
+        self.assertTrue(include.exists(),'other user includes may share this file')
+        include.write_text(rules+'// user changed\n');self.niri.write_text(block)
+        removal.remove_autostart();self.assertEqual(self.niri.read_text(),block)
+        inline=BEGIN+'\n// content-sha256: '+digest+'\n'+rules+END+'\n'
+        self.niri.write_text('input {}\n'+inline)
+        removal.remove_autostart();self.assertEqual(self.niri.read_text(),'input {}\n')
+
+    def test_purge_retains_session_include_and_selected_terminal(self):
+        session=self.config/'adws/niri-session.kdl'
+        session.write_text('environment { XMODIFIERS "@im=fcitx"; }\n')
+        terminal=self.config/'adws/default-terminal.json';terminal.write_text('{"argv": ["foot"]}\n')
+        self.niri.write_text('include '+json.dumps(str(session))+'\ninput {}\n')
+        result,_,_=self.run_answers(['y','n'])
+        self.assertEqual(result,0)
+        self.assertTrue(session.exists(),'included Niri configuration must survive')
+        self.assertEqual(terminal.read_text(),'{"argv": ["foot"]}\n')
+        self.assertFalse((self.config/'adws/preferences').exists())
+
+    def test_purge_keeps_palette_and_nested_niri_include_resources(self):
+        palette=self.config/'adws/palette';palette.mkdir();(palette/'mako.conf').write_text('background-color=#242936\n')
+        sync=self.config/'adws/palette-sync.json';sync.write_text('{}')
+        displays=self.config/'adws/displays';displays.mkdir();(displays/'current.kdl').write_text('output "HDMI-A-1" {}\n')
+        wrapper=self.niri.parent/'outputs.kdl';wrapper.write_text('include "../adws/displays/current.kdl"\n')
+        self.niri.write_text('include "outputs.kdl"\n')
+        result,_,_=self.run_answers(['y','n']);self.assertEqual(result,0)
+        self.assertTrue((displays/'current.kdl').exists());self.assertTrue((palette/'mako.conf').exists());self.assertTrue(sync.exists())
+        self.assertFalse((self.config/'adws/preferences').exists())
+
     def test_uninstall_does_not_race_an_install_or_update(self):
         import adws_upgrade
         with adws_upgrade.update_lock(),patch('sys.stderr',new_callable=io.StringIO):

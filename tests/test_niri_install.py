@@ -15,6 +15,22 @@ def completed(stdout='',stderr='',code=0):
 
 
 class NiriInstallTests(unittest.TestCase):
+    def test_managed_existing_niri_defers_configuration_without_prompt(self):
+        with patch.dict(os.environ, {'ADWS_INSTALL_MANAGED':'1'}), patch.object(niri, 'login_report'), patch.object(niri.shutil, 'which', return_value='/usr/bin/niri'), patch.object(niri, 'check_binary', return_value='niri fixture'), patch.object(niri, 'initial_config') as initial:
+            confirm=Mock();install=Mock()
+            self.assertEqual(niri.ensure_niri(confirm,install),'/usr/bin/niri')
+            initial.assert_not_called();confirm.assert_not_called();install.assert_not_called()
+
+    def test_managed_missing_method_fails_instead_of_prompting(self):
+        with patch.dict(os.environ, {'ADWS_INSTALL_MANAGED':'1','ADWS_NIRI_METHOD':''}), patch.object(niri, 'login_report'), patch.object(niri.shutil, 'which', return_value=None), patch.object(niri, 'ask') as ask:
+            with self.assertRaises(RuntimeError): niri.ensure_niri(Mock(),Mock())
+            ask.assert_not_called()
+
+    def test_managed_repository_does_not_silently_build_from_source(self):
+        with patch.dict(os.environ, {'ADWS_INSTALL_MANAGED':'1','ADWS_NIRI_METHOD':'repository'}), patch.object(niri, 'login_report'), patch.object(niri.shutil, 'which', return_value=None), patch.object(niri, 'package_manager', return_value='pacman'), patch.object(niri, 'package_candidates',return_value={}), patch.object(niri, 'ask') as ask, patch.object(niri,'build_source') as build:
+            with self.assertRaises(RuntimeError):niri.ensure_niri(Mock(),Mock())
+            ask.assert_not_called();build.assert_not_called()
+
     def test_repo_candidates_use_only_configured_sources(self):
         with patch.object(niri,'query',return_value=completed('niri:\n  Installed: (none)\n  Candidate: 26.04-1\nmissing:\n  Candidate: (none)\n')) as query:
             self.assertEqual(niri.package_candidates('apt-get',['niri','missing']),{'niri':'26.04-1'})

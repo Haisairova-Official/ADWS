@@ -102,7 +102,13 @@ def dependency_errors():
     errors = []
     if sys.version_info < (3, 11):
         errors.append(_tr('需要 Python 3.11 或更新版本'))
-    for program in ('niri', 'systemctl', 'thunar'):
+    programs = ['niri', 'systemctl', 'thunar']
+    if os.environ.get('ADWS_INSTALL_MANAGED') == '1':
+        from adws_install_workflow import approved_plan
+        plan = approved_plan()
+        if plan:
+            programs[-1] = plan['applications']['file_manager']['argv'][0]
+    for program in programs:
         if not shutil.which(program):
             errors.append(''.join([_tr('缺少运行依赖：'), f'{program}']))
     errors.extend(waybar_capability_errors())

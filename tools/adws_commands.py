@@ -1,6 +1,7 @@
 """Install command symlinks into an existing PATH directory."""
 from adws_i18n import tr as _tr
 import os
+import hashlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -24,23 +25,47 @@ esac
 '''
 
 
-def persist_user_path():
-    """Do not rely on PATH inherited from the installer or an interactive shell."""
-    shell = Path(os.environ.get('SHELL') or pwd.getpwuid(os.getuid()).pw_shell).name
-    profiles = [Path.home() / '.profile']
-    if shell == 'zsh':
-        profiles.append(Path(os.environ.get('ZDOTDIR') or Path.home()) / '.zprofile')
-    elif shell == 'bash':
-        profiles.extend(p for p in [Path.home() / '.bash_profile', Path.home() / '.bash_login'] if p.exists())
+def path_profiles():
+    shell=Path(os.environ.get('SHELL') or pwd.getpwuid(os.getuid()).pw_shell).name
+    profiles=[Path.home()/'.profile']
+    if shell=='zsh':profiles.append(Path(os.environ.get('ZDOTDIR') or Path.home())/'.zprofile')
+    elif shell=='bash':profiles.extend(p for p in (Path.home()/'.bash_profile',Path.home()/'.bash_login') if p.exists())
+    return profiles
+
+
+def path_state(path):
+    path=Path(path)
+    return {'resolved':str(path.resolve()),'symlink':os.readlink(path) if path.is_symlink() else None,
+            'sha256':hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None,'exists':path.exists() or path.is_symlink()}
+
+
+def plan(root=ROOT):
+    root=Path(root);local=Path.home()/'.local/bin';data=read_inventory()
+    roots={root,Path(data.get('root') or root)}
+    roots.update(Path(p) for p in data.get('migration_roots',[]) if isinstance(p,str))
+    conflicts=[]
+    for name,relative in ENTRIES.items():
+        path=local/name
+        if (path.exists() or path.is_symlink()) and not owned(path,relative,roots):conflicts.append(str(path))
+    return {'schema_version':1,'root':str(root),'directory':str(local),'policy':'user-local',
+            'entries':{name:str(root/relative) for name,relative in ENTRIES.items()},
+            'profiles':{str(p):path_state(p) for p in path_profiles()},'conflicts':conflicts,
+            'activation':'Commands use ~/.local/bin; login profiles add PATH for next login; generated Niri commands use absolute paths.'}
+
+
+def persist_user_path(proposal=None):
+    """Persist only reviewed profile edits in managed installs; never source them."""
+    profiles=path_profiles()
+    if proposal:
+        if set(map(str,profiles))!=set(proposal['profiles']):raise RuntimeError('Login profiles changed after review')
+        for path in profiles:
+            if path_state(path)!=proposal['profiles'][str(path)]:raise RuntimeError('Login profile changed after review: '+str(path))
     for path in profiles:
-        text = path.read_text() if path.exists() else ''
-        if '# >>> ADWS user command PATH >>>' in text:
-            continue
-        if path.exists():
-            shutil.copy2(path, path.with_name(path.name + '.adws-path.bak'))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open('a') as stream:
-            stream.write('\n' + PATH_BLOCK)
+        text=path.read_text() if path.exists() else ''
+        if '# >>> ADWS user command PATH >>>' in text:continue
+        if path.exists():shutil.copy2(path,path.with_name(path.name+'.adws-path.bak'))
+        path.parent.mkdir(parents=True,exist_ok=True)
+        with path.open('a') as stream:stream.write('\n'+PATH_BLOCK)
 
 
 def owned(path, relative, roots):
@@ -58,7 +83,15 @@ def run(command, directory):
 def install():
     paths = {Path(p).absolute() for p in os.environ.get('PATH', '').split(os.pathsep) if p}
     local = Path.home() / '.local/bin'
-    if local in paths:
+    proposal=None
+    if os.environ.get('ADWS_INSTALL_MANAGED')=='1':
+        from adws_install_workflow import approved_plan
+        proposal=approved_plan().get('command_plan')
+        if not proposal or proposal.get('policy')!='user-local' or proposal.get('root')!=str(ROOT) or proposal.get('directory')!=str(local):
+            raise RuntimeError('NEW_PLAN_REQUIRED: command installation was not reviewed')
+        if proposal.get('conflicts'):raise RuntimeError('Command conflicts require review')
+        directory=local
+    elif local in paths:
         directory = local
     else:
         if SYSTEM_BIN not in paths or not SYSTEM_BIN.is_dir():
@@ -80,7 +113,7 @@ def install():
             raise RuntimeError(''.join([_tr('已有非 ADWS 命令，未覆盖：'), f'{path}']))
     directory.mkdir(parents=True, exist_ok=True)
     if directory == local:
-        persist_user_path()
+        persist_user_path(proposal)
     for name, relative in ENTRIES.items():
         source, path = ROOT / relative, directory / name
         source.chmod(source.stat().st_mode | 0o111)

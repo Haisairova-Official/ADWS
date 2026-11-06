@@ -14,6 +14,14 @@ from adws_i18n import tr as _tr
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class RecoveryError(RuntimeError):
+    """A failed recovery must not be reported as a completed file rollback."""
+    def __init__(self, directory, errors, *, configuration_restored):
+        self.configuration_restored=bool(configuration_restored)
+        self.backup=str(directory)
+        super().__init__(_tr('自动恢复未完成，备份保留在：%s') % directory + '\n'+'\n'.join(errors))
+
+
 def exists(path):
     return path.exists() or path.is_symlink()
 
@@ -71,7 +79,17 @@ def integration_paths(root):
     state = Path(os.environ.get('XDG_STATE_HOME') or home/'.local/state')
     data = Path(os.environ.get('XDG_DATA_HOME') or home/'.local/share')
     cache = Path(os.environ.get('XDG_CACHE_HOME') or home/'.cache')
-    paths = [folder/name for folder in (config, state, data, cache) for name in ('adws', 'mnws')]
+    paths = [folder/name for folder in (config, data, cache) for name in ('adws', 'mnws')]
+    # The current install journal, logs and verified bootstrap worktree also
+    # live under state/adws. Never snapshot that parent: restoring it deletes
+    # failure evidence and may replace the installer that is still executing.
+    # Only the install inventory is configuration-owned state. Other runtime
+    # logs, caches and unknown user files must survive a configuration rollback.
+    paths += [state/'adws/install-record.json']
+    # Legacy migration may rename the old directory to a backup. Keep its
+    # original contents restorable without taking ownership of state/adws.
+    paths += [state/'mnws']
+    paths += [data/'fonts/ADWS-NerdSymbols']
     paths += [config/'niri-desktop-layer', state/'niri-desktop-layer', root/'src/niri-desktop-layer/state']
     paths += [config/'waybar'/name for name in ('config-bottom.jsonc', 'style-bottom.css', 'modules.jsonc', 'colors.css', 'config.jsonc', 'style.css')]
     from adws_windows import config_path
@@ -96,7 +114,7 @@ def foreground(terminal, group):
         signal.signal(signal.SIGTTOU, previous)
 
 
-def run(command, env=None):
+def run(command, env=None, cwd=None, stdin=None, stdout=None, stderr=None, timeout=None):
     terminal = None
     child = None
     try:
@@ -110,13 +128,13 @@ def run(command, env=None):
     try:
         # Keep the controlling terminal for sudo/password prompts, but use a
         # separate process group so cancellation can also stop build helpers.
-        child = subprocess.Popen(command, env=env, process_group=0)
+        child = subprocess.Popen(command, env=env, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr, process_group=0)
         if terminal is not None:
             foreground(terminal, child.pid)
             # A fast child may have tried to read before the handoff (SIGTTIN).
             try: os.killpg(child.pid, signal.SIGCONT)
             except ProcessLookupError: pass
-        code = child.wait()
+        code = child.wait(timeout=timeout)
         if code: raise subprocess.CalledProcessError(code, command)
     except BaseException:
         if child is not None:
@@ -136,7 +154,28 @@ def run(command, env=None):
             finally: os.close(terminal)
 
 
-def install(root=ROOT):
+def checked_run(command, **kwargs):
+    """Keep managed installer mutating children in cancellable process groups."""
+    if os.environ.get('ADWS_INSTALL_MANAGED')=='1':
+        if set(kwargs)-{'env','cwd','check','stdin','stdout','stderr','timeout'} or kwargs.get('check') is not True:
+            raise ValueError('Managed install commands must use checked execution')
+        return run(command,**{key:value for key,value in kwargs.items() if key!='check'})
+    return subprocess.run(command,**kwargs)
+
+
+def component_environment(environ):
+    """Keep the component's actual desktop session, without installer authority.
+
+    The caller may be SSH or another terminal without the running desktop's
+    display socket. This environment was read from a same-user process before
+    stopping it; it is used in memory only and is never written to the journal.
+    """
+    return {key:value for key,value in environ.items()
+            if not key.startswith('ADWS_INSTALL_')
+            and key not in ('ADWS_NIRI_METHOD','ADWS_BUILD_MIRROR')}
+
+
+def install(root=ROOT, operation=None, extra_paths=(), restart_profiles=()):
     if sys.version_info < (3, 11):
         raise RuntimeError(_tr('需要 Python 3.11 或更新版本，请先通过系统的软件管理器升级 Python。'))
     from adws_runtime import pids, main as control
@@ -149,7 +188,12 @@ def install(root=ROOT):
         snapshot = None
         stopped = []
         running = {}
+        topbars = None
         try:
+            if restart_profiles:
+                from adws_install_bar_lifecycle import TopbarLifecycle
+                topbars = TopbarLifecycle(restart_profiles, directory/'topbar-logs')
+                topbars.capture()
             # Capture old launch commands without persisting session credentials.
             for component in ('desktop', 'taskbar'):
                 ids = pids(component)
@@ -165,32 +209,51 @@ def install(root=ROOT):
                 finally:
                     if not pids(component): stopped.append(component)
                 if code or component not in stopped: raise RuntimeError('Could not stop '+component)
-            paths = integration_paths(root)
+            if topbars is not None: topbars.stop()
+            paths = integration_paths(root) + list(extra_paths)
             entry_dirs = {Path('/usr/local/bin'), Path.home()/'.local/bin', Path.home()/'.local/lib/waybar'}
             snapshot = Snapshot(directory, paths, {p for p in paths if p.parent not in entry_dirs})
             print(_tr('安装前备份：%s') % directory, flush=True)
             env = dict(os.environ, ADWS_INSTALL_TRANSACTION=str(root))
-            run(['bash', str(root/'scripts/adws-install.sh')], env)
+            if operation is None:
+                run(['bash', str(root/'scripts/adws-install.sh')], env)
+            else:
+                operation(directory)
             for component in running:
-                run([str(root/'adws'), component, '--start'])
+                run([str(root/'adws'), component, '--start'],
+                    env=component_environment(running[component][1]))
                 if not pids(component): raise RuntimeError('Could not start '+component)
+            if topbars is not None: topbars.start_new()
             (directory/'complete').touch()
         except BaseException as original:
             # Newly started components must stop before restoring their files.
             if snapshot is not None:
                 try:
+                    if topbars is not None: topbars.stop_new()
                     for component in stopped:
                         if pids(component): control([component, '--stop'], quiet=True)
                         if pids(component): raise RuntimeError('Could not stop '+component+' before restoring files')
                     snapshot.restore()
-                except Exception as exc:
-                    raise RuntimeError(_tr('自动恢复未完成，备份保留在：%s') % directory + '\n' + str(exc)) from original
+                except BaseException as exc:
+                    raise RecoveryError(directory,[str(exc) or type(exc).__name__],configuration_restored=False) from original
                 print(_tr('安装未完成，已恢复原配置和组件文件。'), file=sys.stderr)
+            recovery_errors = []
             for component in stopped:
                 argv, env = running[component]
-                with (directory/('restore-'+component+'.log')).open('ab') as log:
-                    subprocess.Popen(argv, env=env, stdout=log, stderr=log, start_new_session=True)
+                try:
+                    with (directory/('restore-'+component+'.log')).open('ab') as log:
+                        subprocess.Popen(argv, env=component_environment(env), stdout=log, stderr=log, start_new_session=True)
+                except BaseException as error:
+                    recovery_errors.append(component+': '+str(error))
+            if topbars is not None:
+                try: topbars.restore_old()
+                except BaseException as error:
+                    recovery_errors.append('topbar: '+str(error))
+            if recovery_errors:
+                raise RecoveryError(directory,recovery_errors,configuration_restored=True) from original
             raise
+        finally:
+            if topbars is not None: topbars.close()
     return 0
 
 

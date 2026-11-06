@@ -61,9 +61,10 @@ def validate_build(binary):
 
 def run(command, cwd, log, timeout=1200):
     import shlex
+    from adws_install_transaction import checked_run
     log.write('\n$ '+shlex.join(map(str,command))+'\n');log.flush()
     env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
-    subprocess.run(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT,
+    checked_run(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT,
                    stdin=subprocess.DEVNULL, timeout=timeout, check=True)
 
 

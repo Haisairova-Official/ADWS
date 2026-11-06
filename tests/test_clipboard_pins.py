@@ -12,9 +12,9 @@ class ClipboardPinTests(unittest.TestCase):
     def test_binary_survives_wiped_history_and_copies_exactly(self):
         data=b'\x89PNG\r\n\x1a\n\x00binary'
         line=pins.store('42\t[[ binary data png ]]',data)
-        with patch.object(backend,'entries',return_value=[]),patch.object(backend,'run',return_value=b'') as run:
+        with patch.object(backend,'entries',return_value=[]),patch.object(backend,'copy_data') as copy:
             self.assertEqual(backend.list_records(),[line]);backend.copy_entry(line)
-            run.assert_called_once_with(['wl-copy'],input=data)
+            copy.assert_called_once_with(data)
         self.assertEqual(backend.preview_data(line),data)
         self.assertEqual(stat.S_IMODE(pins.root().stat().st_mode),0o700)
         self.assertEqual(stat.S_IMODE((pins.root()/pins.identity(line)/'content').stat().st_mode),0o600)

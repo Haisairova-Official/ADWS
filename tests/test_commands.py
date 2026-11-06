@@ -52,6 +52,25 @@ class CommandTests(unittest.TestCase):
                     commands.install()
                 run.assert_not_called()
 
+    def test_managed_install_with_clean_path_has_no_mid_install_question(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home=Path(temporary)
+            with patch.dict(os.environ,{'HOME':temporary,'PATH':'/usr/bin','SHELL':'/bin/bash','ADWS_INSTALL_MANAGED':'1'}), patch.object(commands,'read_inventory',return_value={}), patch.object(commands,'save_inventory'), patch.object(commands,'ask',side_effect=AssertionError('Unexpected prompt')):
+                proposal=commands.plan()
+                with patch('adws_install_workflow.approved_plan',return_value={'command_plan':proposal}):commands.install()
+            self.assertTrue((home/'.local/bin/adws').is_symlink())
+            self.assertIn('ADWS user command PATH',(home/'.profile').read_text())
+
+    def test_managed_install_rejects_profile_changed_after_review(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            profile=Path(temporary)/'.profile'
+            with patch.dict(os.environ,{'HOME':temporary,'PATH':'/usr/bin','SHELL':'/bin/bash','ADWS_INSTALL_MANAGED':'1'}), patch.object(commands,'read_inventory',return_value={}):
+                proposal=commands.plan();profile.write_text('personal edits\n')
+                with patch('adws_install_workflow.approved_plan',return_value={'command_plan':proposal}):
+                    with self.assertRaisesRegex(RuntimeError,'profile changed'):commands.install()
+            self.assertEqual(profile.read_text(),'personal edits\n')
+            self.assertFalse((Path(temporary)/'.local/bin/adws').exists())
+
     def test_sudo_when_required(self):
         with patch.object(commands.os, 'access', return_value=False), patch.object(commands.shutil, 'which', return_value='/usr/bin/sudo'), patch.object(commands.subprocess, 'run') as run:
             commands.run(['ln', '-s', '/source', '/usr/local/bin/adws'], Path('/usr/local/bin'))

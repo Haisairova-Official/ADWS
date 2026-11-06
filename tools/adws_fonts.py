@@ -1,4 +1,8 @@
-"""Optional user-local Nerd Fonts symbols, pinned to an official release."""
+"""Text glyph coverage and optional user-local Nerd Fonts symbols.
+
+Text dependencies add missing-glyph fallback fonts only. They never rewrite
+the user's primary font, Fontconfig rules, terminal configuration or CSS.
+"""
 import re
 import hashlib
 import os
@@ -15,6 +19,74 @@ URL = 'https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/NerdFont
 SHA256 = 'fdca3682534f6f65e1ccb2345b0362ccf67d9b8eca7c8025330946e93e2473bc'
 FONTS = ('SymbolsNerdFont-Regular.ttf', 'SymbolsNerdFontMono-Regular.ttf')
 LIMIT = 8 * 1024 * 1024
+TEXT_FONT_PACKAGES = {
+    'pacman': ['noto-fonts-cjk'],
+    'apt-get': ['fonts-noto-cjk'],
+    'dnf': ['google-noto-sans-cjk-vf-fonts'],
+}
+# Probe actual glyphs, including kana and Hangul: a Nerd Font family name or a
+# successful fc-match can still mean that every CJK character renders as tofu.
+# This is a baseline UI/filename check, not a claim to cover all of Unicode.
+TEXT_SAMPLES = {
+    'zh': '中文简体繁體桌面设置文件路径截图剪贴板输入法音频通知锁屏壁纸自动配色，。！？',
+    'ja': '日本語ひらがなカタカナ設定画像',
+    'ko': '한국어한글설정화면파일',
+}
+
+
+def probe_text_fonts(*, run=None, environ=None):
+    """Check the union of installed Fontconfig charsets without changing fonts.
+
+    Separate fonts may supply each script. Do not inspect only the first
+    matching family or assume the installer's locale describes all filenames.
+    """
+    run=run or subprocess.run
+    required={ord(char) for sample in TEXT_SAMPLES.values() for char in sample}
+    missing=set(required);error=None
+    try:
+        result=run(['fc-list','--format=%{charset}\\n'],capture_output=True,text=True,
+                   timeout=15,env=dict(os.environ if environ is None else environ))
+        if result.returncode:
+            raise ValueError('Fontconfig exited with status '+str(result.returncode))
+        if len(result.stdout)>32*1024*1024:raise ValueError('Fontconfig charset output is too large')
+        for token in result.stdout.split():
+            if not re.fullmatch(r'[0-9a-fA-F]+(?:-[0-9a-fA-F]+)?',token):
+                raise ValueError('Fontconfig returned an invalid charset')
+            start,_,end=token.partition('-');low=int(start,16);high=int(end or start,16)
+            if low>high or high>0x10ffff:raise ValueError('Fontconfig returned an invalid charset range')
+            missing.difference_update(char for char in tuple(missing) if low<=char<=high)
+    except (OSError,ValueError,subprocess.SubprocessError) as exc:
+        error=str(exc);missing=set(required)
+    result={'status':'unavailable' if error else 'missing' if missing else 'ready',
+            'missing':{language:''.join(dict.fromkeys(char for char in sample if ord(char) in missing))
+                       for language,sample in TEXT_SAMPLES.items()},
+            'checked_characters':len(required),'policy':'CJK baseline glyph coverage, independent of locale'}
+    if error:result['detail']=error
+    return result
+
+
+def text_font_plan(manager, *, probe=None):
+    if manager not in TEXT_FONT_PACKAGES:raise ValueError('Unsupported font package manager: '+str(manager))
+    coverage=(probe or probe_text_fonts)()
+    return {'coverage':coverage,'packages':[] if coverage['status']=='ready' else list(TEXT_FONT_PACKAGES[manager]),
+            'policy':'Preserve user font preferences; add fallback only when coverage is missing or unverified',
+            'acceptance':'Recheck Chinese, Japanese and Korean glyph coverage after package installation'}
+
+
+def require_text_fonts(*, probe=None):
+    coverage=(probe or probe_text_fonts)()
+    if coverage['status']!='ready':
+        missing='、'.join(language for language,chars in coverage['missing'].items() if chars)
+        detail=coverage.get('detail') or missing
+        raise RuntimeError('中日韩文字字体覆盖验证失败（'+detail+'）；请检查已审核的字体依赖，不能将本次安装计为完成。')
+    return coverage
+
+
+def ensure_text_fonts(install_packages, manager, *, probe=None):
+    """Legacy repair path; managed installations install reviewed packages first."""
+    proposal=text_font_plan(manager,probe=probe)
+    if proposal['packages']:install_packages(['fontconfig',*proposal['packages']])
+    return require_text_fonts(probe=probe)
 
 
 def _skip_css_token(text, index):

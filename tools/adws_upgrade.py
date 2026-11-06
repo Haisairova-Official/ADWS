@@ -20,6 +20,7 @@ import uuid
 import zipfile
 
 from adws_i18n import tr as _tr
+from adws_prebuilt import PrebuiltIntegrityError, verify_artifacts, inspect_compatibility as inspect_prebuilt_compatibility
 from adws_update import ROOT, REPOSITORY, github_urls, release_version, version_key
 
 LIBRARIES = ('libniri_taskbar.so', 'libadws_panel.so', 'libwaybar-space.so')
@@ -167,23 +168,31 @@ def prepare_libraries(root, prebuilt, log):
     has_menu = (root / 'src/adws-start-menu/Cargo.toml').is_file()
     has_runtime = (root / 'src/adws-runtime/Cargo.toml').is_file()
     if prebuilt:
-        manifest = json.loads((root / 'prebuilt/manifest.json').read_text())
-        if not isinstance(manifest, dict):
-            raise ValueError(_tr('更新包校验失败。'))
+        try:
+            manifest = verify_artifacts(root)
+        except PrebuiltIntegrityError as error:
+            raise ValueError(str(error)) from error
+        if manifest is None:
+            raise ValueError(_tr('更新包缺少预编译组件，当前版本未修改。'))
         if (manifest.get('os') != 'arch' or manifest.get('arch') != 'x86_64'
                 or version_key(manifest.get('version', '')) != installed_version(root)):
             raise ValueError(_tr('安装包版本与所选更新不一致。'))
         paths = {name: Path('prebuilt') / name for name in LIBRARIES}
-        verified = dict(paths)
         if has_runtime:
             runner = Path('prebuilt/adws-plugin-runner')
-            verified['adws-plugin-runner'] = runner
         if has_menu:
             menu = Path('prebuilt/adws-start-menu')
-            verified['adws-start-menu'] = menu
-        for name, path in verified.items():
-            if hashlib.sha256((root / path).read_bytes()).hexdigest() != manifest.get('sha256', {}).get(name):
-                raise ValueError(_tr('更新包校验失败。'))
+        compatibility = inspect_prebuilt_compatibility(root)
+        log.write(('\nPrebuilt compatibility: ' + json.dumps(compatibility, ensure_ascii=False) + '\n').encode())
+        log.flush()
+        if not compatibility['compatible']:
+            detail = '\n'.join((item.get('component') or 'system') + ': ' + item['detail']
+                               for item in compatibility.get('errors', []))
+            # The updater currently has no reviewed source-fallback choice. A
+            # previous installer build permission cannot authorize this release.
+            raise RuntimeError(_tr('预编译更新与当前运行库不兼容，当前安装保持不变。请补齐所列依赖或选择匹配的安装包；本次不会自动改为源码编译：\n') + detail)
+        if verify_artifacts(root) != manifest:
+            raise ValueError(_tr('更新包在兼容性检查期间发生变化，当前版本未修改。'))
     else:
         required = ('cargo', 'rustc', 'cc', 'make', 'pkg-config')
         missing = [name for name in required if not shutil.which(name)]
@@ -209,7 +218,7 @@ def prepare_libraries(root, prebuilt, log):
     for path in [*paths.values(), *([runner] if runner else []), *([menu] if menu else [])]:
         if not (root / path).is_file():
             raise ValueError(_tr('更新包缺少原生组件。'))
-        if shutil.which('ldd'):
+        if not prebuilt and shutil.which('ldd'):
             result = subprocess.run(['ldd', str(root / path)], capture_output=True, text=True, env={**os.environ, 'LC_ALL': 'C'})
             if result.returncode or 'not found' in result.stdout:
                 raise RuntimeError(_tr('更新组件与当前系统不兼容：%s') % (result.stdout + result.stderr))
@@ -241,6 +250,11 @@ def control(root, component, operation, log):
 
 def replace_installation(root, prepared, libraries, log):
     # Imported before the directory swap: the running updater keeps using its own code.
+    origins = {'prebuilt' if Path(path).parts and Path(path).parts[0] == 'prebuilt' else 'source'
+               for path in libraries.values()}
+    if len(origins) != 1:
+        raise ValueError(_tr('更新组件来源不一致，当前版本未修改。'))
+    build_method = origins.pop()
     from adws_runtime import pids
     # Updating a linked inventory must not replace the user's link itself.
     record = (state_dir() / 'install-record.json').resolve()
@@ -302,7 +316,7 @@ def replace_installation(root, prepared, libraries, log):
             atomic_copy(root / relative, libdir / name)
         data['root'] = str(root)
         data['installation_role'] = 'installed'
-        data['build_method'] = 'prebuilt' if (root / 'prebuilt/manifest.json').is_file() else 'source'
+        data['build_method'] = build_method
         data['template_hashes'] = new_templates
         data['libraries'] = {name: hashlib.sha256((libdir / name).read_bytes()).hexdigest() for name in LIBRARIES}
         data['last_update_backup'] = str(backup)

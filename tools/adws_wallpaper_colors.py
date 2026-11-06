@@ -101,8 +101,8 @@ def extract(image, settings=None):
     binary=shutil.which('matugen')
     if not binary:raise ValueError(_tr('请先安装 Matugen，再启用自动提取主体色。'))
     image=Path(image).expanduser().resolve(strict=True)
-    # Ignore user hooks/config: only ADWS's palette is changed, never wallpaper
-    # daemons, other terminal themes or arbitrary third-party reload scripts.
+    # Ignore arbitrary Matugen hooks. Additional targets are handled only by
+    # ADWS's separately reviewed, opt-in palette registration below.
     with tempfile.TemporaryDirectory(prefix='adws-palette-') as directory:
         config=Path(directory)/'config.toml';config.write_text('[config]\n[templates]\n')
         help_output=subprocess.run([binary,'image','--help'],capture_output=True,text=True,timeout=5).stdout
@@ -125,4 +125,9 @@ def extract(image, settings=None):
         shutil.copy2(target,backup)
     write(target,content)
     save_preferences(selected)
+    from adws_palette_sync import synchronize
+    report=synchronize(palette)
+    failed=[name for name,value in report.get('targets',{}).items() if value.get('status') in ('failed','manual')]
+    if failed:
+        raise RuntimeError(_tr('任务栏配色已更新，但以下已选择组件未完成刷新：')+', '.join(failed))
     return palette

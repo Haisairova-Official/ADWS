@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import sys
 import subprocess
@@ -100,10 +101,74 @@ def remove_autostart():
         launchers.add(str(Path(previous_root) / 'src/niri-desktop-layer/start-desktop-layer'))
     lines = {f'spawn-at-startup "{launcher}"' for launcher in launchers}
     cleaned = ''.join(line for line in cleaned.splitlines(keepends=True) if line.strip() not in lines)
+    cleaned = remove_managed_install_entries(cleaned, path)
     if cleaned != text:
         # Edit only the ADWS block; keep all other compositor configuration.
         from adws_atomic import replace_files
         replace_files({path: cleaned.encode()})
+
+
+def remove_managed_install_entries(text, config):
+    """Remove only verified ADWS starts/rules from the new installer blocks.
+
+    Clipboard, notifications, input-method starts and all user-edited commands
+    remain in place. Included files are retained: another user include may use
+    them, and removing the owned reference is enough to disable ADWS rules.
+    """
+    from adws_install_startup import BEGIN as START, END as STOP
+    from adws_install_niri import BLOCK
+    roots = {ROOT.resolve()}
+    previous = read_inventory().get('root')
+    if isinstance(previous, str): roots.add(Path(previous).resolve())
+
+    def own_command(argv):
+        if not argv: return False
+        if Path(argv[0]).name == 'env':
+            args = list(argv[1:])
+            if any(arg.startswith('PATH=') for arg in args): return False
+            while args and re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*=.*', args[0]): args.pop(0)
+            if args[:1] == ['--']: args.pop(0)
+            return own_command(args)
+        if Path(argv[0]).name in ('sh', 'bash', 'zsh'):
+            if len(argv) == 3 and argv[1] in ('-c', '-lc'):
+                try: return own_command(shlex.split(argv[2]))
+                except ValueError: return False
+            return own_command(argv[1:]) if len(argv)>1 and not argv[1].startswith('-') else False
+        executable = Path(argv[0])
+        if argv[0] != 'adws' and executable not in {root/'adws' for root in roots}: return False
+        # Do not swallow user-added shell operators, wrappers or extra actions.
+        args=argv[1:]
+        return (args in (['-s'], ['--start']) or
+                len(args)==2 and set(args) in ({'desktop','-s'},{'desktop','--start'},
+                                             {'taskbar','-s'},{'taskbar','--start'}))
+
+    pattern=re.compile(r'(?ms)^'+re.escape(START)+r'\n.*?^'+re.escape(STOP)+r'\n?')
+    def clean_starts(match):
+        retained=[]
+        for line in match.group().splitlines(keepends=True)[1:-1]:
+            try:
+                argv=shlex.split(line.strip(),comments=False)
+                command=(argv[1:] if argv[:1]==['spawn-at-startup'] else
+                         shlex.split(argv[1]) if len(argv)==2 and argv[0]=='spawn-sh-at-startup' else [])
+            except ValueError: command=[]
+            if not own_command(command): retained.append(line)
+        return START+'\n'+''.join(retained)+STOP+'\n' if retained else ''
+    text=pattern.sub(clean_starts,text)
+
+    def clean_rules(match):
+        lines=match.group().splitlines()[1:-1]
+        if len(lines)==1:
+            included=re.fullmatch(r'include "(\.adws-install-([0-9a-f]{20})\.kdl)"',lines[0])
+            if included:
+                path=Path(config).parent/included[1]
+                try:
+                    if hashlib.sha256(path.read_bytes()).hexdigest()[:20]==included[2]: return ''
+                except OSError: pass
+        elif lines and lines[0].startswith('// content-sha256: '):
+            payload='\n'.join(lines[1:])+'\n'
+            if hashlib.sha256(payload.encode()).hexdigest()==lines[0].removeprefix('// content-sha256: '):return ''
+        return match.group()
+    return BLOCK.sub(clean_rules,text)
 
 
 def remove_owned_files(keep_config):
@@ -147,6 +212,19 @@ def remove_owned_files(keep_config):
         # Shared Waybar modules/colors and the Niri configuration are never deleted.
         for path in (config_home() / 'adws', config_home() / 'niri-desktop-layer',
                      state_home() / 'niri-desktop-layer', ROOT / 'src/niri-desktop-layer/state'):
+            if path == config_home()/'adws':
+                # These files configure the continuing Niri session and default
+                # terminal, not an ADWS widget. Niri still includes the session
+                # file after uninstall, so deleting it prevents the next login.
+                shared=shared_system_config_names(path)
+                if shared is None:continue
+                if any((path/name).exists() or (path/name).is_symlink() for name in shared):
+                    if not path.is_symlink():
+                        for child in path.iterdir():
+                            if child.name in shared:continue
+                            if child.is_symlink() or child.is_file():child.unlink()
+                            elif child.is_dir():shutil.rmtree(child)
+                    continue
             if path.is_symlink():
                 path.unlink()
             elif path.is_dir():
@@ -159,6 +237,40 @@ def remove_owned_files(keep_config):
         data['libraries'] = {}
         data['uninstalled'] = True
         save_inventory(data)
+
+
+def shared_system_config_names(adws_config):
+    """Preserve external configuration dependencies even during widget purge.
+
+    Unknown/unreadable includes return None: retaining preferences is preferable
+    to making the user's next compositor login fail. Only read literal KDL
+    include paths; never evaluate shell/environment expressions from config.
+    """
+    shared={'niri-session.kdl','default-terminal.json','palette','palette-sync.json'}
+    from adws_windows import config_path
+    root=Path(os.path.abspath(adws_config));pending=[config_path()];visited=set()
+    while pending:
+        path=Path(os.path.abspath(Path(pending.pop()).expanduser()))
+        if path in visited:continue
+        if len(visited)>=64:return None
+        visited.add(path)
+        try:text=path.read_text()
+        except FileNotFoundError:
+            if len(visited)==1:continue
+            return None
+        except (OSError,UnicodeError):return None
+        for line in text.splitlines():
+            line=line.strip()
+            if not line.startswith('include '):continue
+            try:args=shlex.split(line,comments=False)
+            except ValueError:return None
+            if len(args)<2:return None
+            included=Path(args[1]).expanduser()
+            if not included.is_absolute():included=path.parent/included
+            included=Path(os.path.abspath(included))
+            if root in included.parents:shared.add(included.relative_to(root).parts[0])
+            pending.append(included)
+    return shared
 
 
 def uninstall():

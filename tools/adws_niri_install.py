@@ -12,6 +12,7 @@ import uuid
 
 from adws_i18n import tr
 from adws_launcher import ask
+from adws_install_transaction import checked_run
 
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = 'https://github.com/niri-wm/niri.git'
@@ -98,7 +99,7 @@ def privileged(command):
         sudo=shutil.which('sudo')
         if not sudo:raise RuntimeError(tr('缺少 sudo，请由管理员安装系统组件后重试。'))
         command=[sudo,*command]
-    subprocess.run(command,check=True)
+    checked_run(command,check=True)
 
 
 def prepare_rust(env,confirm):
@@ -121,7 +122,7 @@ def prepare_rust(env,confirm):
         raise RuntimeError(tr('已取消 Niri 源码构建。'))
     rustup=shutil.which('rustup',path=env['PATH'])
     if rustup:
-        subprocess.run([rustup,'toolchain','install','stable','--profile','minimal'],check=True,env=env)
+        checked_run([rustup,'toolchain','install','stable','--profile','minimal'],check=True,env=env)
     else:
         with tempfile.TemporaryDirectory(prefix='adws-rustup-') as folder:
             script=Path(folder)/'rustup-init.sh'
@@ -129,7 +130,7 @@ def prepare_rust(env,confirm):
                 content=response.read(1024*1024+1)
             if len(content)>1024*1024:raise RuntimeError('Rustup installer exceeds size limit')
             script.write_bytes(content)
-            subprocess.run(['sh',str(script),'-y','--no-modify-path','--profile','minimal','--default-toolchain','stable'],check=True,
+            checked_run(['sh',str(script),'-y','--no-modify-path','--profile','minimal','--default-toolchain','stable'],check=True,
                            env={**env,'RUSTUP_INIT_SKIP_PATH_CHECK':'yes'})
     env['RUSTUP_TOOLCHAIN']='stable'
     if not supported():raise RuntimeError(tr('Rust 工具链安装后仍无法使用，请检查终端输出。'))
@@ -194,14 +195,14 @@ def build_source(confirm,install_packages,manager):
     # Retain source and build artifacts for diagnosis; no mutable user checkout.
     workspace=Path(tempfile.mkdtemp(prefix='build-',dir=cache));tree=workspace/'source'
     print(tr('构建目录：%s') % workspace)
-    subprocess.run(['git','clone','--depth','1','--branch',TAG,'--',UPSTREAM,str(tree)],check=True)
+    checked_run(['git','clone','--depth','1','--branch',TAG,'--',UPSTREAM,str(tree)],check=True)
     actual=query(['git','-C',str(tree),'rev-parse','HEAD'])
     if actual.returncode or actual.stdout.strip()!=COMMIT:raise RuntimeError(tr('Niri 源码版本不匹配，已停止构建。'))
     from adws_setup import choose_build_mirror,cargo_build_command
     env=choose_build_mirror(dict(os.environ),tree)
     env=prepare_rust(env,confirm)
     env.update(CARGO_BUILD_JOBS='2',CARGO_TARGET_DIR=str(workspace/'target'))
-    subprocess.run(cargo_build_command(env,tree)+['-p','niri'],cwd=tree,env=env,check=True)
+    checked_run(cargo_build_command(env,tree)+['-p','niri'],cwd=tree,env=env,check=True)
     binary=workspace/'target/release/niri';check_binary(binary)
     if shutil.which('niri'):raise RuntimeError(tr('构建期间检测到已安装 Niri，保留现有版本。'))
     from adws_login_manager import detect
@@ -308,13 +309,14 @@ def session_report(binary,confirm=None):
 
 
 def ensure_niri(confirm,install_packages):
+    managed = os.environ.get('ADWS_INSTALL_MANAGED') == '1'
     login_report()
     binary=shutil.which('niri')
     if binary:
         print(tr('沿用已安装的 Niri：%s') % check_binary(binary))
         from adws_windows import config_path
         path=config_path()
-        if not (path.exists() or path.is_symlink()):
+        if not managed and not (path.exists() or path.is_symlink()):
             from adws_launcher import terminal_argv
             try:terminal=terminal_argv()
             except RuntimeError:
@@ -323,7 +325,9 @@ def ensure_niri(confirm,install_packages):
                 terminal=session_dependencies(manager,confirm,install_packages)
             initial_config(binary,terminal,confirm)
         return binary
-    if not confirm(tr('未检测到 Niri。是否安装 Niri 及其独立桌面会话？')):
+    if managed and os.environ.get('ADWS_NIRI_METHOD') not in ('repository', 'source'):
+        raise RuntimeError(tr('安装计划未指定 Niri 安装方式，请重新预览并确认安装计划。'))
+    if not managed and not confirm(tr('未检测到 Niri。是否安装 Niri 及其独立桌面会话？')):
         raise RuntimeError(tr('已取消 Niri 安装；安装 Niri 后可重新运行 install.sh。'))
     manager=package_manager()
     if not manager:raise RuntimeError(tr('此系统暂不支持自动安装 Niri，请手动安装后重试。'))
@@ -331,9 +335,11 @@ def ensure_niri(confirm,install_packages):
     repository=suitable_package(version)
     if repository:print(tr('系统源可用 Niri：%s') % version)
     else:print(tr('系统源未提供已验证版本的 Niri，将提供官方固定版本源码构建。'))
+    if managed and os.environ['ADWS_NIRI_METHOD'] == 'repository' and not repository:
+        raise RuntimeError(tr('已确认的系统源 Niri 版本不再可用，未改用源码构建；请重新生成安装计划。'))
     while True:
         prompt=tr('选择 Niri 安装方式：1 系统软件源，2 官方源码构建，0 取消。（默认 1）') if repository else tr('选择 Niri 安装方式：2 官方源码构建，0 取消。（默认 0）')
-        choice=ask(prompt).strip() or ('1' if repository else '0')
+        choice = ('1' if os.environ['ADWS_NIRI_METHOD'] == 'repository' else '2') if managed else (ask(prompt).strip() or ('1' if repository else '0'))
         if choice=='0':raise RuntimeError(tr('已取消 Niri 安装。'))
         if choice=='1' and repository:
             install_packages(programs=['niri']);binary=shutil.which('niri')
@@ -343,7 +349,10 @@ def ensure_niri(confirm,install_packages):
         print(tr('请输入列出的选项。'))
     check_binary(binary)
     terminal=session_dependencies(manager,confirm,install_packages)
-    initial_config(binary,terminal,confirm)
+    if not managed:
+        initial_config(binary,terminal,confirm)
+    # Managed installation creates a complete validated configuration after all
+    # selected applications are installed; avoid a rules-only/minimal config here.
     # Subsequent helpers inherit the standard source-install binary location.
     session_report(binary,confirm)
     return binary

@@ -6,15 +6,33 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development: **1.36-D** · 构建 / Build: **1.36.04** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.37** · 构建 / Build: **1.37.00** · [更新记录 / Changelog](CHANGELOG.md)
 
-版本规则：内部构建 `1.36.00` 对外显示 `1.36`；`1.36.01` 显示 `1.36-A`，`1.36.02` 显示 `1.36-B`。开发代号仅保留在构建元数据的 `codename` 字段。
+版本规则：内部构建 `1.37.00` 对外显示 `1.37`；`1.37.01` 显示 `1.37-A`，`1.37.02` 显示 `1.37-B`。开发代号仅保留在构建元数据的 `codename` 字段。
 
 [中文](#中文) · [English](#english)
 
 开发中：系统设置的“输入与快捷键 → 快捷键”新增 VMware 虚拟机模式，可开关焦点自动切换、修改切换／恢复键。切换使用系统通知，恢复键标识仅在虚拟机模式显示。
 
 In development: VMware mode in Settings → Input & shortcuts → Shortcuts supports focus switching and a configurable recovery shortcut. Mode changes use system notifications; the recovery badge appears only in VM mode.
+
+## 1.37：统一安装与迁移
+
+[1.37 更新说明](docs/release-1.37.md) · [安装与交付纲领、优先级及验收进度](docs/installer-roadmap.md) 是安装器改进依据。新版入口先展示变更计划，区分全新安装、已有 Niri 集成和旧机迁移：
+
+```sh
+./install.sh --mode fresh --plan
+./install.sh --mode integrate
+./install.sh --mode migrate --from-home /path/to/old/home
+./install.sh --resume
+./install.sh --verify
+```
+
+`--plan` 只读；没有匹配预编译组件时，需要明确同意源码构建。缺少默认应用时会在计划中列出拟安装的应用，安装后重新验证桌面入口，再写入默认关联。迁移清单覆盖主题、插件、字体、光标、头像及个人设置；Shell、别名和文件关联等须逐文件审核，不会执行迁入脚本或复制旧机器显示器／GPU 参数。
+
+计划、日志、阶段进度与备份索引保存在 `${XDG_STATE_HOME:-~/.local/state}/adws/installer/`。续装复查软件包并重跑未完成或已回滚的配置步骤；包安装不会随配置回滚而卸载。没有实际通过功能验收时只报告“待验收”，不显示安装成功。截图测试需显式执行 `--verify --exercise screenshot`；窗口预览、剪贴板和启动应用须在实际操作后通过 `--verify --confirm preview --confirm clipboard --confirm launch` 确认。
+
+配色同步、输入法会话配置、个人环境逐项审核和可校验下载入口已加入开发版本，详情见 [安装说明](docs/installation.md)。已在干净 Arch 用户空间安装依赖、构建原生组件，并用官方 Niri 运行嵌套窗口及截图；这些证据不等于干净 Arch 实机验收。完整生命周期、登录／启动主题和物理硬件验证进度见纲领与 [平台支持等级](docs/platform-support.md)，不会将尚未验证的平台宣称为完整支持。
 
 ## 开发中：桌面小组件
 

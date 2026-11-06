@@ -7,6 +7,7 @@ import shutil
 import selectors
 import subprocess
 import sys
+import tempfile
 import time
 from adws_i18n import tr
 import adws_clipboard_pins as pins
@@ -20,7 +21,21 @@ def entries():
 
 def copy_entry(line):
     data=pins.read(line) if pins.identity(line) else run(['cliphist','decode'],input=(line+'\n').encode())
-    run(['wl-copy'],input=data)
+    copy_data(data)
+
+def copy_data(data):
+    # wl-copy forks a clipboard owner which keeps inherited descriptors open.
+    # Waiting for captured pipe EOF would turn a successful copy into a timeout.
+    # A private regular file preserves failure diagnostics without waiting for
+    # the clipboard owner's lifetime, and never consumes a pipe reader thread.
+    with tempfile.TemporaryFile() as diagnostic:
+        try:
+            subprocess.run(['wl-copy'],input=data,stdout=subprocess.DEVNULL,
+                           stderr=diagnostic,check=True,timeout=8)
+        except (subprocess.CalledProcessError,subprocess.TimeoutExpired) as error:
+            diagnostic.seek(0)
+            error.stderr=diagnostic.read(65536)
+            raise
 
 def list_records():
     fixed=pins.records();sources={item['source'] for item in fixed}

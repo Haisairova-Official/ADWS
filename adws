@@ -28,6 +28,7 @@ esac
 # Help must not run component-changing commands (for example install -h).
 if [[ "${2:-}" == "-h" || "${2:-}" == "--help" || "${2:-}" == "-?" ]]; then
     case "${1:-}" in
+        install) exec bash "$ROOT/install.sh" --help ;;
         check) shift; exec python3 "$ROOT/tools/adws_health.py" "$@" ;;
         sidebar) shift; exec python3 "$ROOT/tools/adws_sidebar.py" "$@" ;;
         niri-compat) exec python3 "$ROOT/tools/adws_niri_compat.py" --help ;;
@@ -92,7 +93,8 @@ case "${1:-help}" in
         esac
         ;;
     install)
-        exec bash "$ROOT/scripts/adws-install.sh"
+        shift
+        exec bash "$ROOT/scripts/adws-install.sh" "$@"
         ;;
     start-menu)
         shift

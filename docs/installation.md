@@ -1,63 +1,113 @@
-# 安装详情 / Installation details
+# 安装、迁移与验收
 
-### 构建与安装
+本页描述开发中的统一安装入口；已发布的旧安装包可能没有这些选项。完整要求与未完成项见 [安装纲领](installer-roadmap.md)，验证范围见 [平台支持等级](platform-support.md)。
 
-1.30 稳定版发布后，可从 `v1.30` 标签安装源码版。安装程序会询问是否补齐缺失依赖，增量构建三个原生组件，备份文件并停止旧组件后完成安装；后续失败时尝试恢复原文件和原先运行的组件。系统包管理器已经安装的软件包不在恢复范围内。
+## 选择安装方式
 
-```sh
-git clone --branch v1.30 https://github.com/Haisairova-Official/ADWS.git ADWS
-cd ADWS
-./install.sh
-adws -s
-```
-
-Arch Linux x86_64 用户可使用 `ADWS1.30_for_arch.zip`，解压到固定目录后同样运行 `./install.sh`。预构建包会校验并安装原生组件，无需现场编译 Rust/C；运行依赖仍需要安装。
-
-For the stable source release, use the `v1.30` tag and run `./install.sh`. The installer offers missing dependencies, incrementally builds native components, backs up integration files and stops old components before replacing files. Later failures attempt to restore files and previously running components; packages already installed through the system package manager are not rolled back. Arch Linux x86_64 users can use the prebuilt ZIP with the same installer.
-
-仓库根目录的 `./install.sh` 与 `./adws install` 使用相同安装流程。
-
-`adws install` 会先检查运行依赖；缺失时询问是否补齐，拒绝或失败时停止。源码版始终检查并增量构建原生组件，不会仅凭旧动态库存在就跳过构建。
-预检通过后，将启动器链接到 `~/.local/bin`，向 `$XDG_CONFIG_HOME/waybar`（默认 `~/.config/waybar`）复制缺失的默认配置。
-已有配置文件和有效符号链接均保留，不导入或覆盖源码中的默认配置；遇到失效链接会停止并提示修复。
-安装会创建缺失的桌面目录，优先使用桌面配置或 XDG 桌面目录，否则使用 `~/Desktop`。
-如果使用已有共享配置，请确保它定义了 `custom/applauncher`、`niri/workspaces` 和 `clock`。
-安装后应保留仓库目录（命令入口仍链接到源码），并把 `~/.local/bin` 加入 `PATH`。
-`adws build-taskbar` 默认允许下载依赖，并原子替换编译后的动态库；新模块在下次启动任务栏时加载。
-`adws check` 检查依赖、配置引用、启用的动态库与桌面目录，检查失败返回非零状态。
-`adws layout apply` 在写入前验证配置；任务栏启动后立即退出时会返回失败。
-后台任务栏日志保存在 `$XDG_STATE_HOME/adws/taskbar.log`（默认 `~/.local/state/adws/taskbar.log`）。
-
-将 [config/adws-windows.kdl](../config/adws-windows.kdl) 中的窗口规则加入 Niri 配置，使设置窗口浮动。
-用 `niri validate` 检查配置。启动桌面图标层：
+解压可信发布包或将源码放在准备长期保留的目录；目录名称和中文／空格路径不需要固定为 ADWS。以目标桌面用户运行安装器，软件包等系统操作才按需提权。命令入口仍链接到安装目录，安装后不要直接删除该目录。
 
 ```sh
-adws desktop --start  # 或 adws desktop -s
-./adws autostart on
+./install.sh --mode fresh --plan
+./install.sh --mode fresh
+./install.sh --mode integrate
+./install.sh --mode migrate --from-home /挂载位置/home/原用户
 ```
 
-第二条命令开启桌面图标层登录自启；任务栏自启需加入你自己的会话启动配置。
+- `fresh`：为新 Niri 环境创建默认配置、选定默认应用、计划会话启动。已有文件仍保留并检查冲突。
+- `integrate`：保留现有 Niri 快捷键、显示与启动归属，只追加 ADWS 管理部分。
+- `migrate`：从只读来源迁移个人环境；不照搬显示器、显卡、登录环境及会话启动项。
 
+`--plan` 只读，不安装软件、不改配置，也不启动桌面组件。计划中的 `blocking` 必须先处理；计划生成成功不表示安装已经可执行。`./adws install` 可使用相同选项。查看全部参数：`./install.sh --help`。
 
-### Build and install
+Arch x86_64 优先使用包内通过校验的原生组件。没有匹配产物时，在集中选项中同意源码构建，或显式提供 `--build-fallback`。损坏的预编译文件会停止安装，不会悄悄绕过校验。
 
-This is a source integration project. The installer offers to install missing dependencies and build missing components after confirmation, with apt, pacman and dnf support.
-Back up your Waybar configuration, install the dependencies above, then run the build and installation commands in the [Chinese section](#构建与安装) from the repository root.
-For an existing installation, stop the bottom Waybar before replacing its loaded shared libraries.
+## 集中选择与变更清单
 
-Run `./install.sh` from the repository root, or use the equivalent `./adws install`.
+执行前集中选择默认终端、浏览器、文件管理器、文本编辑器、自启动、构建来源及可选配色同步。已有应用必须有可运行桌面入口；后台终端服务和隐藏的辅助入口不作为默认应用候选；缺少应用时先列出拟安装包，安装后再次检查再写默认关联。
 
-`adws install` checks dependencies and libraries, offers to repair missing items, and stops if declined or unsuccessful.
-It links launchers into `~/.local/bin` and copies missing defaults into `$XDG_CONFIG_HOME/waybar` (default: `~/.config/waybar`).
-Existing files and valid symlinks are preserved; broken configuration symlinks cause installation to stop.
-The installer initializes the configured/XDG desktop directory, falling back to `~/Desktop`.
-If keeping existing shared configuration, make sure it defines `custom/applauncher`, `niri/workspaces` and `clock`.
-Keep the checkout after installation (launchers still link to the source) and add `~/.local/bin` to your `PATH`.
-`adws build-taskbar` permits dependency downloads and replaces the built library atomically; restart the taskbar to load it.
-`adws check` validates dependencies, configuration references, enabled libraries and the desktop directory, returning nonzero on failure.
-Layout application validates before writing. Early taskbar exit reports failure and retains output in `$XDG_STATE_HOME/adws/taskbar.log` (default: `~/.local/state/adws/taskbar.log`).
+共用功能清单维护任务栏、窗口预览、截图、剪贴板、输入法、音频、亮度、通知、锁屏、壁纸和配色的依赖、配置、服务及验收要求。保留已有输入法、通知及音频后端；Niri、XDG 自启动、用户服务有重复或无法解析的归属时列为冲突。
 
-Add the rules in [config/adws-windows.kdl](../config/adws-windows.kdl) to your Niri configuration to make settings windows float, then check with `niri validate`.
-Start the desktop icon layer with `adws desktop --start` (or `adws desktop -s`).
-Use `./adws autostart on` to enable desktop-icon autostart; add taskbar startup to your own session configuration separately.
+镜像选择先检查现有 Cargo/Rustup 配置，仅中文环境且尚未配置时提供国内镜像选项；不通过 IP 推断地区，不叠加或替换用户软件源。全新安装与实际可用的官方 Niri／分支版能力对应，每次写入后执行当前二进制的配置校验。首次默认快捷键参考本机操作习惯，见 [默认快捷键清单](installer-keybindings.md)；已有配置的个人键位保留。
 
+输入法前端环境仅进入 Niri 会话。首次中文环境可创建 Fcitx 拼音分组；保留已有输入法设置，不全局强制 `GTK_IM_MODULE`。用户音频服务只配置下次登录启用，不在安装中切换正在工作的音频后端。
+
+## Arch 的完整升级与依赖安装
+
+旧安装介质的仓库数据库可能指向镜像上已撤下的包。Arch 全新安装的集中选项会询问是否完整升级系统并补齐依赖；已有环境默认保留，明确选择后才升级。也可使用：
+
+```sh
+./install.sh --mode fresh --system-upgrade --plan
+./install.sh --mode fresh --system-upgrade
+./install.sh --mode integrate --no-system-upgrade
+```
+
+完整升级预览使用用户配置的仓库和镜像，把数据库下载到私有临时目录，不刷新系统数据库或安装包。预览列出将升级／新增的版本与下载量；无法在只读条件下确认的自定义签名或传输策略会明确标注，不冒充已验证。
+
+真正执行仍由系统 Pacman 进行完整 `-Syu`，最终新解析的软件包列表需要确认。不会把临时数据库复制到系统目录，也不会单独 `-Sy` 后继续局部安装。系统升级与 ADWS 配置回滚分开记录，已经升级的系统包不会被配置回滚降级。内核等组件是否需要重启以实际包事务为准。[Pacman 官方手册](https://man.archlinux.org/man/pacman.8.en)
+
+## 个人环境迁移
+
+早期 MNWS 配置先进入独立迁移计划，确认后在创建新会话配置前导入，保留钉选和自定义启动器。两个品牌目录并存、旧插件／运行状态、符号链接及需要改写旧命令的情况会明确列出来源和目标并阻止安装，需单独解决；不会把仍在使用的配置悄悄挪成备份。
+
+清单覆盖 Shell、别名、主题、插件、字体、光标、头像、昵称和默认应用。Shell、别名及文件关联须逐文件选择导入／覆盖／保留，可查看差异；不会执行导入的 Shell 文件。来源和目标可有独立 XDG 配置／数据目录。
+
+```sh
+./install.sh --mode migrate --from-home /mnt/old/home/user --plan
+./install.sh --mode migrate --from-home /mnt/old/home/user \
+  --migration-categories themes fonts cursors avatar
+```
+
+现有默认关联只迁移目标机确实安装的应用。显示昵称默认保留，只有明确提供 `--nickname` 才计划修改当前账户显示名，失败时单独恢复。目录穿越、符号链接来源、不明文件冲突和源文件在审核后变化都会阻止相关写入。
+
+## 配色同步
+
+明确选择目标后注册配置片段。保留原文字字体、快捷键等非配色设置，冲突列入计划；不会把任意用户配置当成默认文件覆盖。
+
+```sh
+./install.sh --mode integrate --palette-targets kitty mako
+./install.sh --mode integrate --palette-targets icons --palette-icon-base Adwaita
+./install.sh --mode integrate --palette-targets foot --foot-shell bash
+```
+
+选择终端／通知后，后续 ADWS 壁纸取色会更新注册的片段并请求目标程序刷新。图标方案只绘制 ADWS 默认图标，其他应用继承所选现有主题。Foot 选择的 Shell 使用自身终端内监听；已有 Shell 需首次加载一次，新 Shell 自动启用。没有激活监听则明确报告仅下次启动生效，不能计为完整实时刷新。迁移和配色注册同时修改同一文件时需先完成迁移，再对导入后的文件启用同步。
+
+## 可选登录与启动外观
+
+默认保留当前登录管理器和引导设置。`--login-theme` 可选择已经安装的 SDDM 主题，`--boot-theme` 可选择满足检测条件的 Plymouth 主题；具体变更在总计划中展示。不会切换登录管理器或默认引导项。
+
+UKI、签名／静态启动图、多个生成器和无法解析的 preset 会阻止自动重建，不凭猜测修改。系统主题单独备份配置及原引导镜像，下次登录／重启后才能验收；详见 [可选登录与启动主题](installer-optional-boot-themes.md)。
+
+## 失败续装与结果
+
+```sh
+./install.sh --resume
+./install.sh --verify
+./install.sh --verify --exercise screenshot
+./install.sh --verify --confirm preview --confirm clipboard --confirm launch
+```
+
+进度、计划、完整输出和验收结果位于 `${XDG_STATE_HOME:-~/.local/state}/adws/installer/`；事务备份位于同级 `adws-install-backups/`，具体位置也保存在进度记录。每次执行另有 `result.md`／`result.json` 汇总完成、失败、回滚、跳过和待验收项。
+
+续装重新检查包数据库、源代码、目标用户与文件收据。失败时恢复用户配置与组件文件，已安装的系统软件包另行保留。用户配置和组件安装阶段收到普通终止信号或取消，会先清理当前安装子进程再回滚；可选引导镜像重建的中断恢复应另查系统主题备份记录，尚不作为实测通过项。配置提交后先持久保存收据，再进行可中断的会话验收。已完成部署的计划只重新验收，不重放旧配置；用户后来编辑的文件会保留并要求重新预览。
+
+退出码 `0` 表示所选验收通过，`1` 表示失败，`2` 表示尚有待会话／用户操作验收项，`130` 表示取消。缺少真实 Niri 会话不能算完成；有任务栏进程也不能证明窗口预览可用。截图检查会生成并验证临时 PNG；预览、复制粘贴和应用启动须实际操作后确认，不自动模拟通过。
+
+## 下载引导入口
+
+仓库中的 `scripts/adws-bootstrap.sh` 调用统一引导器；`scripts/package-bootstrap.py` 可构建独立的 `adws-bootstrap.pyz` 及其 SHA-256。独立入口仍需 Python 3.11+。引导器支持环境检查、发布包下载进度、校验、有限重试、ETag 约束的断点续传，以及已校验下载的复用，然后进入安装计划。
+
+独立引导产物目前只在验证目录构建，尚未发布；不要把不存在的发行下载链接提供给用户。旧发布包缺少新版安装模块时会明确拒绝接入，不宣称旧包也支持统一流程。
+
+## 验证边界
+
+[干净 Arch 验证记录](installer-arch-validation.md) 单独记录容器依赖、官方 Niri 校验和嵌套图形证据。容器、嵌套图形、虚拟机与物理机分别标记，不互相替代。完整支持必须有对应发布产物的干净 Arch 实机证据；当前开发版尚未获得这个结论。
+
+卸载保留已经修改的系统设置，只按安装归属删除 ADWS 自身文件。清理个人配置前查看提示及备份，不会顺带卸载其他桌面组件或恢复整台机器的软件包状态。
+
+## 文字字体与图标字体
+
+Nerd Fonts 符号字体用于栏上的图标，不能代替中文、日文或韩文字体。安装计划另行检查 Fontconfig 的实际字形覆盖；包括英文环境，避免中文路径显示方框。覆盖不足或无法确认时，依赖清单会加入 Arch 的 `noto-fonts-cjk`、Debian/Ubuntu 的 `fonts-noto-cjk` 或 Fedora 的 `google-noto-sans-cjk-vf-fonts`，安装后再次验证。
+
+已有字体组合可以覆盖时，不额外安装；不修改用户的主文字字体、终端字体或 CSS。检查只证明基准文字覆盖，不声称覆盖全部 Unicode。缺字会列入验收失败，不能仅凭 `fc-match` 返回一个字体名就判定通过。
+
+输入法与字体分开处理：已有输入法配置保留；新安装的中文拼音方案不代表日文、韩文或繁体中文输入方案已完成适配。
