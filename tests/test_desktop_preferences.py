@@ -22,6 +22,19 @@ class PreferencesTests(unittest.TestCase):
             self.assertIs(preferences.choose([first,second],monitor),second)
             self.assertEqual(preferences.load()['label'],'Second display')
 
+    def test_widget_visibility_is_persistent_and_independent(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'XDG_CONFIG_HOME':folder}):
+            self.assertTrue(preferences.widgets_visible())
+            preferences.save('screen','DP-2','My display')
+            preferences.save_widgets_visibility(False)
+            self.assertFalse(preferences.widgets_visible())
+            self.assertEqual(preferences.load()['default_monitor'],'screen')
+            preferences.save('other')
+            self.assertFalse(preferences.widgets_visible())
+            preferences.save_widgets_visibility(True)
+            self.assertTrue(preferences.widgets_visible())
+            self.assertEqual(preferences.load()['default_monitor'],'other')
+
     def test_bad_config_falls_back_and_other_fields_survive(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'XDG_CONFIG_HOME':folder}):
             preferences.path().parent.mkdir()

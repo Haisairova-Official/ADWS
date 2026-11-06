@@ -2,6 +2,7 @@
 from gi.repository import Gtk, Gdk, GLib
 from adws_i18n import tr
 import adws_desktop_widgets_model as model
+import adws_desktop_preferences as preferences
 
 
 class DesktopWidgetsSettings(Gtk.Box):
@@ -11,6 +12,13 @@ class DesktopWidgetsSettings(Gtk.Box):
         self.parent=parent;self.health_source=0;self.health_labels={};self.closed=False
         description=Gtk.Label(label=tr('桌面组件与任务栏组件独立配置；一个模组包可同时提供两类组件。拖动桌面组件标题移动，右下角调整大小，组件菜单中可锁定。'),xalign=0,wrap=True)
         self.pack_start(description,False,False,0)
+        visibility=Gtk.Box(spacing=12)
+        visibility.pack_start(Gtk.Label(label=tr('显示桌面小组件'),xalign=0),True,True,0)
+        self.visibility_loading=False
+        self.visibility_switch=Gtk.Switch();self.visibility_switch.set_halign(Gtk.Align.END);self.visibility_switch.set_valign(Gtk.Align.CENTER)
+        self.visibility_switch.set_active(preferences.widgets_visible())
+        self.visibility_switch.connect('notify::active',self.visibility_changed)
+        visibility.pack_end(self.visibility_switch,False,False,0);self.pack_start(visibility,False,False,0)
         toolbar=Gtk.Box(spacing=10);self.pack_start(toolbar,False,False,0)
         self.choice=Gtk.ComboBoxText();toolbar.pack_start(self.choice,True,True,0)
         add=Gtk.Button(label=tr('添加到桌面'));add.connect('clicked',self.add);toolbar.pack_start(add,False,False,0)
@@ -19,6 +27,16 @@ class DesktopWidgetsSettings(Gtk.Box):
         self.rows=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=12);self.pack_start(self.rows,False,False,0)
         self.connect('map',self.map_page);self.connect('unmap',self.unmap_page);self.connect('destroy',self.destroy_page)
         self.render()
+
+    def visibility_changed(self, control, *_):
+        if self.visibility_loading:return
+        try:preferences.save_widgets_visibility(control.get_active())
+        except OSError as error:self.error(error);self.sync_visibility()
+
+    def sync_visibility(self):
+        self.visibility_loading=True
+        self.visibility_switch.set_active(preferences.widgets_visible())
+        self.visibility_loading=False
 
     def read(self):
         self.data=model.load();self.available=model.catalog()
@@ -170,6 +188,7 @@ class DesktopWidgetsSettings(Gtk.Box):
         except (OSError,ValueError,StopIteration) as error:self.error(error)
 
     def update_health(self):
+        self.sync_visibility()
         from adws_plugin_watchdog import health
         for identity,label in self.health_labels.items():
             record=health(identity)

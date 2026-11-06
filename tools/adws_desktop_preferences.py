@@ -24,6 +24,20 @@ def save(monitor, connector='', label=''):
         raise ValueError('Invalid default monitor')
     value = load()
     value.update(default_monitor=monitor, connector=connector, label=label)
+    _write(value)
+
+
+def widgets_visible():
+    return load().get('widgets_visible', True) is not False
+
+
+def save_widgets_visibility(visible):
+    value = load()
+    value['widgets_visible'] = bool(visible)
+    _write(value)
+
+
+def _write(value):
     destination = path()
     destination.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix='.desktop-', dir=destination.parent)

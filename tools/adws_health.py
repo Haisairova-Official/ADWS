@@ -115,6 +115,8 @@ for name, version in [('Gtk','3.0'),('Gdk','3.0'),('GtkLayerShell','0.1'),('Pang
     result = subprocess.run([sys.executable, '-c', probe], capture_output=True, text=True)
     if result.returncode:
         errors.append(_tr('Python/GTK 依赖不完整：') + (result.stderr.strip().splitlines() or [_tr('依赖探测失败')])[-1])
+    from adws_runtime_dependencies import missing_dependencies, messages
+    errors.extend(messages(missing_dependencies()))
     return errors
 
 

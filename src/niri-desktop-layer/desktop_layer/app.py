@@ -116,31 +116,41 @@ def apply_menu_palette(menu, cfg) -> None:
     hover = pick("surface_container", "#1e1f29")
     outline = pick("outline_variant", "#454651")
     font = (getattr(cfg, "font_family", "") or "Noto Sans CJK SC").replace('"', "")
-    css = (
-        'menu {\n'
-        '    background-color: %s;\n'
-        '    color: %s;\n'
-        '    font-family: "%s";\n'
-        '    padding: 4px;\n'
-        '}\n'
-        'menu menuitem {\n'
-        '    color: %s;\n'
-        '    padding: 5px 12px;\n'
-        '}\n'
-        'menu menuitem:hover,\n'
-        'menu menuitem:selected {\n'
-        '    background-color: %s;\n'
-        '    color: %s;\n'
-        '}\n'
-        'menu separator {\n'
-        '    background-color: %s;\n'
-        '}\n'
-    ) % (background, foreground, font, foreground, hover, foreground, outline)
-
-    css += ("menu menuitem.desktop-exit:hover, menu menuitem.desktop-exit:selected {"
-            "background-image: none; background-color: #b3261e; color: #ffffff; }"
-            "menu menuitem.desktop-exit:hover label, menu menuitem.desktop-exit:selected label {"
-            "color: #ffffff; }")
+    # Match the taskbar's dangerous-action timing, without blocking GTK's frame clock.
+    duration = 300
+    animations = True
+    try:
+        settings = json.loads((Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'adws/taskbar-layout.json').read_text()).get('options', {})
+        duration = max(80, min(1000, int(settings.get('animation_duration', 300))))
+        animations = settings.get('window_animations', True) is not False
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    transition = f'background-color {duration}ms ease-in-out, color {duration}ms ease-in-out' if animations else 'none'
+    css = f"""
+        menu.desktop-menu {{
+            background-color: {background}; background-image: none; color: {foreground};
+            font-family: "{font}"; padding: 6px; border-radius: 12px;
+            border: none; box-shadow: none;
+        }}
+        menu.desktop-menu menuitem {{
+            color: {foreground}; padding: 5px 12px; border-radius: 8px;
+            background-image: none; background-color: transparent;
+        }}
+        menu.desktop-menu menuitem:hover, menu.desktop-menu menuitem:selected {{
+            background-color: {hover}; color: {foreground};
+        }}
+        menu.desktop-menu separator {{ background-color: {outline}; }}
+        menu.desktop-menu menuitem.desktop-exit {{ transition: {transition}; }}
+        menu.desktop-menu menuitem.desktop-exit label {{ transition: color {duration if animations else 0}ms ease-in-out; }}
+        menu.desktop-menu menuitem.desktop-exit:hover, menu.desktop-menu menuitem.desktop-exit:selected {{
+            background-color: #c62828; color: #ffffff;
+        }}
+        menu.desktop-menu menuitem.desktop-exit:hover label, menu.desktop-menu menuitem.desktop-exit:selected label {{ color: #ffffff; }}
+        window.desktop-menu-popup, window.desktop-menu-popup decoration {{
+            background-color: transparent; background-image: none;
+            border: none; box-shadow: none;
+        }}
+    """
     try:
         candidate = Gtk.CssProvider()
         candidate.load_from_data(css.encode("utf-8"))
@@ -154,16 +164,28 @@ def apply_menu_palette(menu, cfg) -> None:
         LOG.warning(_tr('菜单调色板样式加载失败: %s'), exc)
         return False
 
+    def popup_shell(popup):
+        top = popup.get_toplevel()
+        if isinstance(top, Gtk.Window):
+            top.get_style_context().add_class('desktop-menu-popup')
+            top.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
+            if not top.get_realized():
+                visual = top.get_screen().get_rgba_visual()
+                if visual is not None: top.set_visual(visual)
+
     def attach(widget):
-        widget.get_style_context().add_provider(
-            provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+        widget.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
+        if isinstance(widget, Gtk.Menu):
+            widget.get_style_context().add_class('desktop-menu')
+            popup_shell(widget)
+            if not getattr(widget, '_adws_shell_hooked', False):
+                widget.connect('realize', popup_shell)
+                widget._adws_shell_hooked = True
         for child in widget.get_children() if isinstance(widget, Gtk.Container) else []:
             attach(child)
             if isinstance(child, Gtk.MenuItem):
                 submenu = child.get_submenu()
-                if submenu is not None:
-                    attach(submenu)
+                if submenu is not None: attach(submenu)
 
     attach(menu)
     if not hasattr(menu, "_adws_palette_watch"):
@@ -177,6 +199,7 @@ def arguments(argv=None):
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--stop", action="store_true", help=_tr('退出运行中的图标层'))
     actions.add_argument("--toggle", action="store_true", help=_tr('隐藏 / 显示图标层'))
+    actions.add_argument("--toggle-widgets", action="store_true", help=_tr('隐藏 / 显示桌面小组件'))
     actions.add_argument("--refresh", action="store_true", help=_tr('刷新桌面文件'))
     actions.add_argument("--check", action="store_true", help=_tr('检查依赖与桌面目录，不创建窗口'))
     parser.add_argument("--config", type=Path, help=_tr('配置文件'))
@@ -211,7 +234,7 @@ def main(argv=None):
         gi.require_version("PangoCairo", "1.0")
         from gi.repository import Gio, GLib
         # Controls never create a window, and are usable even from a non-GUI terminal.
-        action = "quit" if args.stop else "toggle" if args.toggle else "refresh" if args.refresh else None
+        action = "quit" if args.stop else "toggle" if args.toggle else "toggle-widgets" if args.toggle_widgets else "refresh" if args.refresh else None
         if action:
             bus_id = APP_ID + (".Preview" if args.preview else "")
             bus_path = "/" + bus_id.replace(".", "/")
@@ -939,15 +962,17 @@ def run_gui(args, cfg, directory):
                 item(menu, _tr('创建图标组'), lambda: self.owner.group_manager.edit(self), 'folder-new-symbolic')
                 item(menu, _tr('默认显示器…'), lambda: self.owner.group_manager.choose_default(self), 'video-display-symbolic')
             item(menu, _tr('桌面小组件…'), lambda: open_adws_config('desktop-widgets'), 'view-grid-symbolic')
+            check(menu, _tr('显示桌面图标'), not self.owner.hidden, lambda show: self.owner.toggle() if show == self.owner.hidden else None)
+            check(menu, _tr('显示桌面小组件'), not self.owner.widgets_hidden, lambda show: self.owner.widget_manager.set_visible(show))
             separator(menu)
             if self.owner.hidden:
-                item(menu, _tr('显示桌面图标'), self.owner.toggle)
-                separator(menu)
                 item(menu, _tr('打开终端'), self.owner.open_terminal)
                 item(menu, _tr('打开桌面文件夹'), self.owner.open_directory)
                 separator(menu)
                 item(menu, _tr('桌面配置…'), self.show_desktop_settings, 'video-display-symbolic')
                 item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
+                exit_item = item(menu, _tr('退出桌面环境'), self.confirm_exit)
+                exit_item.get_style_context().add_class('desktop-exit')
                 return menu
             if not key and not self.owner.group_manager:
                 new_menu = submenu(_tr('新建'))
@@ -998,8 +1023,7 @@ def run_gui(args, cfg, directory):
             separator(menu)
             item(menu, _tr('桌面配置…'), self.show_desktop_settings, 'video-display-symbolic')
             item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
-            item(menu, _tr('隐藏桌面图标'), self.owner.toggle)
-            exit_item = item(menu, _tr('退出桌面图标'), self.confirm_exit)
+            exit_item = item(menu, _tr('退出桌面环境'), self.confirm_exit)
             exit_item.get_style_context().add_class("desktop-exit")
             return menu
 
@@ -1014,21 +1038,21 @@ def run_gui(args, cfg, directory):
             dialog = Gtk.MessageDialog(transient_for=self, modal=True, destroy_with_parent=True,
                                        message_type=Gtk.MessageType.WARNING,
                                        buttons=Gtk.ButtonsType.NONE, text=_tr('您真的要退出吗？'))
-            dialog.format_secondary_text(_tr('退出后桌面图标和桌面右键功能将失效。\n您可以输入以下命令重启：'))
+            dialog.format_secondary_text(_tr('退出后将关闭 ADWS 桌面图标、图标组、小组件和桌面右键菜单，不会退出 Niri 或关闭其他应用。\n您可以输入以下命令重启：'))
             command = Gtk.Entry()
             command.set_text(restart_command)
             command.set_editable(False)
             command.set_tooltip_text(_tr('可选中并复制此命令，在终端中运行'))
             dialog.get_content_area().pack_start(command, False, False, 8)
             dialog.add_button(_tr('取消'), Gtk.ResponseType.CANCEL)
-            confirm = dialog.add_button(_tr('退出桌面'), Gtk.ResponseType.ACCEPT)
+            confirm = dialog.add_button(_tr('退出桌面环境'), Gtk.ResponseType.ACCEPT)
             confirm.get_style_context().add_class("destructive-action")
             dialog.set_default_response(Gtk.ResponseType.CANCEL)
             self.exit_dialog = dialog
             def response(widget, result):
                 widget.destroy()
                 if result == Gtk.ResponseType.ACCEPT:
-                    self.owner.quit()
+                    self.owner.request_quit()
             def destroyed(*_):
                 self.exit_dialog = None
             dialog.connect("destroy", destroyed)
@@ -1489,6 +1513,7 @@ def run_gui(args, cfg, directory):
             self.positions = {}
             self.views = []
             self.hidden = False
+            self.widgets_hidden = False
             self.overview_active = False
             self.overview_events = []
             self.overview_watcher = None
@@ -1511,7 +1536,7 @@ def run_gui(args, cfg, directory):
             self.connect("shutdown", self.shutdown)
 
         def startup(self, *_):
-            for name, callback in [("quit", self.request_quit), ("toggle", self.toggle), ("refresh", self.refresh)]:
+            for name, callback in [("quit", self.request_quit), ("toggle", self.toggle), ("toggle-widgets", self.toggle_widgets), ("refresh", self.refresh)]:
                 action = Gio.SimpleAction.new(name, None)
                 action.connect("activate", lambda _a, _p, callback=callback: callback())
                 self.add_action(action)
@@ -1822,7 +1847,19 @@ def run_gui(args, cfg, directory):
                 self.open_directory()
 
         def toggle(self):
-            self.set_hidden(not self.hidden)
+            hidden = not self.hidden
+            if not args.preview and cfg.visibility_marker:
+                marker=Path(cfg.visibility_marker).expanduser()
+                try:
+                    if hidden:
+                        marker.parent.mkdir(parents=True,exist_ok=True);marker.touch()
+                    else:marker.unlink(missing_ok=True)
+                except OSError as error:
+                    LOG.warning('Desktop visibility save failed: %s',error);return
+            self.set_hidden(hidden)
+
+        def toggle_widgets(self):
+            if self.widget_manager:self.widget_manager.set_visible(self.widgets_hidden)
 
         @logged_action(_tr('修改桌面图标显隐'))
         def set_hidden(self, hidden):
@@ -1875,7 +1912,7 @@ def run_gui(args, cfg, directory):
                     "entries": len(self.entries), "directory_scans": self.scan_count,
                     "elapsed_seconds": round(time.monotonic() - self.started_at, 2),
                     "sort": {"by": cfg.sort_by, "descending": cfg.sort_descending, "folders_first": cfg.folders_first},
-                    "hidden": self.hidden, "overview": self.overview_active, "overview_events": self.overview_events, "error": self.status,
+                    "hidden": self.hidden, "widgets_hidden": self.widgets_hidden, "overview": self.overview_active, "overview_events": self.overview_events, "error": self.status,
                     "windows": [{"output": v.monitor_key, "size": [v.area.get_allocated_width(), v.area.get_allocated_height()],
                                  "is_layer": GtkLayerShell.is_layer_window(v),
                                  "layer": "bottom" if not args.preview and GtkLayerShell.get_layer(v) == GtkLayerShell.Layer.BOTTOM else "preview",

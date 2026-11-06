@@ -45,6 +45,24 @@ with tempfile.TemporaryDirectory(prefix='adws-relative-widgets-') as folder:
                 assert card.placed_geometry==expected,(card.placed_geometry,expected)
                 assert tuple(card.box.translate_coordinates(layer.fixed,0,0))==expected[:2]
         check_positions();windows[1].resize(1400,900);pump();check_positions()
+        # Global visibility is independent of icon visibility and instance enablement.
+        before=path.read_bytes()
+        for icons_hidden in (False,True):
+            app.hidden=icons_hidden
+            for visible in (False,True):
+                manager.set_visible(visible);pump()
+                assert app.hidden==icons_hidden
+                assert all(layer.fixed.get_visible()==visible for layer in layers)
+                app.overview_active=True
+                for layer in layers:layer.visibility()
+                assert all(not layer.fixed.get_visible() for layer in layers)
+                app.overview_active=False
+                for layer in layers:layer.visibility()
+                assert all(layer.fixed.get_visible()==visible for layer in layers)
+                manager.reload()
+                assert app.widgets_hidden== (not visible)
+                assert path.read_bytes()==before
+        app.hidden=False
         card=layers[1].cards[row['instance']]
         button=next(w for w in descendants(card.box) if isinstance(w,Gtk.MenuButton));card.rebuild_menu(button)
         choices=button.get_popup().get_children()[:3]

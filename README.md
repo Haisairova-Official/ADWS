@@ -6,7 +6,7 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development: **1.36-B** · 构建 / Build: **1.36.02** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.36-D** · 构建 / Build: **1.36.04** · [更新记录 / Changelog](CHANGELOG.md)
 
 版本规则：内部构建 `1.36.00` 对外显示 `1.36`；`1.36.01` 显示 `1.36-A`，`1.36.02` 显示 `1.36-B`。开发代号仅保留在构建元数据的 `codename` 字段。
 
@@ -19,6 +19,12 @@ In development: VMware mode in Settings → Input & shortcuts → Shortcuts supp
 ## 开发中：桌面小组件
 
 新增可拖动、缩放和锁定的桌面组件，含时钟、日历、便签与独立桌面歌词。模组包可同时提供桌面和任务栏组件，两类布局与实例分离。设置中分别管理模组包、任务栏实例与桌面实例；桌面组件支持重复添加、复制以及按实例自定义 GTK 3 CSS。[使用与开发说明](docs/desktop-widgets.md)。
+
+桌面右键菜单分别提供“显示桌面图标”和“显示桌面小组件”，状态独立保存；图标组随图标开关。隐藏全部小组件不会取消单个组件的启用状态。“退出桌面环境”关闭 ADWS 桌面宿主，不退出 Niri 会话。
+
+截图、取色与窗口预览的运行依赖现在也由 `./install.sh` 检查和补齐（含预编译安装）。安装后会实际检查 Gst/GstApp 和 `pipewiresrc`、`pngenc` 等元素；缺失时明确列出，不再只检查 Python/GTK。依赖包括 `grim`、`slurp`、`wl-clipboard`、GStreamer Python 绑定、基础／good 插件与 PipeWire 插件；保留已有 PipeWire 会话管理器，不替换音频后端。Niri 自带截图走原生接口；其他支持的 Wayland 截图与取色使用外部工具。窗口预览还需要当前 Niri 会话提供 ScreenCast 服务及运行中的 PipeWire，安装检测不会尝试截取窗口。软件包映射已核对 [Arch](https://wiki.archlinux.org/title/GStreamer)、[Ubuntu](https://packages.ubuntu.com/noble/arm64/python3-gst-1.0) 和 [Fedora](https://packages.fedoraproject.org/pkgs/pipewire/pipewire-gstreamer/) 官方列表。
+
+任务栏吸附与菜单圆角独立：吸附时任务栏外端变直角，分体栏内侧保留原有圆角／尖角；右键菜单始终沿用菜单圆角，不随吸附切换。悬浮任务栏仍保留四角圆润及透明外沿。
 
 ## 安装 Niri（1.36）
 

@@ -9,6 +9,7 @@ import sys
 from gi.repository import Gtk, Gdk, Gio, GLib, Pango
 from adws_i18n import tr
 import adws_desktop_widgets_model as model
+import adws_desktop_preferences as preferences
 
 LOG=logging.getLogger('adws.desktop-widgets')
 
@@ -23,7 +24,7 @@ class Manager:
         self.reload()
         from adws_plugin import plugin_dir
         from desktop_layer.app import palette_file_candidates
-        folders={self.path.parent,plugin_dir()}
+        folders={self.path.parent,plugin_dir(),preferences.path().parent}
         folders.update(p.parent for p in palette_file_candidates() if p.parent.is_dir())
         for folder in folders:
             try:
@@ -38,6 +39,8 @@ class Manager:
     def reload(self):
         self.pending=0
         if self.closed:return False
+        self.application.widgets_hidden=not preferences.widgets_visible()
+        for controller in list(self.controllers):controller.visibility()
         try:
             data=model.load(self.path);available=model.catalog();model.validate_instances(data,available)
             if data!=self.data or available!=self.available:
@@ -47,6 +50,13 @@ class Manager:
                 for controller in list(self.controllers):controller.theme()
         except (OSError,ValueError) as error:LOG.warning('Desktop widget configuration: %s',error)
         return False
+
+    def set_visible(self, visible):
+        try:preferences.save_widgets_visibility(visible)
+        except OSError as error:
+            LOG.warning('Desktop widget visibility: %s',error);return
+        self.application.widgets_hidden=not bool(visible)
+        for controller in list(self.controllers):controller.visibility()
 
     def persist(self):
         self.data=model.save(self.data,self.path)
@@ -271,7 +281,7 @@ class DesktopLayer:
 
     def visibility(self):
         owner=self.manager.application
-        self.fixed.set_visible(not owner.hidden and not owner.overview_active)
+        self.fixed.set_visible(not getattr(owner,'widgets_hidden',False) and not owner.overview_active)
         self.shape_input()
 
     def close(self):

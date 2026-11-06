@@ -11,7 +11,7 @@ thread_local! {
         let provider = CssProvider::new();
         if let Some(screen) = gtk::gdk::Screen::default() {
             gtk::StyleContext::add_provider_for_screen(
-                &screen, &provider, gtk::STYLE_PROVIDER_PRIORITY_USER,
+                &screen, &provider, gtk::STYLE_PROVIDER_PRIORITY_USER + 1,
             );
         }
         provider
@@ -145,14 +145,22 @@ pub fn apply(menu: &gtk::Menu) {
     // Screen-scoped selectors also reach menu items and the popup decoration;
     // a provider attached to the menu widget alone does not style those nodes.
     menu.style_context().add_class("adws-menu");
-    if let Some(top) = menu.toplevel() {
+    prepare_popup_shell(menu);
+    menu.connect_realize(prepare_popup_shell);
+}
+
+// GtkMenu owns a separate popup GtkWindow. Setting the visual on the menu
+// alone leaves that window RGB-only, filling the transparent rounded corners.
+fn prepare_popup_shell(menu: &gtk::Menu) {
+    use gtk::prelude::*;
+    if let Some(top) = menu.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok()) {
         top.style_context().add_class("adws-menu-popup");
-    }
-    menu.connect_realize(|menu| {
-        if let Some(top) = menu.toplevel() {
-            top.style_context().add_class("adws-menu-popup");
+        if !top.is_realized() {
+            if let Some(visual) = gtk::prelude::WidgetExt::screen(&top).and_then(|s| s.rgba_visual()) {
+                top.set_visual(Some(&visual));
+            }
         }
-    });
+    }
 }
 
 /// Named colors alone do not reliably invalidate GTK's custom drawing nodes.
@@ -215,6 +223,42 @@ mod tests {
     #[test]
     fn radius_follows_final_appearance_override() {
         assert_eq!(bar_radius_from_css("window#waybar > box {border-radius:0.7em;} window#waybar > box {border-radius:18px;}"),"18px");
+    }
+    #[test]
+    #[ignore = "requires an isolated GTK display"]
+    fn popup_has_transparent_corners() {
+        gtk::init().unwrap();
+        let root=std::env::temp_dir().join(format!("adws-menu-test-{}",std::process::id()));
+        std::fs::create_dir_all(root.join("waybar")).unwrap();
+        std::fs::write(root.join("waybar/style-bottom.css"),"window#waybar > box {border-radius:12px;}").unwrap();
+        let old=std::env::var_os("XDG_CONFIG_HOME");
+        unsafe {std::env::set_var("XDG_CONFIG_HOME",&root);}
+
+        let base=CssProvider::new();
+        base.load_from_data(b"* {border-radius:0;} window {background-color:#282934;}").unwrap();
+        gtk::StyleContext::add_provider_for_screen(&gtk::gdk::Screen::default().unwrap(),&base,gtk::STYLE_PROVIDER_PRIORITY_USER+1);
+        let window=gtk::Window::new(gtk::WindowType::Toplevel);window.show_all();
+        let menu=gtk::Menu::new();menu.append(&gtk::MenuItem::with_label("Open window"));
+        apply(&menu);menu.show_all();
+        menu.popup_at_rect(&window.window().unwrap(),&gtk::gdk::Rectangle::new(20,20,1,1),gtk::gdk::Gravity::SouthWest,gtk::gdk::Gravity::NorthWest,None);
+        settle();
+        let top=menu.toplevel().unwrap();
+        assert_eq!(top.visual().unwrap().depth(),32,"popup must use RGBA visual");
+        let bg=top.style_context().style_property_for_state("background-color",gtk::StateFlags::NORMAL).get::<gtk::gdk::RGBA>().unwrap();
+        assert_eq!(bg.alpha(),0.0,"popup shell must be transparent");
+        let mut surface=gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32,80,80).unwrap();
+        {let cr=gtk::cairo::Context::new(&surface).unwrap();gtk::render_background(&menu.style_context(),&cr,0.,0.,80.,80.);}
+        surface.flush();let data=surface.data().unwrap();assert_eq!(data[3],0,"menu corner must be transparent");assert!(data[(40*80+40)*4+3]>200);
+        menu.popdown();unsafe{
+            menu.destroy();window.destroy();
+            if let Some(value)=old {std::env::set_var("XDG_CONFIG_HOME",value);}else{std::env::remove_var("XDG_CONFIG_HOME");}
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn popup_radius_does_not_follow_docked_surface_override() {
+        let css="window#waybar > box {border-radius:18px;} window#waybar.adws-panel.adws-docked > box {border-radius:0;} window#waybar.adws-panel.adws-split.adws-docked > box > box.modules-left {border-radius:0 18px 18px 0;}";
+        assert_eq!(bar_radius_from_css(css),"18px");
     }
     use std::time::{Duration, Instant};
     fn settle() {
@@ -325,7 +369,7 @@ pub fn destructive(item: &gtk::MenuItem, animations: bool, duration: u32) {
     let transition = if animations { format!("background-color {}ms ease-in-out, color {}ms ease-in-out",duration,duration) } else { "none".into() };
     let css = format!("menuitem {{ transition:{transition}; }} menuitem.adws-destructive:hover, menuitem.adws-destructive:selected {{ background-image:none; background-color:#c62828; color:#ffffff; }}");
     if provider.load_from_data(css.as_bytes()).is_ok() {
-        item.style_context().add_provider(&provider,gtk::STYLE_PROVIDER_PRIORITY_USER+1);
+        item.style_context().add_provider(&provider,gtk::STYLE_PROVIDER_PRIORITY_USER+2);
     }
 
 }

@@ -27,7 +27,13 @@ with tempfile.TemporaryDirectory(prefix='adws-widget-settings-') as folder:
         if isinstance(parent,Gtk.Container):
             for child in parent.get_children():yield from widgets(child)
     switches=[w for w in widgets(page) if isinstance(w,Gtk.Switch)]
-    assert len(switches)==1 and switches[0].get_allocated_width()<100
+    assert len(switches)==2 and all(w.get_allocated_width()<100 for w in switches)
+    import adws_desktop_preferences as preferences
+    before=model.load()
+    page.visibility_switch.set_active(False);settle()
+    assert not preferences.widgets_visible() and model.load()==before
+    preferences.save_widgets_visibility(True);page.sync_visibility()
+    assert page.visibility_switch.get_active() and model.load()==before
     page.edit(rows[0]['instance'],x_percent=32.1,locked=True)
     assert model.load()['instances'][0]['x_percent']==32.1
     spins=[w for w in widgets(page) if isinstance(w,Gtk.SpinButton)]

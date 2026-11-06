@@ -101,10 +101,11 @@ static gboolean sync_state(gpointer data) {
     self->sync = 0;
     if (!self->window) return G_SOURCE_REMOVE;
     GtkStyleContext *style=gtk_widget_get_style_context(GTK_WIDGET(self->window));
-    /* Legacy generated CSS uses this class to square corners. Docking now
-     * changes only margins; remove it even after a stylesheet reload. */
-    gtk_style_context_remove_class(style,"adws-docked");
     gboolean docked=g_strcmp0(self->mode,"docked")==0 || (g_strcmp0(self->mode,"auto")==0 && gtk_style_context_has_class(style,"adws-has-windows"));
+    /* Only the bar surface changes corner geometry. Popup menus use their
+     * own style and must never inherit this docking state. */
+    if(docked) gtk_style_context_add_class(style,"adws-docked");
+    else gtk_style_context_remove_class(style,"adws-docked");
     if (self->docked != docked) {
         gboolean initial=self->docked<0;
         if(g_getenv("ADWS_TASKBAR_TIMING"))g_printerr("ADWS_TASKBAR_TIMING space_dock=%d at_us=%lld\n",docked,(long long)g_get_monotonic_time());

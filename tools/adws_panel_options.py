@@ -124,6 +124,18 @@ def styles(options):
         padding = f'{front:g}px 0 {back:g}px 0' if vertical else f'0 {back:g}px 0 {front:g}px'
         corners = pointed_radii[slot] if pointed else radius
         lines.append(f'{segment}.modules-{slot} {{ {material} border-radius:{corners}; padding:{padding}; }}')
+    # Docking squares only the screen-facing ends; the clipped inward tips
+    # remain intact. Rounded mode retains the original inward radii.
+    lines.append('window#waybar.adws-panel.adws-docked > box { border-radius:0; }')
+    docked = {
+        'left': f'0 0 {br} {bl}' if vertical else f'0 {tr} {br} 0',
+        'right': f'{tl} {tr} 0 0' if vertical else f'{tl} 0 0 {bl}',
+        'center': radius,
+    }
+    for slot in options.get('_occupied_slots', ('left','center','right')):
+        if slot not in docked: continue
+        corners = '0' if pointed else docked[slot]
+        lines.append(f'window#waybar.adws-panel.adws-split.adws-docked > box > box.modules-{slot} {{border-radius:{corners};}}')
     return '\n'.join(lines)
 
 

@@ -24,8 +24,10 @@ def main(ids):
     gi.require_version('GstApp', '1.0')
     from gi.repository import Gio, GLib, Gst
     Gst.init(None)
-    if any(Gst.ElementFactory.find(name) is None for name in ('pipewiresrc','videorate','videoconvert','videoscale','pngenc','appsink')):
-        raise RuntimeError('Missing GStreamer preview components')
+    from adws_runtime_dependencies import PREVIEW_ELEMENTS
+    missing=[name for name in PREVIEW_ELEMENTS if Gst.ElementFactory.find(name) is None]
+    if missing:
+        raise RuntimeError('Missing GStreamer preview components: '+', '.join(missing)+'; run ./install.sh to repair runtime dependencies')
     bus=Gio.bus_get_sync(Gio.BusType.SESSION,None)
     service='org.gnome.Mutter.ScreenCast'
     loop=GLib.MainLoop()

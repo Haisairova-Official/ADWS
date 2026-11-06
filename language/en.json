@@ -2540,5 +2540,11 @@
   "未找到可安装的终端，请先安装终端后重试。": "No installable terminal was found. Install one before retrying.",
   "软件包安装后未找到 niri，请检查安装输出。": "niri was not found after package installation. Check the installation output.",
   "目标文件在安装期间发生变化：%s": "Destination changed during installation: %s",
-  "请先安装终端并配置 Niri 后重试。": "Install a terminal and configure Niri before retrying."
+  "请先安装终端并配置 Niri 后重试。": "Install a terminal and configure Niri before retrying.",
+  "显示桌面小组件": "Show desktop widgets",
+  "隐藏 / 显示桌面小组件": "Hide / show desktop widgets",
+  "退出桌面环境": "Exit desktop environment",
+  "退出后将关闭 ADWS 桌面图标、图标组、小组件和桌面右键菜单，不会退出 Niri 或关闭其他应用。\n您可以输入以下命令重启：": "This closes ADWS desktop icons, icon groups, widgets and the desktop context menu. It does not log out of Niri or close other applications.\nRestart with the following command:",
+  "截图／取色依赖不完整：": "Screenshot/color-picker dependencies incomplete: ",
+  "窗口预览依赖不完整：": "Window preview dependencies incomplete: "
 }

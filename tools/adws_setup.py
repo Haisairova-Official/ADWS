@@ -20,6 +20,15 @@ PACKAGES = {
  'dnf': {'python': ['python3-gobject', 'python3-cairo', 'python3-pillow', 'gtk3', 'gtk-layer-shell', 'polkit'], 'build': ['cargo', 'rust', 'gcc', 'make', 'pkgconf-pkg-config', 'gtk3-devel', 'gtk-layer-shell-devel', 'json-glib-devel']},
 }
 
+# Runtime functionality is required even when native binaries are prebuilt.
+for packages in PACKAGES.values():
+    packages['capture']=['grim','slurp','wl-clipboard']
+    packages['preview-session']=['wireplumber']
+PACKAGES['apt-get']['preview']=['pipewire','python3-gst-1.0','gir1.2-gstreamer-1.0',
+    'gir1.2-gst-plugins-base-1.0','gstreamer1.0-pipewire','gstreamer1.0-plugins-base','gstreamer1.0-plugins-good']
+PACKAGES['pacman']['preview']=['pipewire','gst-python','gst-plugin-pipewire','gst-plugins-base','gst-plugins-good']
+PACKAGES['dnf']['preview']=['pipewire','python3-gstreamer1','pipewire-gstreamer','gstreamer1-plugins-base','gstreamer1-plugins-good']
+
 PACKAGES['apt-get']['waybar-build'] = ['git', 'build-essential', 'meson', 'ninja-build', 'cmake', 'pkg-config',
  'libgtkmm-3.0-dev', 'libjsoncpp-dev', 'libsigc++-2.0-dev', 'libfmt-dev', 'libspdlog-dev',
  'libwayland-dev', 'wayland-protocols', 'libgtk-layer-shell-dev', 'libxkbcommon-dev', 'libxkbregistry-dev',
@@ -181,6 +190,8 @@ def prepare():
         missing = [name for name in ('systemctl', 'thunar') if not shutil.which(name)]
         missing = ['systemd' if name == 'systemctl' else name for name in missing]
         groups = ['python'] if any('Python/GTK' in error for error in errors) else []
+        from adws_runtime_dependencies import missing_dependencies, install_groups
+        groups.extend(install_groups(missing_dependencies()))
         if sys.version_info < (3, 11):
             raise RuntimeError(_tr('需要 Python 3.11 或更新版本，请先通过系统的软件管理器升级 Python。'))
         if missing or groups:

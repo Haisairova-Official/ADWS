@@ -4,16 +4,16 @@ static void release_zone(GtkWindow *w){(void)w;}
 static GtkWidget *root;
 static GtkContainer *get_root(wbcffi_module *obj){(void)obj;return GTK_CONTAINER(root);}
 static void pump(void){for(int i=0;i<80;i++){while(g_main_context_iteration(NULL,FALSE));g_usleep(1000);}}
-static void check_corners(GtkWidget *window){
+static void check_corners(GtkWidget *window, gboolean docked){
  int w=gtk_widget_get_allocated_width(window),h=gtk_widget_get_allocated_height(window);
  cairo_surface_t *surface=cairo_image_surface_create(CAIRO_FORMAT_ARGB32,w,h);cairo_t *cr=cairo_create(surface);
  /* Deliberately dirty the buffer to catch missing clears as well as CSS leaks. */
  cairo_set_source_rgb(cr,0,0,0);cairo_paint(cr);gtk_widget_draw(window,cr);cairo_destroy(cr);cairo_surface_flush(surface);
  unsigned char *pixels=cairo_image_surface_get_data(surface);int stride=cairo_image_surface_get_stride(surface);
- g_assert_cmpint(pixels[1*stride+1*4+3],==,0);
- g_assert_cmpint(pixels[1*stride+(w-2)*4+3],==,0);
- g_assert_cmpint(pixels[(h-2)*stride+1*4+3],==,0);
- g_assert_cmpint(pixels[(h-2)*stride+(w-2)*4+3],==,0);
+ g_assert_cmpint(pixels[1*stride+1*4+3],==,docked?255:0);
+ g_assert_cmpint(pixels[1*stride+(w-2)*4+3],==,docked?255:0);
+ g_assert_cmpint(pixels[(h-2)*stride+1*4+3],==,docked?255:0);
+ g_assert_cmpint(pixels[(h-2)*stride+(w-2)*4+3],==,docked?255:0);
  g_assert_cmpint(pixels[(h/2)*stride+(w/2)*4+3],>,200);
  cairo_surface_destroy(surface);
 }
@@ -37,12 +37,11 @@ int main(int argc,char **argv){
   else gtk_style_context_remove_class(style,"adws-has-windows");
   g_signal_emit_by_name(window,"adws-windows-changed");pump();
   g_assert_cmpint(s->docked,==,cycle%2);
-  g_assert_false(gtk_style_context_has_class(style,"adws-docked"));
-  /* A theme refresh must not expose the opaque outer surface or re-enable
-   * the old docked-radius override, even with an existing user stylesheet. */
+  g_assert_cmpint(gtk_style_context_has_class(style,"adws-docked"),==,cycle%2);
+  /* Theme refresh preserves transparent floating corners and square docking. */
   gtk_css_provider_load_from_data(hostile,theme,-1,NULL);pump();
-  check_corners(window);
+  check_corners(window,cycle%2);
  }
  wbcffi_deinit(s);gtk_widget_destroy(window);g_object_unref(hostile);
- g_print("PASS: all four corners remain transparent across 8 docking transitions and opaque theme reloads\n");return 0;
+ g_print("PASS: floating corners transparent, docked corners square across 8 transitions and theme reloads\n");return 0;
 }

@@ -111,7 +111,8 @@ class DesktopGuiTests(unittest.TestCase):
 
         # A unique name also avoids talking to an unrelated manual preview.
         bus_id = f"{self.module.APP_ID}.GuiTest{os.getpid()}.Run{next(self.serial)}"
-        with patch.object(self.module, "APP_ID", bus_id), \
+        with patch.dict(os.environ,{"XDG_CONFIG_HOME":str(self.root/"config")}), \
+             patch.object(self.module, "APP_ID", bus_id), \
              patch.object(self.module, "launch_entry", self.launch), \
              patch.object(self.module, "open_in_thunar", self.open_uri), \
              patch.object(Gtk.Application, "run", new=wrapped_run):
@@ -866,7 +867,7 @@ class DesktopGuiTests(unittest.TestCase):
                     items[_tr('打开终端')].activate()
                 self.assertTrue(any((_tr('菜单操作：%s') % _tr('打开终端')) in line for line in logs.output))
                 terminal.assert_called_once()
-            exit_item = items[_tr('退出桌面图标')]
+            exit_item = items[_tr('退出桌面环境')]
             self.module.apply_menu_palette(menu, self.Config())
             self.assertTrue(exit_item.get_style_context().has_class("desktop-exit"))
             with patch.object(application, "quit") as quit_app:
@@ -874,7 +875,7 @@ class DesktopGuiTests(unittest.TestCase):
                 quit_app.assert_not_called()
                 dialog = view.exit_dialog
                 self.assertIsNotNone(dialog)
-                self.assertIn(('桌面右键功能将失效' if chinese() else 'desktop context menu will stop working'), dialog.get_property("secondary-text"))
+                self.assertIn(('不会退出 Niri' if chinese() else 'does not log out of Niri'), dialog.get_property("secondary-text"))
                 entries = [w for w in dialog.get_content_area().get_children() if isinstance(w, self.Gtk.Entry)]
                 import shlex
                 command = shlex.split(entries[0].get_text())
@@ -925,7 +926,15 @@ class DesktopGuiTests(unittest.TestCase):
             self.assertEqual(view.area.get_opacity(), 0.0)
             menu = view.make_menu(next(iter(view.rects)))
             labels = [child.get_label() for child in menu.get_children() if not isinstance(child, self.Gtk.SeparatorMenuItem)]
-            self.assertEqual([value for value in labels if value is not None], [_tr('显示桌面图标'), _tr('打开终端'), _tr('打开桌面文件夹')])
+            for label in ('显示桌面图标','显示桌面小组件','打开终端','打开桌面文件夹','退出桌面环境'):
+                self.assertIn(_tr(label), labels)
+            checks={child.get_label():child for child in menu.get_children() if isinstance(child,self.Gtk.CheckMenuItem)}
+            self.assertFalse(checks[_tr('显示桌面图标')].get_active())
+            checks[_tr('显示桌面小组件')].set_active(False)
+            self.assertTrue(application.hidden and application.widgets_hidden)
+            application.activate_action('toggle-widgets',None)
+            self.assertTrue(application.hidden)
+            self.assertFalse(application.widgets_hidden)
             self.assertTrue(any(isinstance(child.get_child(),self.Gtk.Box) and any(isinstance(w,self.Gtk.Label) and w.get_text()==_tr('桌面小组件…') for w in child.get_child().get_children()) for child in menu.get_children() if isinstance(child,self.Gtk.MenuItem)))
             menu.destroy()
             with patch.object(view, "popup") as popup:
