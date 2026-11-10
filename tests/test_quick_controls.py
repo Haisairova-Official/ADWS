@@ -26,13 +26,44 @@ class Controls(unittest.TestCase):
 
     def test_ddc_uses_connector_and_current_maximum(self):
         text='Display 1\n I2C bus: /dev/i2c-5\n DRM connector: card1-DP-2\nDisplay 2\n DRM connector: card1-HDMI-A-1\n'
-        self.assertEqual(backend.parse_ddc(text),{'DP-2':1,'HDMI-A-1':2})
+        self.assertEqual(backend.parse_ddc(text), {
+            'DP-2': {'display': 1, 'bus': 5},
+            'HDMI-A-1': {'display': 2, 'bus': None},
+        })
         with patch.object(backend,'command') as command,patch.object(backend,'cache_root',return_value=Path('/tmp')):
             backend.brightness_write({'name':'DP-2','provider':'ddc','device':1,'maximum':200},'brightness',50)
             self.assertEqual(command.call_args.args[0],['ddcutil','--display','1','--skip-ddc-checks','--mccs','2.2','--noverify','setvcp','10','100'])
             for value in (-1,101,float('nan'),float('inf'),True):
                 with self.assertRaises(ValueError):backend.brightness_write({'name':'DP-2'},'brightness',value)
             with self.assertRaises(ValueError):backend.brightness_write({'name':'../../evil'},'brightness',50)
+
+    def test_ddc_ignores_invalid_panel_in_either_order(self):
+        monitor = "Display 1\n I2C bus: /dev/i2c-4\n DRM connector: card1-HDMI-A-1\n"
+        panel = "Invalid display\n I2C bus: /dev/i2c-10\n DRM connector: card1-eDP-1\n"
+        for text in (monitor + panel, panel + monitor):
+            with self.subTest(text=text):
+                self.assertEqual(backend.parse_ddc(text), {'HDMI-A-1': {'display': 1, 'bus': 4}})
+
+    def test_panel_prefers_backlight_despite_stale_ddc_mapping(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            device = root / 'intel_backlight'
+            device.mkdir()
+            (device / 'brightness').write_text('40')
+            (device / 'max_brightness').write_text('200')
+            with (
+                patch.object(backend, 'cache_root', return_value=root),
+                patch.object(Path, 'glob', return_value=[device]),
+                patch('adws_display.detect_session', return_value='niri'),
+                patch('adws_display.outputs', return_value=[{'name': 'eDP-1'}]),
+                patch.object(backend.shutil, 'which', side_effect=lambda name: name if name == 'brightnessctl' else None),
+                patch.object(backend, 'gamma_state', return_value=None),
+                patch.object(backend, 'ddc_devices', return_value={'eDP-1': {'display': 1, 'bus': 10}}),
+                patch.object(backend, 'ddc_brightness_command') as ddc,
+            ):
+                item, = backend._read_brightness()
+                self.assertEqual((item['provider'], item['device'], item['value']), ('backlight', 'intel_backlight', 20))
+                ddc.assert_not_called()
 
     def test_cached_brightness_is_fast_and_rejects_old_or_invalid_data(self):
         import time

@@ -68,23 +68,16 @@ def read_json(path, default=None):
 
 def parse_ddc(text):
     """Detect --terse identifies the DRM connector, not an assumed display number."""
-    displays, current = [], None
-    for line in text.splitlines():
-        if match := re.match(r'^Display\s+(\d+)\s*$', line):
-            current = {'display': int(match[1])}; displays.append(current)
-        elif current is not None:
-            if match := re.search(r'DRM connector:\s*(?:card\d+-)?([A-Za-z0-9_.-]+)', line): current['output'] = match[1]
-    return {item['output']:item['display'] for item in displays if item.get('output')}
-
-
-def parse_ddc_buses(text):
-    result, bus = {}, None
-    for line in text.splitlines():
-        if re.match(r'^Display\s+\d+',line): bus=None
-        elif match:=re.search(r'I2C bus:\s*/dev/i2c-(\d+)',line): bus=int(match[1])
-        elif match:=re.search(r'DRM connector:\s*(?:card\d+-)?([A-Za-z0-9_.-]+)',line):
-            if bus is not None:result[match[1]]=bus
-    return result
+    devices = {}
+    for block in re.split(r'(?=^(?:Invalid display\b|Display\s+\d+\b))', text, flags=re.M):
+        display = re.match(r'^Display\s+(\d+)\s*$', block, re.M)
+        if not display:
+            continue
+        connector = re.search(r'DRM connector:\s*(?:card\d+-)?([A-Za-z0-9_.-]+)', block)
+        if connector:
+            bus = re.search(r'I2C bus:\s*/dev/i2c-(\d+)', block)
+            devices[connector[1]] = {'display': int(display[1]), 'bus': int(bus[1]) if bus else None}
+    return devices
 
 
 def ddc_args(device):
@@ -153,8 +146,6 @@ def ddc_devices(force=False):
         try:
             raw = ddc_command(['detect','--terse'], timeout=30)
             devices = parse_ddc(raw)
-            buses = parse_ddc_buses(raw)
-            devices = {name:{'display':index, 'bus':buses.get(name)} for name,index in devices.items()}
         except (OSError, RuntimeError, subprocess.SubprocessError):
             # Keep the last successful connector mapping during transient failures.
             # Back off failed discovery too, rather than retrying on every read.
@@ -244,16 +235,22 @@ def _read_brightness(force=False):
             record = read_json(night_path(name), {})
             active = owned_night(record, name)
             entry.update(color_provider='wlsunset',temperature=record.get('temperature',4500) if active else 6500,night=active)
+        if name.startswith(('eDP', 'LVDS', 'DSI')) and len(backlights) == 1 and shutil.which('brightnessctl'):
+            device = backlights[0]
+            try:
+                maximum = int((device / 'max_brightness').read_text())
+                current = int((device / 'brightness').read_text())
+                if maximum > 0:
+                    entry.update(provider='backlight', device=device.name, value=current / maximum * 100)
+                    return entry
+            except (OSError, ValueError):
+                pass
         try:
             if name in ddcs:
                 raw = ddc_brightness_command(ddcs[name], 'getvcp')
                 match = re.search(r'VCP\s+10\s+C\s+(\d+)\s+(\d+)',raw)
                 if not match or int(match[2])<=0: raise ValueError('No brightness response')
                 entry.update(provider='ddc',device=ddcs[name], maximum=int(match[2]),value=round(int(match[1])/int(match[2])*100))
-            elif name.startswith(('eDP','LVDS','DSI')) and len(backlights)==1 and shutil.which('brightnessctl'):
-                device = backlights[0]
-                maximum = int((device/'max_brightness').read_text()); value=int((device/'brightness').read_text())
-                entry.update(provider='backlight',device=device.name,value=value/maximum*100)
             elif gamma:
                 entry.update(provider='gamma',value=gamma['brightness'])
         except (ValueError, OSError, RuntimeError, subprocess.SubprocessError):
