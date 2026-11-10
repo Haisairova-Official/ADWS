@@ -137,9 +137,11 @@ def ddc_brightness_command(device, operation, value=None):
                            timeout=4 if operation == 'getvcp' else 5)
 
 
-def ddc_devices(force=False):
+def ddc_devices(force=False, topology=None):
     path = cache_root()/'ddc.json'
     cached = read_json(path, {})
+    if topology != cached.get('topology'):
+        cached = {}
     if not force and time.time()-cached.get('time', 0)<600: return cached.get('devices', {})
     devices = {}
     if shutil.which('ddcutil'):
@@ -149,9 +151,9 @@ def ddc_devices(force=False):
         except (OSError, RuntimeError, subprocess.SubprocessError):
             # Keep the last successful connector mapping during transient failures.
             # Back off failed discovery too, rather than retrying on every read.
-            write_json(path, {'time':time.time(), 'devices':cached.get('devices', {})})
+            write_json(path, {'time':time.time(), 'devices':cached.get('devices', {}), 'topology':topology})
             return cached.get('devices', {})
-    write_json(path, {'time':time.time(),'devices':devices})
+    write_json(path, {'time':time.time(),'devices':devices, 'topology':topology})
     return devices
 
 
@@ -217,14 +219,72 @@ def brightness(force=False, passive=False):
         return _read_brightness(force)
 
 
+def _sysfs_text(path):
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ''
+
+
+def _display_hardware(sys_class=Path('/sys/class')):
+    """Discover active DRM connectors and their backlights without probing I2C."""
+    connectors = {}
+    ports = sorted((sys_class / 'drm').glob('card*-*'))
+    for port in ports:
+        if _sysfs_text(port / 'status') == 'connected':
+            name = port.name.split('-', 1)[1]
+            connectors.setdefault(name, []).append(port)
+
+    devices = sorted((sys_class / 'backlight').glob('*'))
+    assigned = {}
+    for device in devices:
+        target = device.resolve()
+        parent = (device / 'device').resolve()
+        nodes = {(device / key).resolve() for key in ('firmware_node', 'device/firmware_node')
+                 if (device / key).exists()}
+        matches = []
+        for port in ports:
+            path = port.resolve()
+            firmware = port / 'firmware_node'
+            if path == parent or path in target.parents or path in parent.parents:
+                matches.append((0, port))
+            elif firmware.exists() and firmware.resolve() in nodes:
+                matches.append((1, port))
+        # Older platform drivers may expose no connector or firmware link.
+        # Use the standardized laptop port type only for an unambiguous legacy
+        # panel, counting disconnected ports too (e.g. when the lid is shut).
+        if not matches and len(devices) == 1:
+            panels = [port for port in ports
+                      if port.name.split('-', 2)[1] in ('eDP', 'LVDS', 'DSI')]
+            if len(panels) == 1:
+                matches.append((2, panels[0]))
+        if matches:
+            rank = min(matches)[0]
+            best = [port for score, port in matches if score == rank]
+            if len(best) == 1:
+                name = best[0].name.split('-', 1)[1]
+                if connectors.get(name) == best:
+                    assigned.setdefault(name, []).append((rank, device))
+
+    return connectors, {name: [device for _, device in sorted(candidates)]
+                        for name, candidates in assigned.items()}
+
+
 def _read_brightness(force=False):
     started=time.time()
     from adws_display import detect_session, outputs
     session = detect_session()
     try: displays = outputs(session) if session else []
-    except (ValueError, OSError, subprocess.SubprocessError): displays = []
-    ddcs = ddc_devices(force)
-    backlights = list(Path('/sys/class/backlight').glob('*'))
+    except (ValueError, OSError, subprocess.SubprocessError):
+        session, displays = None, []
+    connectors, backlights = _display_hardware()
+    if not session:
+        displays = [{'name': name} for name, ports in connectors.items()
+                    if len(ports) == 1 and _sysfs_text(ports[0] / 'enabled') == 'enabled']
+    # DDC display numbers and bus mappings can change when a dock is unplugged.
+    topology = sorted((port.name + '/' + (port / 'ddc').resolve().name)
+                      for ports in connectors.values() for port in ports)
+    ddcs = ddc_devices(force, topology=topology)
     def inspect(output):
         name = output['name']; gamma = gamma_state(name)
         entry = {'name':name,'description':output.get('description') or name, 'provider':None, 'value':None,
@@ -235,8 +295,8 @@ def _read_brightness(force=False):
             record = read_json(night_path(name), {})
             active = owned_night(record, name)
             entry.update(color_provider='wlsunset',temperature=record.get('temperature',4500) if active else 6500,night=active)
-        if name.startswith(('eDP', 'LVDS', 'DSI')) and len(backlights) == 1 and shutil.which('brightnessctl'):
-            device = backlights[0]
+        devices = backlights.get(name, []) if shutil.which('brightnessctl') else []
+        for device in devices:
             try:
                 maximum = int((device / 'max_brightness').read_text())
                 current = int((device / 'brightness').read_text())
@@ -246,7 +306,7 @@ def _read_brightness(force=False):
             except (OSError, ValueError):
                 pass
         try:
-            if name in ddcs:
+            if name in ddcs and len(connectors.get(name, [])) <= 1:
                 raw = ddc_brightness_command(ddcs[name], 'getvcp')
                 match = re.search(r'VCP\s+10\s+C\s+(\d+)\s+(\d+)',raw)
                 if not match or int(match[2])<=0: raise ValueError('No brightness response')

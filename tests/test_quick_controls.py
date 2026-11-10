@@ -53,7 +53,7 @@ class Controls(unittest.TestCase):
             (device / 'max_brightness').write_text('200')
             with (
                 patch.object(backend, 'cache_root', return_value=root),
-                patch.object(Path, 'glob', return_value=[device]),
+                patch.object(backend, '_display_hardware', return_value=({}, {'eDP-1': [device]})),
                 patch('adws_display.detect_session', return_value='niri'),
                 patch('adws_display.outputs', return_value=[{'name': 'eDP-1'}]),
                 patch.object(backend.shutil, 'which', side_effect=lambda name: name if name == 'brightnessctl' else None),
