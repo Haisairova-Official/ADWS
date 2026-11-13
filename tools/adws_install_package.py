@@ -9,6 +9,9 @@ import re
 
 # These are required even before newly added files have entered Git's index.
 REQUIRED = (
+    'build-info.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md',
+    'tools/adws_about_page.py', 'tools/adws_about_markdown.py', 'tools/adws_sddm_page.py', 'tools/adws_sddm.py',
+    'tools/adws_login_manager.py',
     'install.sh', 'adws', 'scripts/adws-install.sh', 'scripts/adws-install-session.sh', 'scripts/adws-i18n.sh',
     'scripts/adws-bootstrap.sh', 'scripts/package-bootstrap.py', 'tools/adws_bootstrap.py', 'tools/adws_download.py',
     'tools/adws_install_workflow.py', 'tools/adws_install_transaction.py', 'tools/adws_install_features.py',
@@ -23,11 +26,25 @@ REQUIRED = (
     'docs/installer-keybindings.md', 'docs/installer-reference-shorin.md',
     'docs/installer-optional-boot-themes.md', 'docs/installer-arch-validation.md',
     'docs/validation-foot-palette-2026-11-06.md',
-    'config/adws-windows.kdl', 'config/taskbar-layout.json',
+    'config/adws-windows.kdl', 'config/taskbar-layout.json', 'config/context-menu.css',
+    'tools/adws_group_names.py', 'tools/adws_group_file_actions.py',
     'config/waybar/config-bottom.jsonc', 'config/waybar/modules.jsonc', 'config/waybar/style-bottom.css',
     'config/waybar/config-top.jsonc', 'config/waybar/style-top.css', 'config/waybar/colors.css',
     'config/waybar/arrow-left-symbolic.svg', 'config/waybar/arrow-right-symbolic.svg',
-    'src/niri-taskbar/Cargo.toml', 'src/adws-runtime/Cargo.toml', 'src/adws-start-menu/Cargo.toml',
+    # The README's standalone taskbar build also compiles its Rust and C modules.
+    'tools/adws_build_taskbar_preview.py', 'tools/adws_cargo.py', 'tools/adws_native_taskbar.py',
+    'tools/adws_taskbar_backend.py', 'tools/adws_taskbar_nested.py',
+    'tests/check_rust_taskbar_wayland.py',
+    'src/adws-taskbar/Cargo.toml', 'src/adws-taskbar/Cargo.lock',
+    'src/adws-taskbar/src/main.rs', 'src/adws-taskbar/src/host.rs', 'src/adws-taskbar/src/cffi.rs',
+    'src/adws-taskbar/src/style.rs', 'src/adws-taskbar/src/widgets.rs',
+    'src/adws-taskbar/src/widgets/custom.rs', 'src/adws-taskbar/src/widgets/stream.rs',
+    'src/adws-taskbar/src/widgets/workspaces.rs',
+    'src/niri-taskbar/Cargo.toml', 'src/niri-taskbar/Cargo.lock', 'src/niri-taskbar/src/paths.rs',
+    'src/adws-runtime/Cargo.toml', 'src/adws-runtime/Cargo.lock',
+    'src/adws-start-menu/Cargo.toml', 'src/adws-start-menu/Cargo.lock', 'vendor/niri-ipc/Cargo.toml',
+    'src/panel-rows/panel.c', 'src/panel-rows/start-image.h', 'src/panel-rows/motion.h',
+    'src/adws-i18n.h', 'src/niri-desktop-layer/integration/popup-effect.c',
     'src/niri-desktop-layer/integration/waybar-space.c', 'src/panel-rows/Makefile',
 )
 NATIVE = ('libniri_taskbar.so', 'libadws_panel.so', 'libwaybar-space.so', 'adws-plugin-runner', 'adws-start-menu')

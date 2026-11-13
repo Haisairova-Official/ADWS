@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <unistd.h>
 #include "../adws-i18n.h"
 /* Waybar CFFI v2 renderer for panel.rows-v1: primary / separator / secondary. */
 #include <gtk/gtk.h>
@@ -20,6 +21,7 @@ typedef struct {
     GtkWidget *event_box;
     gint refs;
     gboolean disposed;
+    gboolean standalone;
     gboolean has_content;
     GtkWidget *box, *controls, *previous_button, *next_button;
     gboolean controls_visible;
@@ -346,6 +348,52 @@ static void adws_rows_class_init(AdwsRowsClass *klass) {
 }
 static void adws_rows_init(AdwsRows *rows) { (void)rows; }
 
+// The standalone host drains runners after destroying its bars. Keep the wait
+// off GTK during hotplug, and never reenter GTK from the final shutdown.
+static GMutex runner_mutex;
+static GCond runner_changed;
+static GPtrArray *finishing_runners;
+
+static gpointer wait_stopping_runner(gpointer data) {
+    GSubprocess *process = data;
+    const gint64 deadline = g_get_monotonic_time() + 3 * G_TIME_SPAN_SECOND;
+    while (g_subprocess_get_identifier(process) && g_get_monotonic_time() < deadline)
+        g_usleep(20 * 1000);
+    if (g_subprocess_get_identifier(process)) g_subprocess_force_exit(process);
+    g_subprocess_wait(process, NULL, NULL);
+    g_mutex_lock(&runner_mutex);
+    g_ptr_array_remove_fast(finishing_runners, process);
+    if (finishing_runners->len == 0)
+        g_clear_pointer(&finishing_runners, g_ptr_array_unref);
+    g_cond_broadcast(&runner_changed);
+    g_mutex_unlock(&runner_mutex);
+    return NULL;
+}
+
+static void track_stopping_runner(GSubprocess *process) {
+    g_mutex_lock(&runner_mutex);
+    if (!finishing_runners) finishing_runners = g_ptr_array_new_with_free_func(g_object_unref);
+    g_ptr_array_add(finishing_runners, g_object_ref(process));
+    g_mutex_unlock(&runner_mutex);
+    g_thread_unref(g_thread_new("adws-rows-wait", wait_stopping_runner, process));
+}
+
+// Optional extension queried by the standalone host once per resident library.
+void adws_panel_finish_shutdown(void) {
+    const gint64 deadline = g_get_monotonic_time() + 3 * G_TIME_SPAN_SECOND;
+    g_mutex_lock(&runner_mutex);
+    while (finishing_runners && g_cond_wait_until(&runner_changed, &runner_mutex, deadline)) {}
+    if (finishing_runners) {
+        g_warning("ADWS rows: forcing %u unresponsive plugin runner(s) to exit", finishing_runners->len);
+        for (guint i = 0; i < finishing_runners->len; i++)
+            g_subprocess_force_exit(g_ptr_array_index(finishing_runners, i));
+        const gint64 reap_deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND;
+        while (finishing_runners && g_cond_wait_until(&runner_changed, &runner_mutex, reap_deadline)) {}
+        if (finishing_runners) g_warning("ADWS rows: %u runner(s) still awaiting kernel exit", finishing_runners->len);
+    }
+    g_mutex_unlock(&runner_mutex);
+}
+
 static Panel *panel_ref(Panel *p) { p->refs++; return p; }
 static void panel_unref(gpointer data) {
     Panel *p = data;
@@ -484,7 +532,14 @@ static gboolean start(gpointer data) {
     gchar **argv = NULL;
     GError *error = NULL;
     if (g_shell_parse_argv(p->command, NULL, &argv, &error)) {
-        p->process = g_subprocess_newv((const gchar *const *)argv, G_SUBPROCESS_FLAGS_STDOUT_PIPE, &error);
+        GSubprocessLauncher *launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE);
+        if (p->standalone) {
+            gchar parent[32];
+            g_snprintf(parent, sizeof parent, "%ld", (long)getpid());
+            g_subprocess_launcher_setenv(launcher, "ADWS_PLUGIN_HOST_PID", parent, TRUE);
+        }
+        p->process = g_subprocess_launcher_spawnv(launcher, (const gchar *const *)argv, &error);
+        g_object_unref(launcher);
         g_strfreev(argv);
     }
     if (p->process) {
@@ -834,6 +889,7 @@ void *wbcffi_init(const wbcffi_init_info *info, const wbcffi_config_entry *entri
     }
     gchar *widget_name = config_string(name);
     Panel *p = create_widgets(info->get_root_widget(info->obj), widget_name, width);
+    p->standalone = g_strcmp0(info->waybar_version, "ADWS native taskbar") == 0;
     g_free(widget_name);
     if (vertical) {
         p->vertical = TRUE;
@@ -899,6 +955,9 @@ void wbcffi_deinit(void *instance) {
     ((AdwsRows *)p->box)->panel = NULL;
     if (p->retry) { g_source_remove(p->retry); p->retry = 0; }
     g_cancellable_cancel(p->cancel);
-    if (p->process) g_subprocess_send_signal(p->process, SIGTERM);
+    if (p->process) {
+        g_subprocess_send_signal(p->process, SIGTERM);
+        if (p->standalone) track_stopping_runner(p->process);
+    }
     panel_unref(p);
 }

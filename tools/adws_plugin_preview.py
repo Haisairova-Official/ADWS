@@ -5,6 +5,19 @@ from itertools import islice
 from pathlib import Path
 
 
+def runtime_directory():
+    return os.environ.get('ADWS_PLUGIN_RUNTIME_DIR') or os.environ.get('XDG_RUNTIME_DIR')
+
+
+def runtime_folder_exists(folder):
+    # The launcher owns preview directories. An exiting plugin must not recreate
+    # them after the preview host has removed its workspace.
+    if os.environ.get('ADWS_PLUGIN_RUNTIME_DIR'):
+        return folder.is_dir()
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return True
+
+
 def filename(instance):
     key = 14695981039346656037
     for byte in instance.encode('utf-8'):
@@ -17,13 +30,13 @@ def process_start(pid):
 
 
 def publish(payload, instance):
-    runtime = os.environ.get('XDG_RUNTIME_DIR')
+    runtime = runtime_directory()
     if not runtime or not Path(runtime).is_dir(): return
     minimal = {key: str(payload[key])[:4096] for key in ('primary','secondary','text','class') if key in payload}
     if not minimal: return
     record = {'instance':instance,'pid':os.getpid(),'start':process_start(os.getpid()), **minimal}
     folder = Path(runtime)/'adws/plugin-preview'
-    folder.mkdir(parents=True,exist_ok=True,mode=0o700)
+    if not runtime_folder_exists(folder): return
     path = folder/filename(instance)
     staged = path.with_suffix(f'.{os.getpid()}.tmp')
     try:
@@ -36,7 +49,7 @@ def publish(payload, instance):
 
 
 def read():
-    runtime = os.environ.get('XDG_RUNTIME_DIR')
+    runtime = runtime_directory()
     if not runtime: return {}
     snapshots = {}
     for path in islice((Path(runtime)/'adws/plugin-preview').glob('*.json'),128):

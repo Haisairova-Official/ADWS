@@ -17,6 +17,23 @@ import adws_runtime as runtime
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class FileManagerHealthTests(unittest.TestCase):
+    def test_existing_directory_handler_does_not_require_thunar(self):
+        from gi.repository import Gio
+        from types import SimpleNamespace
+        with patch.dict(os.environ, {'ADWS_INSTALL_PLAN':'', 'ADWS_INSTALL_MANAGED':''}), \
+             patch.object(health.shutil, 'which', side_effect=lambda name: name if name in ('niri','systemctl') else None), \
+             patch.object(health, 'waybar_capability_errors', return_value=[]), \
+             patch.object(health.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
+             patch('adws_runtime_dependencies.missing_dependencies', return_value={}), \
+             patch.object(Gio.AppInfo, 'get_default_for_type') as handler:
+            handler.return_value = object()
+            self.assertEqual(health.dependency_errors(), [])
+            handler.assert_called_once_with('inode/directory', False)
+            handler.return_value = None
+            self.assertEqual(health.dependency_errors(), [_tr('请在 ADWS 默认应用设置中选择已安装的文件管理器。')])
+
+
 class InstallationTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix='adws-install-test-')
@@ -32,10 +49,18 @@ class InstallationTests(unittest.TestCase):
                         XDG_STATE_HOME=str(self.state), XDG_DATA_HOME=str(self.root / 'data'),
                         XDG_CACHE_HOME=str(self.root / 'cache'), NIRI_CONFIG=str(self.config/'niri/config.kdl'),
                         ZDOTDIR=str(self.home), PATH=str(self.bin) + os.pathsep + str(self.home / '.local/bin') + os.pathsep + os.environ['PATH'])
-        for program in ('niri', 'waybar', 'thunar', 'systemctl', 'rofi'):
+        for program in ('niri', 'waybar', 'test-file-manager', 'systemctl', 'rofi'):
             file = self.bin / program
             file.write_text('#!/bin/sh\nexit 0\n')
             file.chmod(0o755)
+        applications = Path(self.env['XDG_DATA_HOME'])/'applications'
+        applications.mkdir(parents=True)
+        (applications/'test-file-manager.desktop').write_text(
+            '[Desktop Entry]\nType=Application\nName=Test file manager\n'
+            'Exec=test-file-manager %U\nMimeType=inode/directory;\n')
+        self.config.mkdir()
+        (self.config/'mimeapps.list').write_text(
+            '[Default Applications]\ninode/directory=test-file-manager.desktop;\n')
         # Use a runnable ELF fixture rather than depending on the host Waybar
         # package having Niri/CFFI modules. The installer never launches a bar.
         shutil.copy2(shutil.which('true'), self.bin / 'waybar')
@@ -159,7 +184,9 @@ runpy.run_path(str(Path(sys.argv[1])/'tools/adws_install_transaction.py'), run_n
         config, style = self.config_files()
         fake = self.bin / 'waybar'
         fake.write_text('#!/bin/sh\necho "bad config test" >&2\nexit 7\n')
-        with patch.dict(os.environ, self.env), patch.object(layout, 'taskbar_pids', return_value=[]), patch.object(health, 'waybar_capability_errors', return_value=[]):
+        # Both the settings entry point and the runtime's singleton check use this
+        # process registry. A temporary HOME by itself still shares /proc.
+        with patch.dict(os.environ, self.env), patch('adws_runtime.pids', return_value=[]), patch.object(health, 'waybar_capability_errors', return_value=[]):
             ok, message = layout.restart_taskbar(config, style)
         self.assertFalse(ok)
         self.assertIn('7', message)

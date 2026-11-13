@@ -68,7 +68,18 @@ def dispatch(root, manifest, overrides, timeout=30):
     project = Path(__file__).resolve().parents[1]
     candidates = (project / 'libexec/adws-plugin-runner',
                   project / 'src/adws-runtime/target/release/adws-plugin-runner')
+    if os.environ.get('ADWS_TASKBAR_PREVIEW') == '1' or os.environ.get('ADWS_TASKBAR_BACKEND') == 'rust':
+        candidates = (project / 'libexec/taskbar-preview/adws-plugin-runner', *candidates)
     binary = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), None)
+    if binary is not None and os.environ.get('ADWS_PLUGIN_RUNTIME_DIR'):
+        # Older installed supervisors always publish in the live session. Use the
+        # same Python supervisor for previews until a compatible native one exists.
+        probe = subprocess.run([str(binary), '--supports-private-runtime'], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=2)
+        if probe.returncode:
+            if backend == 'rust':
+                raise ValueError('Rebuild src/adws-runtime to isolate native preview snapshots.')
+            binary = None
     if binary is None and backend == 'auto':
         return execute(root, manifest, overrides, timeout)
     if binary is None:

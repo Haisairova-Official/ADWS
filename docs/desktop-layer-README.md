@@ -17,7 +17,7 @@
 
 首次运行使用 XDG 桌面目录；未配置桌面目录或配置为整个 HOME 时，使用 `~/Desktop`。缺失的目录不会被自动创建。默认监听桌面目录变化，使用 GIO 文件监视和事件合并，空闲时不周期扫描。
 
-依赖为 Python 3.11+、PyGObject、PyCairo、GTK3、GtkLayerShell 和 Pillow。在本机 Arch 环境中，对应的 `python`、`python-gobject`、`python-cairo`、`gtk3`、`gtk-layer-shell`、`python-pillow`、`thunar` 已安装；项目本身没有安装步骤，启动脚本不会修改自身或系统配置。
+依赖为 Python 3.11+、PyGObject、PyCairo、GTK3、GtkLayerShell 和 Pillow。在本机 Arch 环境中，对应的 `python`、`python-gobject`、`python-cairo`、`gtk3`、`gtk-layer-shell`、`python-pillow` 已安装；项目本身没有安装步骤，启动脚本不会修改自身或系统配置。
 
 常用控制命令可在另一个终端运行：
 
@@ -109,7 +109,7 @@ Wayland 没有提供主屏时，`primary` 选择最靠左的显示器，位置�
 
 ## 快捷方式与文件打开
 
-普通文件交给 GIO 默认关联程序打开。桌面文件夹、打开桌面目录和右键定位文件统一使用 Thunar；现有计算机、网络、回收站及家目录快捷方式也交给 Thunar。这里只改变本图标层的打开方式，不修改系统默认文件关联。可执行文本脚本交给默认文本编辑器；不会直接执行桌面上的脚本、ELF 或 AppImage。需要启动应用时，请使用对应的 `.desktop` 快捷方式。
+普通文件交给 GIO 默认关联程序打开。桌面和图标组打开目录时读取「ADWS 设置 → 默认应用 → 文件管理器」的当前选择。桌面上的家目录、网络和回收站快捷方式也由该管理器处理；可访问的位置取决于文件管理器及其后端。可执行文本脚本交给默认文本编辑器；不会直接执行桌面上的脚本、ELF 或 AppImage。需要启动应用时，请使用对应的 `.desktop` 快捷方式。
 
 `.desktop` 支持本地化名称、系统主题图标、`Type=Application` 和 `Type=Link`。Application 由 GIO 解析和启动，程序不自行拼接 shell 命令或展开 `Exec`。位于 XDG applications 目录中的启动器，包括指向其的符号链接，以及带可执行权限的启动器可直接打开；其他启动器先显示确认对话框，需点击“本次运行”。批量打开时依次确认，可以跳过单项或取消后续项目，后一个项目不会覆盖前一个确认。这次许可不会修改文件权限或持久化信任标记。
 

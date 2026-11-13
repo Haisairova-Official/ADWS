@@ -19,9 +19,10 @@ LOG = logging.getLogger('adws-app-launch')
 
 
 def pin_application(app_id, enabled):
-    directory = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'adws'
+    config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
+    path = Path(os.environ.get('ADWS_TASKBAR_PINS_FILE') or config / 'adws/taskbar-pins.json')
+    directory = path.parent
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / 'taskbar-pins.json'
     normalize = lambda value: value.removesuffix('.desktop').casefold()
     info = resolve_app(app_id) if enabled else None
     desktop_id = info.get_id() if info else app_id

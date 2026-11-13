@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf, sync::LazyLock};
 use regex::Regex;
 use waybar_cffi::gtk::{
     self as gtk, CssProvider,
-    prelude::{CssProviderExt, StyleContextExt, WidgetExt},
+    prelude::{CssProviderExt, WidgetExt},
 };
 
 thread_local! {
@@ -21,50 +21,40 @@ thread_local! {
 static COLOR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"@define-color\s+([\w-]+)\s+([^;]+);").expect("valid color regex")
 });
-static FONT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"font-family\s*:\s*([^;}]+);").expect("valid font regex"));
-
-fn waybar_config_file(name: &str) -> Option<PathBuf> {
-    let config = std::env::var_os("XDG_CONFIG_HOME")
+fn config_home() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    let path = config.join("waybar").join(name);
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+}
+
+fn waybar_config_file(name: &str) -> Option<PathBuf> {
+    let path = config_home()?.join("waybar").join(name);
     path.is_file().then_some(path)
 }
 
 fn read_colors() -> HashMap<String, String> {
-    let mut colors = HashMap::new();
-    let Some(path) = waybar_config_file("colors.css") else {
-        return colors;
-    };
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return colors;
-    };
-    for captures in COLOR_RE.captures_iter(&text) {
-        let name = captures
-            .get(1)
-            .map(|m| m.as_str().trim())
-            .unwrap_or_default();
-        let value = captures
-            .get(2)
-            .map(|m| m.as_str().trim())
-            .unwrap_or_default();
-        if !name.is_empty() && !value.is_empty() {
-            colors.insert(name.to_string(), value.to_string());
+    let installed = std::iter::once_with(|| crate::paths::application_tool_candidates("config/waybar/colors.css")).flatten();
+    for path in waybar_config_file("colors.css").into_iter().chain(installed) {
+        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let colors: HashMap<_, _> = COLOR_RE.captures_iter(&text)
+            .map(|m| (m[1].to_string(), m[2].trim().to_string()))
+            .collect();
+        if !colors.is_empty() {
+            return colors;
         }
     }
-    colors
+    HashMap::new()
 }
 
-fn read_font_family() -> Option<String> {
-    let path = waybar_config_file("style-bottom.css")?;
-    let text = std::fs::read_to_string(path).ok()?;
-    // 样式文件后面出现的 font-family 会覆盖前面的，取最后一段的第一族字体。
-    let captures = FONT_RE.captures_iter(&text).last()?;
-    let value = captures.get(1)?.as_str();
-    let family = value.split(',').next()?.trim().trim_matches('"').trim();
-    (!family.is_empty()).then(|| family.to_string())
+fn desktop_font() -> String {
+    let value = config_home()
+        .and_then(|dir| std::fs::read_to_string(dir.join("niri-desktop-layer/config.toml")).ok())
+        .and_then(|text| text.parse::<toml::Table>().ok())
+        .and_then(|config| config.get("font_family")?.as_str().map(str::to_owned))
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "Noto Sans CJK SC".into());
+    value.replace('\\', "\\\\").replace('"', "\\\"").replace(['\n', '\r'], " ")
 }
 
 /// 让菜单使用与底部任务栏一致的 matugen 调色板（每次弹出重读 colors.css）。
@@ -79,49 +69,21 @@ fn refresh_menu_palette() {
     let outline = pick(&colors, "outline_variant", "#454651");
 
     let radius = bar_radius();
-    let font_family = read_font_family();
-    let font_css = match font_family {
-        Some(family) => format!("font-family: \"{}\";", family.replace('"', "")),
-        None => String::new(),
-    };
-
+    let font_css = format!("font-family: \"{}\";", desktop_font());
+    let context_menu = include_str!("../../../config/context-menu.css")
+        .replace("__ADWS_MENU_FONT_RULE__", &font_css)
+        .replace("__ADWS_MENU_RADIUS__", "12px")
+        .replace("__ADWS_MENU_TRANSITION__", "none")
+        .replace("__ADWS_MENU_LABEL_TRANSITION__", "none");
     let css = format!(
-        ".adws-tray-item, .adws-quick-button {{ background: transparent; border: none; padding: 3px; border-radius: {radius}; box-shadow: none; min-width: 0; min-height: 0; color: {foreground}; }}\n\
-         .adws-tray-item:hover, .adws-quick-button:hover {{ background: {hover}; }}\n\
-         popover.adws-tray-overflow {{ background: {background}; color: {foreground}; border: 1px solid {outline}; border-radius: {radius}; }}\n\
-         menu.adws-menu {{\n\
-             background-color: {background};\n\
-             color: {foreground};\n\
-             {font_css}\n\
-             padding: 4px;\n\
-             margin: 4px;\n\
-             border-radius: {radius};\n\
-             border: none;\n\
-             box-shadow: none;\n\
-             background-image: none;\n\
-         }}\n\
-         menu.adws-menu menuitem {{\n\
-             color: {foreground};\n\
-             padding: 5px 12px;\n\
-             min-height: 16px;\n\
-             border-radius: {radius};\n\
-         }}\n\
-         menu.adws-menu menuitem:hover,\n\
-         menu.adws-menu menuitem:selected {{\n\
-             background-color: {hover};\n\
-             color: {foreground};\n\
-             border-radius: {radius};\n\
-         }}\n\
-         menu.adws-menu separator {{\n\
-             background-color: {outline};\n\
-             margin: 6px 0;\n\
-         }}\n\
-         window.adws-menu-popup, window.adws-menu-popup decoration {{\n\
-             background-color: transparent;\n\
-             background-image: none;\n\
-             border: none;\n\
-             box-shadow: none;\n\
-         }}\n"
+        "@define-color adws_menu_bg {background};
+         @define-color adws_menu_fg {foreground};
+         @define-color adws_menu_hover {hover};
+         @define-color adws_menu_outline {outline};
+         {context_menu}
+         .adws-tray-item, .adws-quick-button {{ background: transparent; border: none; padding: 3px; border-radius: {radius}; box-shadow: none; min-width: 0; min-height: 0; color: {foreground}; }}
+         .adws-tray-item:hover, .adws-quick-button:hover {{ background: {hover}; }}
+         popover.adws-tray-overflow {{ background: {background}; color: {foreground}; border: 1px solid {outline}; border-radius: {radius}; }}"
     );
 
     MENU_PROVIDER.with(|provider| {
@@ -132,21 +94,48 @@ fn refresh_menu_palette() {
 }
 
 pub fn apply(menu: &gtk::Menu) {
+    refresh_menu_palette();
+    style_menu_tree(menu);
+}
+
+fn style_menu_tree(menu: &gtk::Menu) {
     use gtk::prelude::*;
     for child in menu.children() {
-        if let Some(submenu)=child.downcast_ref::<gtk::MenuItem>().and_then(|i|i.submenu()).and_then(|w|w.downcast::<gtk::Menu>().ok()) {
-            apply(&submenu);
+        if let Some(submenu) = child.downcast_ref::<gtk::MenuItem>()
+            .and_then(|item| item.submenu())
+            .and_then(|widget| widget.downcast::<gtk::Menu>().ok())
+        {
+            style_menu_tree(&submenu);
         }
     }
-    if !menu.is_realized() {
-        if let Some(visual)=menu.screen().and_then(|s|s.rgba_visual()) { menu.set_visual(Some(&visual)); }
+    let context = menu.style_context();
+    if !context.has_class("adws-context-menu") {
+        context.add_class("adws-menu");
+        context.add_class("adws-context-menu");
+        if !menu.is_realized() {
+            if let Some(visual) = menu.screen().and_then(|s| s.rgba_visual()) {
+                menu.set_visual(Some(&visual));
+            }
+        }
+        prepare_popup_shell(menu);
+        menu.connect_realize(prepare_popup_shell);
     }
-    refresh_menu_palette();
-    // Screen-scoped selectors also reach menu items and the popup decoration;
-    // a provider attached to the menu widget alone does not style those nodes.
-    menu.style_context().add_class("adws-menu");
-    prepare_popup_shell(menu);
-    menu.connect_realize(prepare_popup_shell);
+}
+
+pub fn action_item(title: &str, icon: &str) -> gtk::MenuItem {
+    use gtk::prelude::*;
+    let item = gtk::MenuItem::new();
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let image = gtk::Image::from_icon_name(Some(icon), gtk::IconSize::Menu);
+    let label = gtk::Label::new(Some(title));
+    label.set_xalign(0.);
+    row.pack_start(&image, false, false, 0);
+    row.pack_start(&label, false, false, 0);
+    item.add(&row);
+    if let Some(accessible) = item.accessible() {
+        gtk::atk::prelude::AtkObjectExt::set_name(&accessible, title);
+    }
+    item
 }
 
 // GtkMenu owns a separate popup GtkWindow. Setting the visual on the menu
@@ -155,6 +144,7 @@ fn prepare_popup_shell(menu: &gtk::Menu) {
     use gtk::prelude::*;
     if let Some(top) = menu.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok()) {
         top.style_context().add_class("adws-menu-popup");
+        top.style_context().add_class("adws-context-popup");
         if !top.is_realized() {
             if let Some(visual) = gtk::prelude::WidgetExt::screen(&top).and_then(|s| s.rgba_visual()) {
                 top.set_visual(Some(&visual));
@@ -230,7 +220,9 @@ mod tests {
         gtk::init().unwrap();
         let root=std::env::temp_dir().join(format!("adws-menu-test-{}",std::process::id()));
         std::fs::create_dir_all(root.join("waybar")).unwrap();
-        std::fs::write(root.join("waybar/style-bottom.css"),"window#waybar > box {border-radius:12px;}").unwrap();
+        std::fs::write(root.join("waybar/style-bottom.css"),"window#waybar > box {border-radius:0;}").unwrap();
+        std::fs::create_dir_all(root.join("niri-desktop-layer")).unwrap();
+        std::fs::write(root.join("niri-desktop-layer/config.toml"), "font_family = 'Serif'").unwrap();
         let old=std::env::var_os("XDG_CONFIG_HOME");
         unsafe {std::env::set_var("XDG_CONFIG_HOME",&root);}
 
@@ -242,7 +234,10 @@ mod tests {
         apply(&menu);menu.show_all();
         menu.popup_at_rect(&window.window().unwrap(),&gtk::gdk::Rectangle::new(20,20,1,1),gtk::gdk::Gravity::SouthWest,gtk::gdk::Gravity::NorthWest,None);
         settle();
+        assert_eq!(desktop_font(), "Serif");
+        assert_eq!(bar_radius(), "0");
         let top=menu.toplevel().unwrap();
+        assert!(top.style_context().has_class("adws-context-popup"));
         assert_eq!(top.visual().unwrap().depth(),32,"popup must use RGBA visual");
         let bg=top.style_context().style_property_for_state("background-color",gtk::StateFlags::NORMAL).get::<gtk::gdk::RGBA>().unwrap();
         assert_eq!(bg.alpha(),0.0,"popup shell must be transparent");
@@ -364,14 +359,29 @@ mod tests {
 
 /// Local provider keeps dangerous actions distinct without changing normal close.
 pub fn destructive(item: &gtk::MenuItem, animations: bool, duration: u32) {
+    use gtk::prelude::*;
     item.style_context().add_class("adws-destructive");
+    item.style_context().add_class("adws-destructive-transition");
+    // Each bar can select a different duration. The common template supplies
+    // the colors, while this item's transition survives releasing Shift.
+    let transition = if animations {
+        format!("background-color {duration}ms ease-in-out, color {duration}ms ease-in-out")
+    } else {
+        "none".into()
+    };
     let provider = CssProvider::new();
-    let transition = if animations { format!("background-color {}ms ease-in-out, color {}ms ease-in-out",duration,duration) } else { "none".into() };
-    let css = format!("menuitem {{ transition:{transition}; }} menuitem.adws-destructive:hover, menuitem.adws-destructive:selected {{ background-image:none; background-color:#c62828; color:#ffffff; }}");
+    let css = format!("menuitem {{ transition: {transition}; }}");
     if provider.load_from_data(css.as_bytes()).is_ok() {
-        item.style_context().add_provider(&provider,gtk::STYLE_PROVIDER_PRIORITY_USER+2);
+        item.style_context().add_provider(&provider, gtk::STYLE_PROVIDER_PRIORITY_USER + 2);
     }
-
+    if let Some(label) = item.child() {
+        let label_provider = CssProvider::new();
+        let transition = if animations { format!("color {duration}ms ease-in-out") } else { "none".into() };
+        let css = format!("label {{ transition: {transition}; }}");
+        if label_provider.load_from_data(css.as_bytes()).is_ok() {
+            label.style_context().add_provider(&label_provider, gtk::STYLE_PROVIDER_PRIORITY_USER + 2);
+        }
+    }
 }
 
 // GTK3 does not expose computed corner radii through get_property. Use the

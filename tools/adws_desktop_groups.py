@@ -10,7 +10,8 @@ from gi.repository import Gtk, Gdk, Gio, GLib, Pango, GdkPixbuf
 from adws_i18n import tr
 import adws_desktop_groups_model as model
 import adws_desktop_preferences as preferences
-from desktop_layer.model import scan_desktop, atomic_save_json
+from desktop_layer.model import (scan_desktop, sort_entries, atomic_save_json,
+                                open_in_file_manager, reveal_in_file_manager, EntryLaunchError)
 
 LOG=logging.getLogger('adws.desktop-groups')
 TARGET='application/x-adws-desktop-group'
@@ -46,15 +47,18 @@ class Manager:
         accent=self.palette.get('primary','#b8b9ff')
         field=self.palette.get('surface_container_high','#353541')
         on_accent=self.palette.get('on_primary','#171836')
+        error=self.palette.get('error','#ffb4ab')
         css = '.adws-folder-group, .adws-folder-group label { color:'+foreground+'; } .adws-folder-group button { background-image:none; background-color:transparent; border:0; box-shadow:none; color:'+foreground+'; } .adws-folder-group button:hover { background-color:alpha('+foreground+',0.12); border-radius:10px; }'
-        css += ('window.adws-group-editor, .adws-group-editor headerbar { background-image:none; background-color:'+background+'; color:'+foreground+'; }'
+        css += ('window.adws-group-editor, .adws-group-editor > box, .adws-group-content, .adws-group-editor headerbar { background-image:none; background-color:'+background+'; color:'+foreground+'; }'
                 '.adws-group-editor headerbar { padding:8px 12px; border-bottom:1px solid alpha('+foreground+',0.10); box-shadow:none; }'
                 '.adws-group-editor label { color:'+foreground+'; }'
                 '.adws-group-editor entry, .adws-group-editor spinbutton, .adws-group-editor button { border-radius:10px; background-image:none; background-color:'+field+'; color:'+foreground+'; }'
                 '.adws-group-editor stackswitcher button { padding:7px 20px; }'
                 '.adws-group-editor stackswitcher button:checked { background-image:none; background-color:alpha('+accent+',0.18); color:'+accent+'; }'
                 '.adws-group-editor button.suggested-action { background-color:'+accent+'; color:'+on_accent+'; }'
-                '.adws-group-editor .dim-label { opacity:0.65; }')
+                '.adws-group-editor button.suggested-action label { color:'+on_accent+'; }'
+                '.adws-group-editor label.error { color:'+error+'; }'
+                '.adws-group-editor .dim-label { opacity:0.8; }')
         self.provider.load_from_data(css.encode())
         for layer in self.layers:
             for card in layer.cards:card.queue_draw()
@@ -134,11 +138,14 @@ class Manager:
         if self.closed:return False
         if self.loading:self.again=True;return False
         self.loading=True
-        directories={row['directory'] for row in self.data['groups']}
+        directories = {}
+        for row in self.data['groups']:
+            path = row['directory']
+            directories[path] = directories.get(path, False) or row.get('show_hidden', False)
         def scan():
             result={}
-            for directory in directories:
-                try:result[directory]=(scan_desktop(Path(directory),False),None)
+            for directory, show_hidden in directories.items():
+                try:result[directory]=(scan_desktop(Path(directory),show_hidden),None)
                 except OSError as error:result[directory]=([],str(error))
             return result
         future=self.pool.submit(scan)
@@ -243,6 +250,7 @@ class Manager:
         dialog.add_buttons(tr('取消'),Gtk.ResponseType.CANCEL,tr('保存'),Gtk.ResponseType.OK)
         dialog.get_widget_for_response(Gtk.ResponseType.OK).get_style_context().add_class('suggested-action')
         dialog.get_style_context().add_class('adws-group-editor')
+        dialog.get_content_area().get_style_context().add_class('adws-group-content')
         return dialog
 
     def choose_default(self,window):
@@ -338,13 +346,22 @@ class Layer:
         if self in self.manager.layers:self.manager.layers.remove(self)
 
 
-class Card(Gtk.Box):
+class Card(Gtk.EventBox):
     def __init__(self,layer,row):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL,spacing=4)
+        super().__init__()
+        # Give the whole card a pointer target below its controls. A windowless
+        # box cannot receive presses on padding or between the file buttons.
+        self.set_visible_window(False)
+        self.set_can_focus(True)
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.connect('button-press-event', self.group_press)
+        self.connect('popup-menu', lambda widget: self.popup(widget))
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.add(body)
         self.layer=layer;self.row=row;self.manager=layer.manager;self.icon_drag=None
-        self.get_style_context().add_class('adws-folder-group')
+        body.get_style_context().add_class('adws-folder-group')
         css=Gtk.CssProvider();css.load_from_data(b'.adws-folder-group {background: transparent; color:@theme_fg_color; border:1px solid alpha(@theme_fg_color,0.2); border-radius:16px; padding:8px;}')
-        self.get_style_context().add_provider(css,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        body.get_style_context().add_provider(css,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.connect('draw',self.background)
         self.background_pixbuf=None
         image=row.get('background_image','')
@@ -366,11 +383,17 @@ class Card(Gtk.Box):
         header.pack_start(handle,True,True,0)
         for icon,callback in [('preferences-system-symbolic',lambda *_:self.manager.edit(layer.window,row)),('window-close-symbolic',lambda *_:self.manager.remove(layer.window,row))]:
             button=Gtk.Button.new_from_icon_name(icon,Gtk.IconSize.MENU);button.set_relief(Gtk.ReliefStyle.NONE);button.connect('clicked',callback);header.pack_end(button,False,False,0)
-        self.pack_start(header,False,False,0)
+        body.pack_start(header,False,False,0)
         scroll=Gtk.ScrolledWindow();scroll.set_policy(Gtk.PolicyType.AUTOMATIC,Gtk.PolicyType.AUTOMATIC);scroll.set_min_content_height(80)
-        self.pack_start(scroll,True,True,0)
+        body.pack_start(scroll,True,True,0)
         self.grid=Gtk.Fixed();scroll.add(self.grid)
+        viewport = scroll.get_child()
+        viewport.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        viewport.connect('button-press-event', self.group_press)
         entries,error=self.manager.cache.get(row['directory'],([],tr('正在读取文件夹…')))
+        if not row.get('show_hidden', False):
+            entries = [entry for entry in entries if not entry.path.name.startswith('.')]
+        self.entries = entries
         if error:
             status=Gtk.Label(label=tr('文件夹不可用：')+error);status.set_line_wrap(True);status.set_max_width_chars(25);self.grid.put(status,8,8)
         cells=model.grid(row,[entry.path.name for entry in entries])
@@ -383,6 +406,9 @@ class Card(Gtk.Box):
             label=Gtk.Label(label=entry.name);label.set_max_width_chars(12);label.set_ellipsize(Pango.EllipsizeMode.END);content.pack_start(label,False,False,0)
             button.add(content);button.set_tooltip_text(entry.name)
             button.connect('button-press-event',self.press,entry)
+            button.connect('popup-menu', lambda widget, entry=entry: self.popup(widget, entry=entry))
+            button.connect('key-press-event', self.file_key, entry)
+            button.connect('clicked', lambda _button, entry=entry: self.launch(entry))
             button.add_events(Gdk.EventMask.POINTER_MOTION_MASK|Gdk.EventMask.BUTTON_RELEASE_MASK)
             button.connect('motion-notify-event',self.icon_motion,entry,cell_width,cell_height)
             button.connect('button-release-event',self.icon_release,entry,cell_width,cell_height)
@@ -394,7 +420,7 @@ class Card(Gtk.Box):
         resize=Gtk.EventBox();resize.add(Gtk.Label(label='◢'));resize.set_tooltip_text(tr('拖动调整大小'));resize.add_events(Gdk.EventMask.BUTTON_PRESS_MASK|Gdk.EventMask.BUTTON_RELEASE_MASK|Gdk.EventMask.POINTER_MOTION_MASK)
         self.resize_origin=None
         resize.connect('button-press-event',self.resize_press);resize.connect('motion-notify-event',self.resize_motion);resize.connect('button-release-event',self.resize_release)
-        footer.pack_end(resize,False,False,0);self.pack_end(footer,False,False,0)
+        footer.pack_end(resize,False,False,0);body.pack_end(footer,False,False,0)
 
     def background(self,widget,cr):
         import math
@@ -431,16 +457,141 @@ class Card(Gtk.Box):
         cr.pop_group_to_source();cr.paint_with_alpha(self.row.get('opacity',.78));cr.restore()
         return False
 
+    def group_press(self, widget, event):
+        if event.button == 3:
+            return self.popup(widget, event)
+        return False
+
+    def append_view_menu(self, menu):
+        view_item = Gtk.MenuItem(label=tr('查看'))
+        choices = Gtk.Menu()
+        view_item.set_submenu(choices)
+        menu.append(view_item)
+        for label, size in [('小图标', 32), ('中等图标', 40), ('大图标', 64)]:
+            item = Gtk.MenuItem(label=f'{tr(label)} ({size})')
+            item.set_sensitive(size != self.row['icon_size'])
+            item.connect('activate', lambda _, value=size: self.set_icon_size(value))
+            choices.append(item)
+        choices.append(Gtk.SeparatorMenuItem())
+        hidden = Gtk.CheckMenuItem(label=tr('显示隐藏文件'))
+        hidden.set_active(self.row.get('show_hidden', False))
+        hidden.connect('toggled', lambda item: self.set_show_hidden(item.get_active()))
+        choices.append(hidden)
+
+        sort_item = Gtk.MenuItem(label=tr('排列图标'))
+        sorting = Gtk.Menu()
+        sort_item.set_submenu(sorting)
+        sort_item.set_sensitive(len(self.entries) > 1)
+        menu.append(sort_item)
+        for key, label in [('name', '名称'), ('type', '项目类型'), ('size', '大小'), ('modified', '修改日期')]:
+            item = Gtk.MenuItem(label=tr(label))
+            item.connect('activate', lambda _, field=key: self.arrange(field))
+            sorting.append(item)
+
+    def set_icon_size(self, size):
+        self.row['icon_size'] = size
+        self.manager.save()
+        self.manager.render()
+
+    def set_show_hidden(self, visible):
+        self.row['show_hidden'] = visible
+        self.manager.save()
+        self.manager.refresh()
+
+    def arrange(self, field):
+        ordered = sort_entries(self.entries, field)
+        model.arrange_visible(self.row, (entry.path.name for entry in ordered))
+        self.manager.save()
+        self.manager.render()
+
+    def popup(self, widget, event=None, entry=None):
+        from desktop_layer.app import menu_item_with_icon
+        view = self.layer.window
+        menu = Gtk.Menu()
+        if entry is None:
+            from adws_group_names import new_item
+            new = menu_item_with_icon(tr('新建'), 'document-new-symbolic')
+            choices = Gtk.Menu()
+            for kind, title, icon in (
+                ('folder', '文件夹', 'folder-new-symbolic'),
+                ('text', '文本文档', 'text-x-generic-symbolic'),
+                ('markdown', 'Markdown 文档', 'text-x-generic-symbolic'),
+            ):
+                choice = menu_item_with_icon(tr(title), icon)
+                choice.connect('activate', lambda _item, kind=kind: new_item(self, kind))
+                choices.append(choice)
+            new.set_submenu(choices)
+            menu.append(new)
+            actions = (
+                ('打开文件夹', 'folder-open-symbolic', lambda: self.open_directory(Path(self.row['directory']))),
+                ('刷新', 'view-refresh-symbolic', self.manager.refresh),
+                ('图标组设置', 'preferences-system-symbolic', lambda: self.manager.edit(view, self.row)),
+                ('在此打开终端', 'utilities-terminal-symbolic', lambda: self.manager.application.open_terminal(Path(self.row['directory']))),
+                ('移除图标组', 'list-remove-symbolic', lambda: self.manager.remove(view, self.row)),
+            )
+        else:
+            import adws_group_file_actions as files
+            actions = (
+                ('打开', 'document-open-symbolic', lambda: self.launch(entry)),
+                ('用指定应用打开…', 'application-x-executable-symbolic', lambda: self.open_with(entry)),
+                ('打开所在文件夹', 'folder-open-symbolic', lambda: self.reveal_file(entry)),
+                ('复制文件路径', 'edit-copy-symbolic', lambda: Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(str(entry.path), -1)),
+                ('重命名…', 'document-edit-symbolic', lambda: files.rename(self, entry)),
+                ('移到回收站', 'user-trash-symbolic', lambda: files.trash(self, entry)),
+                ('属性', 'document-properties-symbolic', lambda: files.properties(self, entry)),
+            )
+        for title, icon, callback in actions:
+            item = menu_item_with_icon(tr(title), icon)
+            if title == '在此打开终端':
+                self.append_view_menu(menu)
+            if title in ('重命名…', '移除图标组'):
+                menu.append(Gtk.SeparatorMenuItem())
+            if title in ('移除图标组', '移到回收站'):
+                item.get_style_context().add_class('adws-destructive')
+            item.connect('activate', lambda _item, cb=callback: cb())
+            menu.append(item)
+        view.show_context_menu(menu, event, widget)
+        return True
+
+    def open_directory(self, path):
+        try:
+            context = self.get_display().get_app_launch_context()
+            context.set_timestamp(Gtk.get_current_event_time())
+            open_in_file_manager(path.as_uri(), context)
+        except (GLib.Error, EntryLaunchError) as error:
+            self.folder_error(str(error))
+
+    def reveal_file(self, entry):
+        context = self.get_display().get_app_launch_context()
+        context.set_timestamp(Gtk.get_current_event_time())
+        reveal_in_file_manager([entry.path], context, self.folder_error)
+
+    def folder_error(self, message):
+        dialog = Gtk.MessageDialog(transient_for=self.layer.window, destroy_with_parent=True,
+                                   message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.CLOSE,
+                                   text=tr('打开失败'))
+        dialog.format_secondary_text(message)
+        dialog.connect('response', lambda window, response: window.destroy())
+        dialog.show_all()
+
     def press(self,widget,event,entry):
         if event.button==1 and event.type==Gdk.EventType._2BUTTON_PRESS:
             self.launch(entry,event);return True
         if event.button==3:
-            menu=Gtk.Menu()
-            for title,callback in [('打开',lambda:self.launch(entry,event)),('用指定应用打开…',lambda:self.open_with(entry)),('打开所在文件夹',lambda:Gio.AppInfo.launch_default_for_uri(entry.path.parent.as_uri(),None))]:
-                item=Gtk.MenuItem(label=tr(title));item.connect('activate',lambda _i,cb=callback:cb());menu.append(item)
-            menu.connect('selection-done',lambda w:w.destroy());menu.show_all();menu.popup_at_pointer(event);return True
+            return self.popup(widget, event, entry)
         if event.button==1:
+            widget.grab_focus()
             self.icon_drag=(entry.path.name,event.x_root,event.y_root,list(self.row['cells'][entry.path.name]),False)
+            return True
+        return False
+
+    def file_key(self, widget, event, entry):
+        if event.state & Gtk.accelerator_get_default_mod_mask():
+            return False
+        if event.keyval in (Gdk.KEY_F2, Gdk.KEY_Delete):
+            import adws_group_file_actions as files
+            action = files.rename if event.keyval == Gdk.KEY_F2 else files.trash
+            action(self, entry)
             return True
         return False
 

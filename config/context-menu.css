@@ -1,0 +1,66 @@
+/* The desktop and taskbar supply the palette, font and animation preferences. */
+menu.adws-context-menu,
+popover.adws-context-menu {
+    background-color: @adws_menu_bg;
+    background-image: none;
+    color: @adws_menu_fg;
+    __ADWS_MENU_FONT_RULE__
+    padding: 6px;
+    border-radius: __ADWS_MENU_RADIUS__;
+    border: none;
+    box-shadow: none;
+}
+
+menu.adws-context-menu menuitem,
+popover.adws-context-menu button {
+    color: @adws_menu_fg;
+    padding: 5px 12px;
+    border-radius: 8px;
+    background-image: none;
+    background-color: transparent;
+}
+
+menu.adws-context-menu menuitem:hover,
+menu.adws-context-menu menuitem:selected,
+popover.adws-context-menu button:hover,
+popover.adws-context-menu button:focus {
+    background-color: @adws_menu_hover;
+    color: @adws_menu_fg;
+}
+
+menu.adws-context-menu separator,
+popover.adws-context-menu separator {
+    background-color: @adws_menu_outline;
+}
+
+.adws-context-menu .adws-destructive-transition,
+.adws-context-menu .adws-destructive {
+    transition: __ADWS_MENU_TRANSITION__;
+}
+
+.adws-context-menu .adws-destructive-transition label,
+.adws-context-menu .adws-destructive label {
+    transition: __ADWS_MENU_LABEL_TRANSITION__;
+}
+
+menu.adws-context-menu menuitem.adws-destructive:hover,
+menu.adws-context-menu menuitem.adws-destructive:selected,
+popover.adws-context-menu button.adws-destructive:hover,
+popover.adws-context-menu button.adws-destructive:focus {
+    background-color: #c62828;
+    color: #ffffff;
+}
+
+.adws-context-menu .adws-destructive:hover label,
+.adws-context-menu .adws-destructive:selected label,
+popover.adws-context-menu button.adws-destructive:focus label {
+    color: #ffffff;
+}
+
+window.adws-context-popup,
+window.adws-context-popup decoration {
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+}

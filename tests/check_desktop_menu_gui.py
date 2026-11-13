@@ -10,7 +10,7 @@ gi.require_version('Gtk','3.0');gi.require_version('Gdk','3.0')
 from gi.repository import Gtk,Gdk
 ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'tools'),str(ROOT/'src/niri-desktop-layer')]
-from desktop_layer.app import apply_menu_palette
+from desktop_layer.app import apply_menu_palette, menu_item_with_icon
 from desktop_layer.config import Config
 
 def settle(seconds=.05):
@@ -33,13 +33,19 @@ with tempfile.TemporaryDirectory() as folder:
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(),base,Gtk.STYLE_PROVIDER_PRIORITY_USER+1)
     Gtk.Settings.get_default().set_property('gtk-enable-animations',True)
     window=Gtk.Window();window.show_all()
-    menu=Gtk.Menu();normal=Gtk.MenuItem(label='Open');danger=Gtk.MenuItem(label='Exit desktop environment')
+    menu=Gtk.Menu();normal=menu_item_with_icon('Open','document-open-symbolic');danger=Gtk.MenuItem(label='Exit desktop environment')
     danger.get_style_context().add_class('desktop-exit');menu.append(normal);menu.append(danger)
     apply_menu_palette(menu,Config());menu.show_all()
     rect=Gdk.Rectangle();rect.x=20;rect.y=20;rect.width=1;rect.height=1
     menu.popup_at_rect(window.get_window(),rect,Gdk.Gravity.SOUTH_WEST,Gdk.Gravity.NORTH_WEST,None)
     settle()
     top=menu.get_toplevel()
+    assert menu.get_style_context().has_class('adws-context-menu')
+    assert top.get_style_context().has_class('adws-context-popup')
+    assert danger.get_style_context().has_class('adws-destructive')
+    image,label=normal.get_child().get_children()
+    assert image.get_icon_name()==('document-open-symbolic',Gtk.IconSize.MENU)
+    assert normal.get_child().get_spacing()==8 and label.get_text()=='Open'
     assert top.get_visual().get_depth()==32
     assert top.get_style_context().get_property('background-color',Gtk.StateFlags.NORMAL).alpha==0
     assert pixel(menu,0,0)[3]==0 and pixel(menu,60,40)[3]>240

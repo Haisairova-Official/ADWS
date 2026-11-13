@@ -26,9 +26,13 @@ class FeatureTests(unittest.TestCase):
    decode.assert_called_once_with(['cliphist','decode'],input=b'4\t[[ binary data ]]\n')
    copy.assert_called_once_with(b'\x89PNG\x00example')
  def test_toggle_rechecks_pid_and_never_signals_topbar(self):
-  with tempfile.TemporaryDirectory() as name,patch.dict(os.environ,{'XDG_STATE_HOME':name}),patch('adws_runtime.pids',return_value=[111,222]),patch.object(controls,'identity',side_effect=['A','B','A','C']),patch.object(controls.os,'kill') as kill:
+  with tempfile.TemporaryDirectory() as name,patch.dict(os.environ,{'XDG_STATE_HOME':name}),patch('adws_runtime.pids',return_value=[111,222]),patch.object(controls,'identity',side_effect=['A','B','A','C']),patch.object(controls.os,'pidfd_open',side_effect=[41,42]),patch.object(controls.os,'close'),patch.object(controls,'catches_signal',return_value=True),patch.object(signal,'pidfd_send_signal') as send:
    result=controls.toggle();self.assertEqual(result['class'],'disabled')
-   kill.assert_called_once_with(111,signal.SIGUSR1)
+   send.assert_called_once_with(41,signal.SIGUSR1)
+ def test_toggle_during_host_startup_preserves_the_marker(self):
+  with tempfile.TemporaryDirectory() as name,patch.dict(os.environ,{'XDG_STATE_HOME':name}),patch('adws_runtime.pids',return_value=[111]),patch.object(controls,'identity',return_value='A'),patch.object(controls.os,'pidfd_open',return_value=41),patch.object(controls.os,'close'),patch.object(controls,'catches_signal',return_value=False),patch.object(signal,'pidfd_send_signal') as send:
+   self.assertEqual(controls.toggle()['class'],'disabled')
+   send.assert_not_called()
  def test_clipboard_list_is_bounded(self):
   with patch.object(clipboard,'run',return_value=('1\ta\n'*700).encode()):self.assertEqual(len(clipboard.entries()),500)
 if __name__=='__main__':unittest.main()

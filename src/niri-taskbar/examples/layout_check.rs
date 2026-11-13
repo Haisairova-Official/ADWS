@@ -3,6 +3,8 @@ use gtk::glib::translate::ToGlibPtr;
 use waybar_cffi::gtk::{self as gtk, prelude::*};
 #[path = "../src/menu_style.rs"]
 mod menu_style;
+#[path = "../src/paths.rs"]
+mod paths;
 #[path = "../src/scroll.rs"]
 mod scroll;
 

@@ -19,7 +19,17 @@ def packages(arch, debian=None, fedora=None):
     return dict(zip(MANAGERS, (arch.split(), (debian or arch).split(), (fedora or arch).split())))
 
 
+THUNAR_PACKAGES = packages('thunar gvfs tumbler', fedora='Thunar gvfs tumbler')
+
+
 FEATURE_MANIFEST = {
+    'file-manager': {
+        'label': '文件管理器、回收站与缩略图', 'commands': [('thunar',)],
+        'packages': THUNAR_PACKAGES,
+        'configs': ['inode/directory'],
+        'services': ['GVfs and Tumbler (session D-Bus activation)'],
+        'acceptance': ['directory association', 'open group folder', 'trash and thumbnails'],
+    },
     'taskbar': {
         'label': '任务栏', 'commands': [('waybar',)],
         'packages': packages('waybar python-gobject python-cairo python-pillow gtk3 gtk-layer-shell polkit python-yaml',
@@ -103,12 +113,13 @@ FEATURE_MANIFEST = {
 # Keep separate records even when the feature list is the same: configuration
 # ownership and migration differ; an existing installation is never a fresh one.
 _ALL = tuple(FEATURE_MANIFEST)
+_EXISTING = tuple(key for key in _ALL if key != 'file-manager')
 MODE_MANIFESTS = {
     'fresh': {'features': _ALL, 'configuration': 'create-defaults', 'preserve_existing': True,
               'description': '全新安装：生成经校验的 Niri 默认配置；已有文件仍需备份与冲突检查。'},
-    'integrate': {'features': _ALL, 'configuration': 'managed-include', 'preserve_existing': True,
+    'integrate': {'features': _EXISTING, 'configuration': 'managed-include', 'preserve_existing': True,
                  'description': '已有 Niri 集成：保留现有快捷键、服务和显示设置，只添加 ADWS 管理部分。'},
-    'migrate': {'features': _ALL, 'configuration': 'migrate-personal-only', 'preserve_existing': True,
+    'migrate': {'features': _EXISTING, 'configuration': 'migrate-personal-only', 'preserve_existing': True,
                'description': '旧机迁移：迁移个人配置；显示与显卡配置在目标机重新生成。'},
 }
 
@@ -203,12 +214,17 @@ def provider_hints(config_home, niri_path=None, environ=None, audit_options=None
             'policy':'configured owner and effective input environment precede installed-program order'}
 
 
-def feature_plan(mode, manager, selected=None, which=None, provider_hints=None, *, font_probe=None):
+def feature_plan(mode, manager, selected=None, which=None, provider_hints=None, *, font_probe=None,
+                 include_file_manager=None):
     """Return a JSON-serializable plan; do not conflate installed with working."""
     if manager not in MANAGERS:
         raise ValueError('Unsupported package manager: ' + str(manager))
     which = which or shutil.which
     selected = selected_features(mode, selected)
+    if mode != 'fresh' or include_file_manager is False:
+        selected = [key for key in selected if key != 'file-manager']
+    elif include_file_manager is True and 'file-manager' not in selected:
+        selected.append('file-manager')
     hints=provider_hints or {'providers':{},'evidence':{},'conflicts':[],'source_hashes':{}}
     conflicts=[dict(row) for row in hints['conflicts'] if row.get('feature') is None or row['feature'] in selected]
     blocked={row.get('feature') for row in conflicts}

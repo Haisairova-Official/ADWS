@@ -6,15 +6,21 @@
 
 **A simpler desktop experience for Niri.**
 
-开发版本 / Development: **1.37** · 构建 / Build: **1.37.00** · [更新记录 / Changelog](CHANGELOG.md)
+开发版本 / Development: **1.38-F** · 构建 / Build: **1.38.06** · [更新记录 / Changelog](CHANGELOG.md)
 
-版本规则：内部构建 `1.37.00` 对外显示 `1.37`；`1.37.01` 显示 `1.37-A`，`1.37.02` 显示 `1.37-B`。开发代号仅保留在构建元数据的 `codename` 字段。
+版本规则：内部构建 `1.38.00` 对外显示 `1.38`；`1.38.01` 显示 `1.38-A`，`1.38.06` 显示 `1.38-F`。开发代号仅保留在构建元数据的 `codename` 字段。
 
 [中文](#中文) · [English](#english)
 
 开发中：系统设置的“输入与快捷键 → 快捷键”新增 VMware 虚拟机模式，可开关焦点自动切换、修改切换／恢复键。切换使用系统通知，恢复键标识仅在虚拟机模式显示。
 
 In development: VMware mode in Settings → Input & shortcuts → Shortcuts supports focus switching and a configurable recovery shortcut. Mode changes use system notifications; the recovery badge appears only in VM mode.
+
+## 1.38-F 更新概要
+
+- 独立 Rust 底栏可单独试用或设为登录默认，沿用现有主题、布局和插件。
+- 桌面和图标组恢复分层右键操作，打开文件夹时跟随默认文件管理器。全新安装配备 Thunar、GVfs 和 Tumbler。
+- 亮度按显示器匹配背光设备。设置可接管或撤销 SDDM 登录主题，底部的「关于 ADWS」可查看版本、贡献者、许可，以及排版后的第三方声明与更新记录。
 
 ## 1.37：统一安装与迁移
 
@@ -34,11 +40,30 @@ In development: VMware mode in Settings → Input & shortcuts → Shortcuts supp
 
 配色同步、输入法会话配置、个人环境逐项审核和可校验下载入口已加入开发版本，详情见 [安装说明](docs/installation.md)。已在干净 Arch 用户空间安装依赖、构建原生组件，并用官方 Niri 运行嵌套窗口及截图；这些证据不等于干净 Arch 实机验收。完整生命周期、登录／启动主题和物理硬件验证进度见纲领与 [平台支持等级](docs/platform-support.md)，不会将尚未验证的平台宣称为完整支持。
 
+## 独立 Rust 任务栏试运行
+
+在 ADWS 源码目录运行以下命令。第一条构建任务栏和配套组件，第二条打开独立的 Niri 测试窗口。关闭窗口或按 Ctrl+C 即可退出。
+
+```sh
+./adws build-taskbar-preview
+./adws taskbar-preview --nested
+```
+
+试运行读取现有任务栏布局、GTK 主题和已启用的 `.mplg`。四边停靠、分段、自动吸附和窗口图标跟随同一份布局。窗口图标、预览、托盘、快速调节和开始按钮复用 ADWS 现有实现，桌面与任务栏沿用同一个插件注册表，分别加载各自的组件。嵌套窗口有自己的应用窗口和会话总线，因此系统托盘展示在测试会话中注册的项目。可用 `./adws taskbar-preview --check` 检查本机布局引用，或加 `--layout`、`--config`、`--style` 测试指定文件。构建产物位于当前源码目录的 `libexec/taskbar-preview/`。
+
+要将当前账户的底栏切换到 Rust，运行以下命令。已有的 ADWS 登录启动项会沿用这个选择。
+
+```sh
+adws taskbar-backend rust && adws taskbar --restart
+```
+
+用 `adws taskbar-backend` 查看当前选择。恢复 Waybar 底栏时运行 `adws taskbar-backend waybar && adws taskbar --restart`。
+
 ## 开发中：桌面小组件
 
 新增可拖动、缩放和锁定的桌面组件，含时钟、日历、便签与独立桌面歌词。模组包可同时提供桌面和任务栏组件，两类布局与实例分离。设置中分别管理模组包、任务栏实例与桌面实例；桌面组件支持重复添加、复制以及按实例自定义 GTK 3 CSS。[使用与开发说明](docs/desktop-widgets.md)。
 
-桌面右键菜单分别提供“显示桌面图标”和“显示桌面小组件”，状态独立保存；图标组随图标开关。隐藏全部小组件不会取消单个组件的启用状态。“退出桌面环境”关闭 ADWS 桌面宿主，不退出 Niri 会话。
+右击桌面空白处可创建图标组、管理小组件、更换壁纸或选择默认显示器。“显示图标组”和“显示桌面小组件”分别保存。右击组标题或组内空白处，选择“新建”可在该组文件夹创建文件夹、文本文档或 Markdown 文档。“查看”和“排列图标”只作用于当前组。右击文件可选择打开方式、复制路径、重命名、移到回收站或查看属性。
 
 截图、取色与窗口预览的运行依赖现在也由 `./install.sh` 检查和补齐（含预编译安装）。安装后会实际检查 Gst/GstApp 和 `pipewiresrc`、`pngenc` 等元素；缺失时明确列出，不再只检查 Python/GTK。依赖包括 `grim`、`slurp`、`wl-clipboard`、GStreamer Python 绑定、基础／good 插件与 PipeWire 插件；保留已有 PipeWire 会话管理器，不替换音频后端。Niri 自带截图走原生接口；其他支持的 Wayland 截图与取色使用外部工具。窗口预览还需要当前 Niri 会话提供 ScreenCast 服务及运行中的 PipeWire，安装检测不会尝试截取窗口。软件包映射已核对 [Arch](https://wiki.archlinux.org/title/GStreamer)、[Ubuntu](https://packages.ubuntu.com/noble/arm64/python3-gst-1.0) 和 [Fedora](https://packages.fedoraproject.org/pkgs/pipewire/pipewire-gstreamer/) 官方列表。
 
@@ -217,7 +242,7 @@ ADWS 为 Niri 提供桌面图标、底部任务栏、统一设置和插件系统
 ### 环境要求
 
 - Linux、Niri，以及支持 CFFI v2 的 Waybar。
-- Python 3.11+、PyGObject（GTK 3/Gio）、PyCairo、Pillow、gtk-layer-shell；文件管理集成使用 Thunar。
+- Python 3.11+、PyGObject（GTK 3/Gio）、PyCairo、Pillow 和 gtk-layer-shell。首次全新安装默认配备 Thunar、GVfs 和 Tumbler；集成、迁移和更新保留当前文件管理器。桌面和图标组均使用「默认应用」中的文件管理器。
 - 源码构建需要 Rust 1.87+ / Cargo、C 编译器、Make、pkg-config，以及 GTK 3、gtk-layer-shell、json-glib 开发文件。Ubuntu / Mint 软件源中的 Rust 可能过旧；安装时会校验 Rust 和 Cargo 版本，并检查未加入图形会话 PATH 的用户 rustup 工具链。
 
 系统设置、声音与亮度面板可在 X11 下打开；桌面图标层和 Niri 任务栏需要 Wayland / Niri。X11 下启动这些组件会直接提示，不会停止已有组件；Niri / Hyprland 显示器设置不会因残留会话变量误显示。X11 测试使用隔离虚拟显示，不代表完整 X11 桌面壳支持。
@@ -373,7 +398,7 @@ Window hover/focus transitions and settings-tab crossfades are independently opt
 
 ### Highlights
 
-- **Desktop icons:** display, select and arrange desktop files, with file operations, a terminal entry, a simplified hidden-icon menu and safe exit confirmation.
+- **Desktop icon groups:** right-click a group to create folders, text files or Markdown documents in its directory, change its view, or arrange its icons. Right-click a file to open, rename, trash or inspect it. The desktop background menu controls groups, widgets, wallpaper and default display.
 - **Clock settings:** right-click the clock to configure date, weekday and seconds. Date formats follow the system time locale recommendation or your manual choice. The default two-line layout puts larger time above a smaller date. Custom formats support `YYYY-MM-DD`, `HH:mm:SS` and more (`MM` = month, `mm` = minute). Left-click does nothing.
 - **Bottom taskbar:** show Niri windows, workspaces, the clock and plugins. Window items scroll when space runs out, and the taskbar has a context menu.
 - **Unified settings:** configure the desktop, taskbar, component order, front/center/back sections and plugin settings. The center section aligns with the geometric center of the whole bar.
@@ -387,7 +412,7 @@ Window hover/focus transitions and settings-tab crossfades are independently opt
 ### Requirements
 
 - Linux, Niri and Waybar with CFFI v2 support.
-- Python 3.11+, PyGObject (GTK 3/Gio), PyCairo, Pillow and gtk-layer-shell. File-manager integration uses Thunar.
+- Python 3.11+, PyGObject (GTK 3/Gio), PyCairo, Pillow and gtk-layer-shell. Fresh installations default to Thunar with GVfs and Tumbler. Integration, migration and updates preserve the chosen file manager. Desktop folders and icon groups follow the file manager selected in Default Applications.
 - Source builds require Rust 1.87+ / Cargo, a C compiler, Make, pkg-config and development files for GTK 3, gtk-layer-shell and json-glib. Ubuntu / Mint may ship an older Rust version; installation validates both Rust and Cargo and also checks the user’s rustup toolchain when it is absent from the graphical session PATH.
 
 System settings and sound/brightness panels can open on X11; the desktop icon layer and Niri taskbar require Wayland / Niri. Starting these components on X11 reports that requirement before stopping existing components. Stale compositor variables do not expose Niri / Hyprland display settings. Isolated virtual-display tests do not imply support for a complete X11 desktop shell.
@@ -439,6 +464,8 @@ When an update is available, the CLI asks `Y/n` (Enter accepts), and Settings pr
 
 Updates prefer a matching Arch x86_64 prebuilt package; otherwise they build the selected release from source, requiring Rust/Cargo, a C compiler and GTK development dependencies. Downloads, validation and builds finish in staging before a backed-up replacement. User settings, pins, images and desktop state are preserved; only previously running ADWS components are restarted. Failed installations attempt to restore the previous version. Logs are saved to `~/.local/state/adws/update-*.log`; installation backups are kept in hidden directories beside the installation. Run updates from the installed `adws` command; Registered source installations can update normally, even when they contain `.git`. Explicit `.adws-development` markers protect developer workspaces.
 
+To try the independent Rust taskbar, run `./adws build-taskbar-preview`, then `./adws taskbar-preview --nested`. This opens a separate Niri window using the ADWS layout, stylesheet and panel plugins. Close the window or press Ctrl+C to finish. The nested session has its own windows and tray registrations.
+
 ### Plugins and samples
 
 ```sh
@@ -474,6 +501,10 @@ python3 -m unittest discover -s tests
 xvfb-run -a env GDK_BACKEND=x11 python3 tests/check_plugin_settings_gui.py
 xvfb-run -a env GDK_BACKEND=x11 python3 tests/check_layout_order_gui.py
 make -C src/panel-rows check
+cargo test --locked --manifest-path src/adws-taskbar/Cargo.toml
+dbus-run-session -- xvfb-run -a env GIO_USE_VFS=local GDK_BACKEND=x11 cargo test --locked --manifest-path src/adws-taskbar/Cargo.toml -- --ignored
+# After ./adws build-taskbar-preview
+python3 tests/check_rust_taskbar_wayland.py
 ```
 
 GUI checks require Xvfb and complement testing in a real Niri session.

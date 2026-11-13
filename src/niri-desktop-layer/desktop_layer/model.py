@@ -269,11 +269,58 @@ def _executable_text(path: Path) -> bool:
     return bool(content_type and Gio.content_type_is_a(content_type, "text/plain"))
 
 
-def open_in_thunar(uri: str, context=None) -> bool:
-    app = Gio.DesktopAppInfo.new("thunar.desktop")
+def default_file_manager():
+    app = Gio.AppInfo.get_default_for_type("inode/directory", False)
     if app is None:
-        raise EntryLaunchError(_tr('未找到 Thunar，请先安装 thunar'))
-    return app.launch_uris([uri], context)
+        raise EntryLaunchError(_tr('请在 ADWS 默认应用设置中选择已安装的文件管理器。'))
+    return app
+
+
+def open_in_file_manager(uri: str, context=None) -> bool:
+    return default_file_manager().launch_uris([uri], context)
+
+
+def reveal_in_file_manager(paths, context, on_error):
+    if not paths:
+        return
+    try:
+        app = default_file_manager()
+    except EntryLaunchError as exc:
+        on_error(str(exc))
+        return
+
+    def open_parents():
+        try:
+            parents = list(dict.fromkeys(path.parent.as_uri() for path in paths))
+            app.launch_uris(parents, context)
+        except GLib.Error as exc:
+            on_error(str(exc))
+
+    # Several managers can register FileManager1 on the same bus. Address the
+    # chosen application's own service, even if another one owns the common name.
+    app_id = (app.get_id() or '').removesuffix('.desktop')
+    service = 'org.xfce.Thunar' if app_id.lower() == 'thunar' else app_id
+    if not Gio.dbus_is_name(service) or service == 'org.freedesktop.FileManager1' or service.startswith(':'):
+        open_parents()
+        return
+
+    def shown(connection, result):
+        try:
+            connection.call_finish(result)
+        except GLib.Error:
+            open_parents()
+
+    def connected(_source, result):
+        try:
+            connection = Gio.bus_get_finish(result)
+            uris = [path.as_uri() for path in paths]
+            connection.call(service, '/org/freedesktop/FileManager1', 'org.freedesktop.FileManager1',
+                            'ShowItems', GLib.Variant('(ass)', (uris, '')), None,
+                            Gio.DBusCallFlags.NONE, 2000, None, shown)
+        except GLib.Error:
+            open_parents()
+
+    Gio.bus_get(Gio.BusType.SESSION, None, connected)
 
 
 def _folder_uri(uri: str) -> bool:
@@ -290,7 +337,7 @@ def _file_manager_location(path: Path) -> str | None:
         data = GLib.KeyFile.new()
         data.load_from_file(str(path), GLib.KeyFileFlags.NONE)
         valid, args = GLib.shell_parse_argv(data.get_string("Desktop Entry", "Exec"))
-        if not valid or len(args) != 2 or Path(args[0]).name not in {"pcmanfm", "pcmanfm-qt", "thunar", "Thunar", "nautilus", "dolphin"}:
+        if not valid or len(args) != 2 or Path(args[0]).name not in {"pcmanfm", "pcmanfm-qt", "thunar", "Thunar", "nautilus", "dolphin", "nemo", "caja"}:
             return None
         location = args[1]
         if location.startswith("/"):
@@ -329,7 +376,7 @@ def launch_entry(entry: Entry, context=None, allow_untrusted: bool = False) -> b
         if current.kind == "application":
             location = _file_manager_location(path)
             if location is not None:
-                return open_in_thunar(location, context)
+                return open_in_file_manager(location, context)
             app = Gio.DesktopAppInfo.new_from_filename(str(path))
             if app is None:
                 raise EntryLaunchError(_tr('无法读取应用启动器'))
@@ -337,12 +384,12 @@ def launch_entry(entry: Entry, context=None, allow_untrusted: bool = False) -> b
                 raise UntrustedLauncher(''.join([_tr('尚未信任启动器：'), f'{current.name}']))
             return app.launch([], context)
         if _folder_uri(current.uri):
-            return open_in_thunar(current.uri, context)
+            return open_in_file_manager(current.uri, context)
         return Gio.AppInfo.launch_default_for_uri(current.uri, context)
     if not path.exists():
         raise EntryLaunchError(_tr('文件不存在，或符号链接的目标不存在'))
     if path.is_dir():
-        return open_in_thunar(path.as_uri(), context)
+        return open_in_file_manager(path.as_uri(), context)
     if _executable_text(path):
         editor = Gio.AppInfo.get_default_for_type("text/plain", False)
         if editor is None:

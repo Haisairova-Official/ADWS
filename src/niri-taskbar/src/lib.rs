@@ -40,6 +40,7 @@ mod niri;
 mod notify;
 mod output;
 mod panel;
+mod paths;
 mod watchdog;
 mod preview;
 mod hover;

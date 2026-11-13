@@ -24,7 +24,7 @@ def pump_until(condition):
   if condition():return
   time.sleep(.01)
  raise AssertionError('GUI did not finish')
-w=SystemSettingsWindow(config,tab='about');owner=w.owners['desktop']
+w=SystemSettingsWindow(config,tab='updates');owner=w.owners['desktop']
 try:
  with patch('adws_update.check_update',return_value=result),patch('adws_update.install_update',side_effect=install) as updater,patch.object(owner,'confirm_update',return_value=True):
   owner.check_updates();pump_until(lambda:entered.is_set() and owner.update_progress.get_fraction()==.5)

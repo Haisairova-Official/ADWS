@@ -60,6 +60,7 @@ def record(config=None):
         if source.is_file() and installed.is_file() and digest(source) == digest(installed):
             libraries[name] = digest(installed)
     data['root'] = str(ROOT.resolve())
+    data.pop('uninstalled', None)
     data['installation_role'] = 'development' if (ROOT / '.adws-development').exists() else 'installed'
     data['build_method'] = 'prebuilt' if (ROOT / 'prebuilt/manifest.json').is_file() else 'source'
     from adws_templates import hashes

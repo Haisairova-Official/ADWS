@@ -33,6 +33,21 @@ class InstallPackageTests(unittest.TestCase):
         self.assertIn('tools/adws_install_future.py',additions)
         self.assertIn('docs/installer-roadmap.md',additions)
 
+    def test_standalone_taskbar_build_and_preview_sources_are_packaged(self):
+        additions = set(package.packaging_additions(self.root))
+        crate = ROOT / 'src/adws-taskbar'
+        inputs = {str(path.relative_to(ROOT)) for path in (crate / 'src').rglob('*.rs')}
+        inputs.update(('src/adws-taskbar/Cargo.toml', 'src/adws-taskbar/Cargo.lock',
+                       'src/niri-taskbar/src/paths.rs', 'tools/adws_build_taskbar_preview.py',
+                       'tools/adws_taskbar_backend.py', 'tools/adws_native_taskbar.py',
+                       'tools/adws_taskbar_nested.py', 'tests/check_rust_taskbar_wayland.py'))
+        self.assertFalse(inputs - additions)
+        for missing in ('src/adws-taskbar/src/widgets/stream.rs', 'src/niri-taskbar/src/paths.rs',
+                        'tools/adws_build_taskbar_preview.py', 'src/panel-rows/start-image.h'):
+            (self.root / missing).unlink()
+            self.assertIn('required installer payload: missing ' + missing, package.check(self.root)['errors'])
+        self.assertNotIn('adws-taskbar', package.NATIVE)
+
     def test_missing_static_import_is_reported_without_execution(self):
         (self.root/'tools/adws_setup.py').write_text('import adws_not_packaged\nraise RuntimeError("must not execute")\n')
         report=package.check(self.root)

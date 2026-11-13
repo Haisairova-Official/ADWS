@@ -102,12 +102,13 @@ def dependency_errors():
     errors = []
     if sys.version_info < (3, 11):
         errors.append(_tr('需要 Python 3.11 或更新版本'))
-    programs = ['niri', 'systemctl', 'thunar']
-    if os.environ.get('ADWS_INSTALL_MANAGED') == '1':
+    programs = ['niri', 'systemctl']
+    plan = None
+    if os.environ.get('ADWS_INSTALL_PLAN') or os.environ.get('ADWS_INSTALL_MANAGED') == '1':
         from adws_install_workflow import approved_plan
         plan = approved_plan()
         if plan:
-            programs[-1] = plan['applications']['file_manager']['argv'][0]
+            programs.append(plan['applications']['file_manager']['argv'][0])
     for program in programs:
         if not shutil.which(program):
             errors.append(''.join([_tr('缺少运行依赖：'), f'{program}']))
@@ -121,6 +122,10 @@ for name, version in [('Gtk','3.0'),('Gdk','3.0'),('GtkLayerShell','0.1'),('Pang
     result = subprocess.run([sys.executable, '-c', probe], capture_output=True, text=True)
     if result.returncode:
         errors.append(_tr('Python/GTK 依赖不完整：') + (result.stderr.strip().splitlines() or [_tr('依赖探测失败')])[-1])
+    elif plan is None:
+        from gi.repository import Gio
+        if Gio.AppInfo.get_default_for_type('inode/directory', False) is None:
+            errors.append(_tr('请在 ADWS 默认应用设置中选择已安装的文件管理器。'))
     from adws_runtime_dependencies import missing_dependencies, messages
     errors.extend(messages(missing_dependencies()))
     return errors

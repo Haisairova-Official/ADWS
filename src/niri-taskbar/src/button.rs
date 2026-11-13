@@ -6,7 +6,7 @@ use waybar_cffi::gtk::{
     prelude::*,
 };
 
-use crate::state::State;
+use crate::{panel::show_menu, state::State};
 
 /// A taskbar button.
 pub struct Button {
@@ -47,7 +47,6 @@ thread_local! {
         css
     };
 
-    static ACTIVE_CONTEXT_MENU: RefCell<Option<gtk::Menu>> = RefCell::new(None);
 }
 
 impl Button {
@@ -303,23 +302,19 @@ impl Button {
         let hover=self.hover.clone();
         let app_id = self.app_id.clone();
         let recent = self.recent_window.clone();
-        self.button.connect_button_press_event(move |button, event| {
-            if event.button() != 3 {
-                return gtk::glib::Propagation::Proceed;
-            }
-
+        let open = Rc::new(move |button: &gtk::Button, event: Option<&gtk::gdk::EventButton>| {
             if let Some(hover)=hover.borrow().as_ref(){hover.dismiss();}
-            let terminate = Rc::new(std::cell::Cell::new(state.config().termination_mode() == "shift" && (event.state().contains(gtk::gdk::ModifierType::SHIFT_MASK) || shift_down(&button.display()))));
+            let terminate = Rc::new(std::cell::Cell::new(state.config().termination_mode() == "shift" && (event.is_some_and(|press| press.state().contains(gtk::gdk::ModifierType::SHIFT_MASK)) || shift_down(&button.display()))));
             let close_items = Rc::new(RefCell::new(Vec::<gtk::glib::WeakRef<gtk::MenuItem>>::new()));
             let close_label = if terminate.get() { crate::i18n::text("结束进程", "End process") } else { crate::i18n::text("关闭窗口", "Close window") };
             let window_id = recent.get();
             tracing::info!(id = window_id, "{}", crate::i18n::text("打开窗口右键菜单", "Open window context menu"));
             let menu = gtk::Menu::new();
-            for (label, administrator) in [
-                (crate::i18n::text("打开新窗口", "Open new window"), false),
-                (crate::i18n::text("以管理员权限运行", "Run as administrator"), true),
+            for (label, icon, administrator) in [
+                (crate::i18n::text("打开新窗口", "Open new window"), "window-new-symbolic", false),
+                (crate::i18n::text("以管理员权限运行", "Run as administrator"), "changes-prevent-symbolic", true),
             ] {
-                let item = gtk::MenuItem::with_label(label);
+                let item = crate::menu_style::action_item(label, icon);
                 item.set_sensitive(app_id.as_ref().is_some_and(|id| !id.is_empty()));
                 let app_id = app_id.clone();
                 item.connect_activate(move |_| {
@@ -331,14 +326,17 @@ impl Button {
             }
             if let Some(app) = &app_id {
                 let pinned=crate::pins::is_pinned(app);
-                let pin=gtk::MenuItem::with_label(if pinned {crate::i18n::text("取消固定", "Unpin from taskbar")} else {crate::i18n::text("固定到任务栏", "Pin to taskbar")});
+                let pin = crate::menu_style::action_item(
+                    if pinned { crate::i18n::text("取消固定", "Unpin from taskbar") } else { crate::i18n::text("固定到任务栏", "Pin to taskbar") },
+                    if pinned { "list-remove-symbolic" } else { "list-add-symbolic" },
+                );
                 let app=app.clone();
                 pin.connect_activate(move |_|crate::panel::pin_application(&app,!pinned));
                 menu.append(&pin);
             }
             if members.borrow().is_empty() {
                 show_menu(menu, event, button);
-                return gtk::glib::Propagation::Stop;
+                return;
             }
             menu.append(&gtk::SeparatorMenuItem::new());
             if members.borrow().len() > 1 {
@@ -379,7 +377,7 @@ impl Button {
                     track_shift(&menu, terminate, close_items);
                 }
                 show_menu(menu, event, button);
-                return gtk::glib::Propagation::Stop;
+                return;
             }
             let focus = gtk::MenuItem::with_label(crate::i18n::text("聚焦窗口", "Focus window"));
             let minimize = gtk::MenuItem::with_label(crate::i18n::text("最小化 / 还原", "Minimize / restore"));
@@ -420,8 +418,18 @@ impl Button {
                 track_shift(&menu, terminate, close_items);
             }
             show_menu(menu, event, button);
-
+        });
+        let open_at_pointer = open.clone();
+        self.button.connect_button_press_event(move |button, event| {
+            if event.button() != 3 {
+                return gtk::glib::Propagation::Proceed;
+            }
+            open_at_pointer(button, Some(event));
             gtk::glib::Propagation::Stop
+        });
+        self.button.connect_popup_menu(move |button| {
+            open(button, None);
+            true
         });
     }
 
@@ -716,55 +724,6 @@ pub(crate) fn popup_keyboard_focus(window: &gtk::Window) -> Option<PopupKeyboard
         Some(PopupKeyboardFocus { window: window.downgrade(), api, previous })
     }
 }
-fn menu_keyboard_focus(menu: &gtk::Menu, button: &gtk::Button) {
-    use gtk::glib::translate::ToGlibPtr;
-    let Some(api) = layer_keyboard_api() else { return; };
-    let Some(window) = button.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok()) else { return; };
-    // SAFETY: all calls are on GTK's owning thread, with a live GtkWindow.
-    let previous = unsafe {
-        if (api.is_layer)(window.to_glib_none().0) == 0 { return; }
-        let mode = (api.get_mode)(window.to_glib_none().0);
-        if mode != 0 { return; } // Preserve an existing interactive mode.
-        (api.set_mode)(window.to_glib_none().0, 2); // GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND
-        mode
-    };
-    let weak = window.downgrade();
-    let restored = Rc::new(std::cell::Cell::new(false));
-    let restore: Rc<dyn Fn()> = Rc::new(move || {
-        if restored.replace(true) { return; }
-        if let Some(window) = weak.upgrade() {
-            if !window.in_destruction() {
-                unsafe { (api.set_mode)(window.to_glib_none().0, previous); }
-            }
-        }
-    });
-    let close = restore.clone();
-    menu.connect_deactivate(move |_| close());
-    let close = restore.clone();
-    menu.connect_unmap(move |_| close());
-    menu.connect_destroy(move |_| restore());
-}
-
-fn show_menu(menu: gtk::Menu, event: &gtk::gdk::EventButton, button: &gtk::Button) {
-    crate::menu_style::apply(&menu);
-    menu.show_all();
-    menu.connect_deactivate(|menu| {
-        ACTIVE_CONTEXT_MENU.with(|slot| {slot.borrow_mut().take();});
-        // GTK deactivates the shell BEFORE activating the chosen item.
-        // Destroying its children here disconnects the action, including pkexec.
-        // Release this popup after activation has completed, not during it.
-        let menu=menu.clone();
-        gtk::glib::idle_add_local_once(move || unsafe { menu.destroy(); });
-    });
-    ACTIVE_CONTEXT_MENU.with(|slot| {
-        let old = slot.borrow_mut().take();
-        if let Some(old) = old {old.popdown(); unsafe { old.destroy(); }}
-        *slot.borrow_mut() = Some(menu.clone());
-    });
-    menu_keyboard_focus(&menu, button);
-    menu.popup_at_pointer(Some(event));
-}
-
 impl Drop for Button {
     fn drop(&mut self) { self.hover.borrow_mut().take(); }
 }
@@ -772,6 +731,7 @@ impl Drop for Button {
 #[cfg(test)]
 mod action_tests {
     use super::*;
+    use crate::panel::ACTIVE_CONTEXT_MENU;
     use std::path::PathBuf;
     use gtk::glib::translate::{IntoGlib, ToGlibPtr};
     fn settle() {
@@ -934,10 +894,10 @@ mod action_tests {
                 let parent=gtk::MenuItem::with_label("Group");
                 parent.set_submenu(Some(&submenu));menu.append(&parent);submenu
             } else {menu.clone()};
-            let item=gtk::MenuItem::with_label("Administrator fixture");
+            let item=crate::menu_style::action_item("Administrator fixture", "changes-prevent-symbolic");
             let calls=Rc::new(std::cell::Cell::new(0));let count=calls.clone();
             item.connect_activate(move |_|count.set(count.get()+1));target.append(&item);
-            show_menu(menu.clone(),&event,&button);settle();
+            show_menu(menu.clone(),Some(&event),&button);settle();
             if grouped {
                 let parent=menu.children()[0].clone().downcast::<gtk::MenuItem>().unwrap();
                 menu.select_item(&parent);
@@ -952,6 +912,19 @@ mod action_tests {
             drop(item);drop(target);drop(menu);settle();
             assert!(weak.upgrade().is_none(),"dismissed menu must still be released");
         }
+        let keyboard = gtk::Menu::new();
+        let action = crate::menu_style::action_item("Keyboard action", "window-new-symbolic");
+        keyboard.append(&action);
+        show_menu(keyboard.clone(), None, &button);
+        settle();
+        assert_eq!(keyboard.selected_item().as_ref(), Some(action.upcast_ref()));
+        let replacement = gtk::Menu::new();
+        replacement.append(&gtk::MenuItem::with_label("Replacement"));
+        show_menu(replacement.clone(), Some(&event), &button);
+        settle();
+        assert!(!keyboard.is_mapped());
+        assert!(ACTIVE_CONTEXT_MENU.with(|slot| slot.borrow().as_ref() == Some(&replacement)));
+        replacement.popdown();
         unsafe{window.destroy();}
     }
 
@@ -976,7 +949,7 @@ mod action_tests {
                     assert!(button.widget().emit_by_name::<bool>("button-press-event", &[&*event]));settle();
                     let menu=ACTIVE_CONTEXT_MENU.with(|m|m.borrow().clone()).unwrap();
                     let target=if grouped { menu.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).find_map(|i|i.submenu()).unwrap().downcast::<gtk::Menu>().unwrap() } else {menu.clone()};
-                    assert!(target.style_context().has_class("adws-menu"));
+                    assert!(target.style_context().has_class("adws-context-menu"));
                     let labels:Vec<_>=target.children().iter().filter_map(|w|w.downcast_ref::<gtk::MenuItem>()).filter_map(|i|i.label()).map(|s|s.to_string()).collect();
                     let kill=crate::i18n::text("结束进程","End process");let close=crate::i18n::text("关闭窗口","Close window");
                     let replacing=mode=="shift"&&shift;

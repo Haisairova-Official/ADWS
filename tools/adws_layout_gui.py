@@ -1151,6 +1151,8 @@ def run(layout_file=None, open_plugin=None, start_instance=None) -> int:
     if start_instance and layout_file is None and open_plugin is None:
         return settings.main(['--tab', 'start', '--start-instance', start_instance])
     owner = settings.TaskbarSettingsWindow(tab="start" if start_instance else "layout", layout_file=layout_file, open_plugin=open_plugin)
+    from adws_native_taskbar import follow_preview
+    follow_preview(owner)
     if start_instance:
         owner.layout_editor.start_instance_choice.set_active_id(start_instance)
     Gtk.main()

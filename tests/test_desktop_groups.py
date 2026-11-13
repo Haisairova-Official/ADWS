@@ -42,4 +42,14 @@ class GroupsTests(unittest.TestCase):
         row=groups.new_group('/tmp');row['x']=float('nan')
         with self.assertRaises(ValueError):groups.validate({'version':1,'groups':[row]})
 
+    def test_explicit_arrangement_preserves_grid_after_refresh(self):
+        row=groups.new_group('/tmp')
+        row.update(columns=2,cells={'a':[1,8],'.hidden':[2,5]})
+        groups.arrange_visible(row, ['c','b','a'])
+        expected={'c':[0,0], 'b':[1,0], 'a':[0,1]}
+        self.assertEqual(groups.grid(row,['a','b','c']),expected)
+        self.assertEqual(row['cells']['.hidden'],[2,5])
+        groups.move_icon(row,'c',1,3)
+        self.assertEqual(groups.grid(row,['a','b','c'])['c'],[1,3])
+
 if __name__=='__main__':unittest.main()

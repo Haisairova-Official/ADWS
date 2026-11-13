@@ -61,13 +61,13 @@ def main():
         files.extend(['plugins/org.AkiACG-Community.desktopBasicPack_1.0.0.mplg','plugins/org.AkiACG-Community.desktopBasicPack_1.0.0.mplg.sha256'])
         files.extend(['plugins/org.AkiACG_Community.NCMLyricsBar_1.2.0.mplg','plugins/org.AkiACG_Community.NCMLyricsBar_1.2.0.mplg.sha256'])
         roots = {'patches', 'config', 'docs', 'language', 'plugins', 'samples', 'scripts', 'src', 'tools', 'vendor'}
-        top_files = {'adws','install.sh','README.md','Language.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','build-info.json','.gitignore'}
+        individual_files = {'tests/check_rust_taskbar_wayland.py', 'adws','install.sh','README.md','Language.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md','build-info.json','.gitignore'}
         excluded = {'target','__pycache__','.cache','.git','state','node_modules'}
         hashes = {}
         for name in sorted(set(files)):
             if not name: continue
             relative = Path(name)
-            if name not in top_files and relative.parts[0] not in roots: continue
+            if name not in individual_files and relative.parts[0] not in roots: continue
             if excluded.intersection(relative.parts) or relative.suffix in ('.pyc','.so','.o'): continue
             if any(part.startswith('.') for part in relative.parts) and name != '.gitignore': continue
             source = ROOT/relative

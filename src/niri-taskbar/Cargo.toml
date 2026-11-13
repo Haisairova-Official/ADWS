@@ -21,6 +21,7 @@ niri-ipc = { path = "../../vendor/niri-ipc" }
 regex = "1.12.2"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
+toml = { version = "0.8.23", default-features = false, features = ["parse"] }
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 waybar-cffi = "0.1.1"

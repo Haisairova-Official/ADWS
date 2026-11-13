@@ -152,7 +152,9 @@ fn flush(fd: i32, queue: &mut VecDeque<u8>) -> Result<(), Failure> {
 fn cache_preview(payload: &serde_json::Value, plugin: &str) {
     // Runs in the plugin supervisor, never the GTK thread. Retain only display
     // strings, not settings, commands, tooltips or media credentials.
-    let Some(runtime)=std::env::var_os("XDG_RUNTIME_DIR") else {return;};
+    let Some(runtime) = std::env::var_os("ADWS_PLUGIN_RUNTIME_DIR")
+        .filter(|path| !path.is_empty())
+        .or_else(|| std::env::var_os("XDG_RUNTIME_DIR")) else { return; };
     let runtime=std::path::PathBuf::from(runtime);
     if !runtime.is_dir() {return;}
     let instance=std::env::var("ADWS_PLUGIN_INSTANCE").unwrap_or_else(|_|plugin.into());
@@ -174,7 +176,9 @@ fn cache_preview(payload: &serde_json::Value, plugin: &str) {
     let folder=runtime.join("adws/plugin-preview");
     let result=(||->std::io::Result<()> {
         use std::os::unix::fs::{DirBuilderExt,OpenOptionsExt};
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&folder)?;
+        if std::env::var_os("ADWS_PLUGIN_RUNTIME_DIR").filter(|v| !v.is_empty()).is_none() {
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&folder)?;
+        }
         let staged=folder.join(format!("{key:016x}.{pid}.tmp"));
         let mut file=std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&staged)?;
         std::io::Write::write_all(&mut file,&serde_json::to_vec(&minimal)?)?;
@@ -394,6 +398,9 @@ fn main() -> std::process::ExitCode {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
     let args: Vec<_> = std::env::args().collect();
+    if args.len() == 2 && args[1] == "--supports-private-runtime" {
+        return std::process::ExitCode::SUCCESS;
+    }
     if args.len() != 3 || args[1] != "--spec-json" {
         eprintln!("Usage: adws-plugin-runner --spec-json JSON (internal ADWS interface)");
         return 2.into();

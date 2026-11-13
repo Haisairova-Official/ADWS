@@ -10,11 +10,11 @@ import sys
 import time
 import uuid
 from adws_i18n import tr
-from adws_plugin_preview import filename, process_start
+from adws_plugin_preview import filename, process_start, runtime_directory, runtime_folder_exists
 
 
 def folder():
-    runtime = os.environ.get('XDG_RUNTIME_DIR')
+    runtime = runtime_directory()
     base = Path(runtime) if runtime else Path(os.environ.get('XDG_STATE_HOME', str(Path.home()/'.local/state')))
     return base/'adws/plugin-health'
 
@@ -25,12 +25,14 @@ def boot_id():
 
 def store(record):
     target = folder()/filename(record['instance'])
-    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not runtime_folder_exists(target.parent): return
     staged = target.with_suffix('.'+str(os.getpid())+'.tmp')
     try:
         with os.fdopen(os.open(staged, os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW, 0o600), 'w') as stream:
             json.dump(record, stream, ensure_ascii=False)
         os.replace(staged, target)
+    except FileNotFoundError:
+        if not os.environ.get('ADWS_PLUGIN_RUNTIME_DIR'): raise
     finally:
         staged.unlink(missing_ok=True)
 
@@ -77,7 +79,8 @@ def kill_child(beat):
 def monitor(command, instance, name, grace=15., limit=10.):
     record = {'instance':instance, 'name':name, 'pid':os.getpid(), 'boot':boot_id(),
               'state':'starting', 'reason':'', 'at':time.time()}
-    directory = folder(); directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    directory = folder()
+    if not runtime_folder_exists(directory): return 0
     beat = directory/('.'+uuid.uuid4().hex+'.beat')
     old = health(instance) or {}
     last_alert = old.get('notified_at', 0)

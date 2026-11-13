@@ -17,8 +17,9 @@ import time
 
 def main():
     repo = Path(__file__).resolve().parents[1]
-    binaries = [p for p in (repo / "src/niri-taskbar/target/debug/deps").glob("niri_taskbar-*")
-                if p.is_file() and os.access(p, os.X_OK) and p.suffix == ""]
+    debug = repo / "src/niri-taskbar/target/debug"
+    candidates = (*debug.glob("deps/niri_taskbar-*"), *debug.glob("build/niri-taskbar/*/out/niri_taskbar-*"))
+    binaries = [p for p in candidates if p.is_file() and os.access(p, os.X_OK) and p.suffix == ""]
     if not binaries:
         raise RuntimeError("Build native tests with cargo test --lib --no-run first")
     binary = max(binaries, key=lambda p: p.stat().st_mtime)
@@ -65,9 +66,9 @@ def main():
                 niri = subprocess.Popen(["niri", "--config", str(config)], env=env,
                                         stdout=output, stderr=output, start_new_session=True)
             processes.append(niri)
-            wait_for(lambda: any(p.is_socket() for p in runtime.glob("wayland-*")))
-            socket = next(p for p in runtime.glob("wayland-*") if p.is_socket())
-            client = {**env, "WAYLAND_DISPLAY": socket.name, "GDK_BACKEND": "wayland",
+            wait_for(lambda: any(runtime.glob("niri.wayland-*.sock")))
+            ipc = next(runtime.glob("niri.wayland-*.sock"))
+            client = {**env, "NIRI_SOCKET": str(ipc), "WAYLAND_DISPLAY": ipc.name.split(".")[1], "GDK_BACKEND": "wayland",
                       "ADWS_SHIFT_TEST_DIR": str(root), "GIO_USE_VFS": "local"}
             dummy = subprocess.Popen([sys.executable, "-c",
                 "import gi; gi.require_version('Gtk','3.0'); from gi.repository import Gtk; "

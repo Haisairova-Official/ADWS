@@ -155,6 +155,47 @@ def installed_apps():
     return result
 
 
+def fresh_file_manager(mode):
+    if mode != 'fresh':
+        return False
+    state = Path(os.environ.get('XDG_STATE_HOME') or Path.home()/'.local/state')
+    for name in ('adws', 'mnws'):
+        try:
+            inventory = json.loads((state / name / 'install-record.json').read_text())
+        except FileNotFoundError:
+            continue
+        except (ValueError, OSError):
+            return False  # Unknown installation state: keep the user's association.
+        # ADWS's record supersedes the legacy MNWS inventory after migration.
+        return isinstance(inventory, dict) and inventory.get('uninstalled') is True
+    return True
+
+
+def thunar_entry(app):
+    # The distribution supplies thunar.desktop; other releases can use a
+    # reverse-DNS desktop ID for the same graphical launcher.
+    return (app['desktop_id'] in ('thunar.desktop', 'org.xfce.Thunar.desktop')
+            or Path(app['argv'][0]).name.lower() == 'thunar' and len(app['argv']) == 1)
+
+
+def choose_applications(mode, choices):
+    """Collect choices before computing the reviewed package list."""
+    for role, apps in installed_apps().items():
+        if choices.get(role) or not apps:
+            continue
+        print(role+': '+', '.join(f'{i+1} {a["name"]}' for i,a in enumerate(apps)))
+        if role == 'file_manager':
+            default = 'Thunar' if fresh_file_manager(mode) else '保留系统默认文件管理器'
+            value = input(f'选择已安装应用 [回车：{default}] ').strip()
+            if not value:
+                continue
+        else:
+            value = input('选择已安装应用 [1] ').strip() or '1'
+        if not value.isdigit() or not 1 <= int(value) <= len(apps):
+            raise ValueError('无效应用选择')
+        choices[role] = apps[int(value)-1]['desktop_id']
+
+
 def prebuilt_status(root):
     from adws_prebuilt import verify_artifacts, PrebuiltIntegrityError
     try:
@@ -168,21 +209,32 @@ def prebuilt_status(root):
 
 
 def selected_plan(mode, root=ROOT, choices=None, features=None, migration_source=None):
-    from adws_install_features import feature_plan, provider_hints, MANAGERS
+    from adws_install_features import feature_plan, provider_hints, MANAGERS, THUNAR_PACKAGES
     from adws_setup import PACKAGES, cargo_source_configuration
     from adws_windows import config_path
     manager = next((p for p in MANAGERS if shutil.which(p)), None)
     if not manager: raise ValueError('未找到受支持的包管理器；不能生成可执行安装计划。')
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')
     hints = provider_hints(config, niri_path=config_path(), environ=os.environ)
-    dependency = feature_plan(mode, manager, selected=features, provider_hints=hints)
     available = installed_apps(); choices = choices or {}
+    fresh_manager = fresh_file_manager(mode)
     applications = {}
     for role in APP_ROLES:
         wanted = choices.get(role)
+        if role == 'file_manager' and not wanted:
+            if not fresh_manager:
+                applications[role] = {'policy':'preserve','desktop_id':None,
+                                      'name':'保留系统默认文件管理器','argv':['xdg-open', str(Path.home())]}
+                continue
+            selected = next((a for a in available[role] if thunar_entry(a)), None)
+            applications[role] = selected or {'desktop_id':None,'name':'Thunar',
+                                               'argv':['thunar'],'install_package':THUNAR_PACKAGES[manager][0]}
+            continue
         selected = next((a for a in available[role] if a['desktop_id']==wanted),None) if wanted else next(iter(available[role]),None)
         if wanted and not selected: raise ValueError(f'{role}: 所选应用未安装或不可运行：{wanted}')
         applications[role] = selected or {'desktop_id':None,'name':DEFAULT_PACKAGES[role], 'argv':[DEFAULT_PACKAGES[role]],'install_package':DEFAULT_PACKAGES[role]}
+    include_file_manager = fresh_manager and (not choices.get('file_manager') or thunar_entry(applications['file_manager']))
+    dependency = feature_plan(mode, manager, selected=features, provider_hints=hints, include_file_manager=include_file_manager)
     plan = {'schema_version':SCHEMA,'mode':mode,'source_root':str(root.resolve()),'source_fingerprint':fingerprint(root),
             'home':str(Path.home()),'data_home':str(Path(os.environ.get('XDG_DATA_HOME') or Path.home()/'.local/share')),'config_home':str(config),'niri_config':os.environ.get('NIRI_CONFIG',''),'niri_config_path':str(config_path()),'features':dependency,'applications':applications,
             'autostart':False,'topbar_autostart':False,'build_fallback':False,'niri_method':'repository',
@@ -211,15 +263,17 @@ def approved_plan():
 def configure_defaults(plan):
     # Revalidate: a removed program must never become the system default.
     now = installed_apps()
-    for role, selected in plan['applications'].items():
+    writable = {role:app for role, app in plan['applications'].items()
+                if not (role == 'file_manager' and app and app.get('policy') == 'preserve')}
+    for role, selected in writable.items():
         if not selected or selected not in now[role]: raise ValueError('默认应用已变化，请重新生成计划：'+role)
     config = Path(plan['config_home'])
     write_json(config/'adws/default-terminal.json', {'desktop_id':plan['applications']['terminal']['desktop_id']})
-    for role, (_, mimes) in APP_ROLES.items():
-        for mime in mimes:
-            subprocess.run(['xdg-mime','default',plan['applications'][role]['desktop_id'],mime],check=True,timeout=20)
+    for role, app in writable.items():
+        for mime in APP_ROLES[role][1]:
+            subprocess.run(['xdg-mime','default',app['desktop_id'],mime],check=True,timeout=20)
             actual = subprocess.check_output(['xdg-mime','query','default',mime],text=True,timeout=20).strip()
-            if actual != plan['applications'][role]['desktop_id']: raise RuntimeError('默认应用关联未生效：'+mime)
+            if actual != app['desktop_id']: raise RuntimeError('默认应用关联未生效：'+mime)
 
 
 def niri_rule_include(plan):
@@ -530,7 +584,7 @@ def _execute(plan, directory):
         available=installed_apps()
         for role, app in resolved['applications'].items():
             if 'install_package' in app:
-                match=next((a for a in available[role] if Path(a['argv'][0]).name==app['argv'][0]),None)
+                match=next((a for a in available[role] if (thunar_entry(a) if role == 'file_manager' else Path(a['argv'][0]).name == app['argv'][0])),None)
                 if match is None: raise RuntimeError('应用安装后没有有效桌面入口：'+app['name'])
                 resolved['applications'][role]=match
         runtime_plan=Path(directory)/'resolved-plan.json';write_json(runtime_plan,resolved)
@@ -573,7 +627,9 @@ def _execute(plan, directory):
             actions=action_commands(Path(plan['source_root']),plan['features'],plan.get('session_plan',{}).get('lock_argv'))
             if actions['skipped']:raise RuntimeError('所选快捷键依赖未安装：'+json.dumps(actions['skipped'],ensure_ascii=False))
             relocation=refreshed_niri_relocation(plan)
-            niri=niri_plan(plan['mode'], root=Path(plan['source_root']), config_path=plan['niri_config_path'], applications={r:a['argv'] for r,a in resolved['applications'].items()},startup=[],actions=actions['commands'],features=plan['features'],relocation=relocation)
+            shortcuts = {r:a['argv'] for r,a in resolved['applications'].items()}
+            shortcuts['file_manager'] = ['xdg-open', plan['home']]
+            niri=niri_plan(plan['mode'], root=Path(plan['source_root']), config_path=plan['niri_config_path'], applications=shortcuts,startup=[],actions=actions['commands'],features=plan['features'],relocation=relocation)
             if niri['conflicts']: raise RuntimeError('Niri 配置冲突：'+json.dumps(niri['conflicts'],ensure_ascii=False))
             if plan.get('session_plan'):
                 key=plan['niri_config_path'];line=plan['session_plan']['include_line']
@@ -816,7 +872,10 @@ def main(argv=None):
             mode={'1':'fresh','2':'integrate','3':'migrate'}.get(value)
             if mode is None:raise ValueError('无效方案')
     if mode=='migrate' and not args.from_home and not args.plan:args.from_home=input('旧机 HOME 目录（只读来源）：').strip()
-    plan=selected_plan(mode,choices={r:getattr(args,r) for r in APP_ROLES},migration_source=args.from_home)
+    app_choices = {role:getattr(args, role) for role in APP_ROLES}
+    if not args.plan:
+        choose_applications(mode, app_choices)
+    plan=selected_plan(mode,choices=app_choices,migration_source=args.from_home)
     plan['system_upgrade']=args.system_upgrade is True
     if plan['system_upgrade'] and plan['features']['manager']!='pacman':
         raise ValueError('--system-upgrade 当前仅支持 Arch/pacman；其他系统保留原包管理流程。')
@@ -827,13 +886,6 @@ def main(argv=None):
     if plan['theme_plan']['conflicts']:plan['blocking'].append('可选登录／启动主题存在冲突；默认保留系统现状，请审核。')
     plan['autostart']=args.autostart if args.autostart is not None else mode=='fresh'
     if not args.plan:
-        available=installed_apps()
-        for role, apps in available.items():
-            if getattr(args,role) or not apps:continue
-            print(role+': '+', '.join(f'{i+1} {a["name"]}' for i,a in enumerate(apps)))
-            value=input('选择已安装应用 [1] ').strip() or '1'
-            if not value.isdigit() or not 1<=int(value)<=len(apps):raise ValueError('无效应用选择')
-            plan['applications'][role]=apps[int(value)-1]
         if not plan['build_fallback']:plan['build_fallback']=input('预编译不匹配时允许源码构建（下载依赖并编译）？[y/N] ').lower() in ('y','yes')
         if args.autostart is None:
             default=plan['autostart'];value=input('添加缺失的 Niri 登录启动项（ADWS、输入法和剪贴板等）？已有项目保留启用状态；换目录时受管路径更新会列入计划。'+(' [Y/n] ' if default else ' [y/N] ')).lower()

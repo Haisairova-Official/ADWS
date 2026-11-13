@@ -32,10 +32,63 @@ class InstallWorkflowTests(unittest.TestCase):
         })
         self.environment.start(); self.addCleanup(self.environment.stop)
         self.apps = {role:[{'desktop_id':role+'.desktop','name':role,'argv':['true']}] for role in workflow.APP_ROLES}
+        self.apps['file_manager'] = [
+            {'desktop_id':'dolphin.desktop','name':'Dolphin','argv':['dolphin']},
+            {'desktop_id':'thunar.desktop','name':'Thunar','argv':['thunar']},
+        ]
 
-    def selected(self, choices=None):
+    def selected(self, choices=None, *, mode='fresh'):
         with patch('adws_install_features.provider_hints',return_value={'providers':{},'evidence':{},'source_hashes':{},'conflicts':[]}), patch('adws_install_features.feature_plan',return_value={'manager':'pacman','packages':[],'features':[]}), patch('adws_setup.cargo_source_configuration',return_value=None), patch.object(workflow,'installed_apps',return_value=self.apps), patch.object(workflow.shutil,'which',return_value='/bin/fixture'):
-            return workflow.selected_plan('fresh',root=self.source,choices=choices)
+            return workflow.selected_plan(mode,root=self.source,choices=choices)
+
+    def test_clean_install_defaults_to_thunar_even_if_another_manager_sorts_first(self):
+        self.assertEqual(self.selected()['applications']['file_manager'], self.apps['file_manager'][1])
+        self.apps['file_manager'].pop()
+        plan = self.selected()
+        self.assertEqual(plan['applications']['file_manager']['install_package'], 'thunar')
+        self.assertIn('thunar', plan['package_candidates'])
+
+    def test_preserve_folder_association_across_integration_migration_and_reinstall(self):
+        for mode in ('integrate', 'migrate', 'fresh'):
+            with self.subTest(mode=mode):
+                if mode == 'fresh':
+                    record = self.home/'.local/state/adws/install-record.json'
+                    workflow.write_json(record, {'root':str(self.source)})
+                self.apps['file_manager'] = []  # A system handler may be hidden or D-Bus-only.
+                plan = self.selected(mode=mode)
+                self.assertEqual(plan['applications']['file_manager']['policy'], 'preserve')
+                self.assertNotIn('thunar',plan['package_candidates'])
+                associations = {'inode/directory':'personal-manager.desktop'}
+                def assign(argv, **kwargs): associations[argv[-1]]=argv[-2]
+                with patch.object(workflow,'installed_apps',return_value=self.apps), \
+                     patch.object(workflow.subprocess,'run',side_effect=assign) as writes, \
+                     patch.object(workflow.subprocess,'check_output',side_effect=lambda argv,**kw:associations[argv[-1]]):
+                    workflow.configure_defaults(plan)
+                self.assertTrue(all('inode/directory' not in call.args[0] for call in writes.call_args_list))
+                self.assertEqual(associations['inode/directory'],'personal-manager.desktop')
+
+    def test_folder_manager_interactive_return_and_explicit_choice(self):
+        choices = {key:'selected.desktop' for key in workflow.APP_ROLES if key!='file_manager'}
+        with patch.object(workflow,'installed_apps',return_value=self.apps), patch('builtins.input',return_value=''):
+            workflow.choose_applications('integrate',choices)
+        self.assertNotIn('file_manager', choices)
+        with patch.object(workflow,'installed_apps',return_value=self.apps), patch('builtins.input',return_value='1'):
+            workflow.choose_applications('integrate',choices)
+        for mode in ('fresh','integrate','migrate'):
+            self.assertEqual(self.selected({'file_manager':choices['file_manager']},mode=mode)['applications']['file_manager'],
+                             self.apps['file_manager'][0])
+
+    def test_fresh_after_uninstall_and_subsequent_reinstall(self):
+        import adws_uninstall
+        record = self.home/'.local/state/adws/install-record.json'
+        workflow.write_json(record, {'root':str(self.source),'uninstalled':True})
+        workflow.write_json(record.parent.parent/'mnws/install-record.json', {'root':'/previous'})
+        self.assertEqual(self.selected()['applications']['file_manager']['desktop_id'], 'thunar.desktop')
+        self.assertEqual(self.selected(mode='integrate')['applications']['file_manager']['policy'], 'preserve')
+        with patch.object(adws_uninstall, 'library_sources', return_value={}):
+            adws_uninstall.record()
+        self.assertNotIn('uninstalled', json.loads(record.read_text()))
+        self.assertEqual(self.selected()['applications']['file_manager']['policy'], 'preserve')
 
     def test_plan_passes_reviewed_provider_ownership_to_dependency_selection(self):
         hints={'providers':{'input':'ibus-daemon'},'evidence':{},'source_hashes':{},'conflicts':[]}

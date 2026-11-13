@@ -33,7 +33,7 @@ class FeatureManifestTests(unittest.TestCase):
 
     def test_every_requested_feature_has_packages_configs_services_and_acceptance(self):
         self.assertEqual(set(features.FEATURE_MANIFEST), {'taskbar', 'preview', 'screenshot', 'clipboard',
-            'input', 'audio', 'brightness', 'notifications', 'lock', 'wallpaper', 'palette'})
+            'input', 'audio', 'brightness', 'notifications', 'lock', 'wallpaper', 'palette', 'file-manager'})
         for manager in features.MANAGERS:
             plan = features.feature_plan('fresh', manager, which=lambda _: None)
             self.assertEqual(len(plan['packages']), len(set(plan['packages'])))
@@ -43,6 +43,23 @@ class FeatureManifestTests(unittest.TestCase):
                 self.assertIsInstance(row['configs'], list)
                 self.assertIsInstance(row['services'], list)
                 self.assertTrue(row['acceptance'])
+
+    def test_file_manager_stack_is_planned_only_for_a_new_default(self):
+        for manager, thunar in [('pacman', 'thunar'), ('apt-get', 'thunar'), ('dnf', 'Thunar')]:
+            stack = {thunar, 'gvfs', 'tumbler'}
+            with self.subTest(manager=manager):
+                fresh = features.feature_plan('fresh', manager, which=lambda _: None)
+                self.assertLessEqual(stack, set(fresh['packages']))
+                row = next(row for row in fresh['features'] if row['id'] == 'file-manager')
+                self.assertEqual(set(row['packages']), stack)
+                self.assertEqual(row['missing_commands'], ['thunar'])
+                fresh_subset = features.feature_plan('fresh', manager, [], include_file_manager=True)
+                self.assertEqual(set(fresh_subset['packages']), stack)
+                for mode, include in [('integrate', None), ('migrate', None), ('fresh', False)]:
+                    plan = features.feature_plan(mode, manager, which=lambda _: None,
+                                                 include_file_manager=include)
+                    self.assertTrue(stack.isdisjoint(plan['packages']))
+                    self.assertNotIn('file-manager', {row['id'] for row in plan['features']})
 
     def test_existing_providers_are_not_replaced(self):
         installed = {'ibus-daemon', 'pipewire-media-session', 'pulseaudio', 'dunst', 'hyprlock', 'swww'}

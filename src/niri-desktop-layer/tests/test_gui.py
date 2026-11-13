@@ -56,7 +56,7 @@ class DesktopGuiTests(unittest.TestCase):
         self.launch = Mock(return_value=True)
         self.open_uri = Mock(return_value=True)
 
-    def run_preview(self, cfg, scenario):
+    def run_preview(self, cfg, scenario, *, icon_groups=False):
         """Drive a scenario generator on GTK's loop, with a hard failure timeout.
 
         A yielded callable is a condition to await without blocking the loop.
@@ -66,6 +66,7 @@ class DesktopGuiTests(unittest.TestCase):
         Gtk, GLib = self.Gtk, self.GLib
         args = self.module.arguments(["--preview", "--directory", str(self.desktop),
                                       "--state", str(self.state)])
+        args.icon_groups = icon_groups
         original_run = Gtk.Application.run
         failures, captured = [], []
         completed = False
@@ -114,7 +115,7 @@ class DesktopGuiTests(unittest.TestCase):
         with patch.dict(os.environ,{"XDG_CONFIG_HOME":str(self.root/"config")}), \
              patch.object(self.module, "APP_ID", bus_id), \
              patch.object(self.module, "launch_entry", self.launch), \
-             patch.object(self.module, "open_in_thunar", self.open_uri), \
+             patch.object(self.module, "open_in_file_manager", self.open_uri), \
              patch.object(Gtk.Application, "run", new=wrapped_run):
             result = self.module.run_gui(args, cfg, self.desktop)
         if failures:
@@ -171,6 +172,46 @@ class DesktopGuiTests(unittest.TestCase):
             item.activate()
         finally:
             menu.destroy()
+
+    def test_grouped_background_menu_actions_and_visibility(self):
+        def scenario(app):
+            yield lambda: app.views and app.views[0].get_mapped()
+            view = app.views[0]
+            def actions():
+                menu = view.make_menu(None)
+                self.addCleanup(menu.destroy)
+                rows = {}
+                for item in menu.get_children():
+                    if isinstance(item, self.Gtk.SeparatorMenuItem):
+                        continue
+                    child = item.get_child()
+                    if isinstance(child, self.Gtk.Box):
+                        label = next(w.get_text() for w in child if isinstance(w, self.Gtk.Label))
+                    else:
+                        label = item.get_label()
+                    rows[label] = item
+                return rows
+            labels = ['创建图标组', '桌面小组件…', '显示图标组', '显示桌面小组件', '壁纸',
+                      '默认显示器…', 'ADWS设置', '退出桌面环境']
+            rows = actions()
+            self.assertEqual(list(rows), [_tr(label) for label in labels])
+            with patch.object(self.module, 'open_adws_config') as settings:
+                for label, tab in [('壁纸', 'wallpaper'), ('桌面小组件…', 'desktop-widgets'), ('ADWS设置', '')]:
+                    rows[_tr(label)].activate()
+                    settings.assert_called_with(tab)
+            widgets_visible = not app.widgets_hidden
+            rows[_tr('显示图标组')].activate()
+            self.assertTrue(app.hidden)
+            self.assertFalse(view.desktop_groups.fixed.get_visible())
+            self.assertEqual(not app.widgets_hidden, widgets_visible)
+            rows = actions()
+            self.assertEqual(list(rows), [_tr(label) for label in labels])
+            rows[_tr('显示桌面小组件')].activate()
+            self.assertEqual(app.widgets_hidden, widgets_visible)
+            rows[_tr('显示图标组')].activate()
+            self.assertTrue(view.desktop_groups.fixed.get_visible())
+            view.destroy()
+        self.run_preview(self.Config(), scenario, icon_groups=True)
 
     def test_explorer_menus_sort_metadata_icon_sizes_properties_and_preferences(self):
         cfg = self.Config()
@@ -992,8 +1033,13 @@ class DesktopGuiTests(unittest.TestCase):
             note.save_note()
             self.assertEqual(widgets.load(path)['instances'][1]['settings']['text'],'saved desktop note 你好')
             application.set_hidden(True)
-            self.assertFalse(layer.fixed.get_visible());self.assertEqual(clock.source,0)
+            self.assertTrue(layer.fixed.get_visible())
+            application.widget_manager.set_visible(False)
+            self.assertFalse(layer.fixed.get_visible())
+            self.assertEqual(clock.source,0)
             application.set_hidden(False)
+            self.assertFalse(layer.fixed.get_visible())
+            application.widget_manager.set_visible(True)
             yield lambda: layer.fixed.get_mapped() and clock.source!=0
             application.overview_changed(True);self.assertFalse(layer.fixed.get_visible())
             application.overview_changed(False)

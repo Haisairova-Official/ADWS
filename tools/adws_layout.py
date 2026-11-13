@@ -137,10 +137,10 @@ def save_layout(data: dict, path: Path | None = None) -> Path:
     return target
 
 
-def scan_available_plugins(target="taskbar") -> list[dict]:
+def scan_available_plugins(target="taskbar", folder=None) -> list[dict]:
     """扫描插件目录中的 .mplg，返回带 manifest 的条目。"""
     results = []
-    for path in mplg.scan_packages(plugin_dir()):
+    for path in mplg.scan_packages(folder or plugin_dir()):
         ok, errors, manifest = mplg.validate_package(path)
         if not ok:
             results.append({"file": path, "ok": False, "errors": errors})
@@ -648,7 +648,8 @@ def start_right_command(options, instance, launcher):
 def render_waybar_config(layout: dict, available: list[dict] | None = None,
                          base: dict | None = None,
                          base_from_live: bool = True,
-                         config_path: Path | None = None) -> dict:
+                         config_path: Path | None = None,
+                         plugin_cache: Path | None = None) -> dict:
     """按布局渲染底部任务栏 waybar 配置对象。"""
     layout = normalize_layout(layout)
     available = available if available is not None else scan_available_plugins()
@@ -791,7 +792,7 @@ def render_waybar_config(layout: dict, available: list[dict] | None = None,
             defaults = normalize_plugin_defaults(item["manifest"])
             entry_path = None
             try:
-                entry_root = mplg.materialize(item["file"])
+                entry_root = mplg.materialize(item["file"], cache=plugin_cache)
                 entry_path = entry_root / item["entry"]
             except ValueError:
                 return None
@@ -977,7 +978,17 @@ def apply_layout(layout: dict | None = None, restart: bool = False,
     layout = layout if layout is not None else load_layout()
     try:
         cfg = render_waybar_config(layout, available=available, config_path=config_path)
+        if os.environ.get("ADWS_TASKBAR_PREVIEW") == "1":
+            from adws_native_taskbar import use_preview_modules
+            use_preview_modules(cfg)
         config_text = config_to_jsonc(cfg)
+        from adws_taskbar_backend import selected_backend
+        if os.environ.get("ADWS_TASKBAR_PREVIEW") != "1" and selected_backend() == "rust":
+            # The saved layout also serves Waybar when the user switches back.
+            # Validate the native host's own copies without persisting their paths.
+            from adws_native_taskbar import use_preview_modules
+            cfg = copy.deepcopy(cfg)
+            use_preview_modules(cfg)
         from adws_panel_options import surface_from_css
         old_style = style_path.read_text(encoding="utf-8") if style_path.exists() else ""
         css_options={**cfg.get("_adws_options", {}), **surface_from_css(old_style)}
@@ -1019,11 +1030,25 @@ def taskbar_pids() -> list[int]:
 def restart_taskbar(config_path: Path | None = None, style_path: Path | None = None) -> tuple[bool, str]:
     from adws_health import validate_waybar
     from adws_runtime import start_taskbar
+    if os.environ.get("ADWS_TASKBAR_PREVIEW") == "1":
+        from adws_native_taskbar import reload_preview
+        return reload_preview()
     config_path = config_path or live_config_path()
     style_path = style_path or live_style_path()
-    errors = validate_waybar(config_path, style_path)
-    if errors:
-        return False, "\n".join(errors)
+    from adws_taskbar_backend import native_command, reload_live, running_native_pids, selected_backend, session_lock
+    try:
+        if selected_backend() == "rust":
+            if running_native_pids():
+                return reload_live(config_path, style_path)
+            # Preflight before stopping a legacy bottom bar.
+            with session_lock():
+                native_command(config_path, style_path)
+        else:
+            errors = validate_waybar(config_path, style_path)
+            if errors:
+                return False, "\n".join(errors)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
     targets = taskbar_pids()
     for pid in targets:
         try:

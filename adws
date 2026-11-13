@@ -25,6 +25,21 @@ case "${1:-}" in
         exec python3 "$ROOT/tools/adws_runtime.py" "$@" ;;
 esac
 
+if [[ "${1:-}" == taskbar-backend ]]; then
+    shift
+    exec python3 "$ROOT/tools/adws_taskbar_backend.py" "$@"
+fi
+
+if [[ "${1:-}" == build-taskbar-preview ]]; then
+    shift
+    exec python3 "$ROOT/tools/adws_build_taskbar_preview.py" "$@"
+fi
+
+if [[ "${1:-}" == taskbar-preview ]]; then
+    shift
+    exec python3 "$ROOT/tools/adws_native_taskbar.py" "$@"
+fi
+
 # Help must not run component-changing commands (for example install -h).
 if [[ "${2:-}" == "-h" || "${2:-}" == "--help" || "${2:-}" == "-?" ]]; then
     case "${1:-}" in
@@ -98,6 +113,9 @@ case "${1:-help}" in
         ;;
     start-menu)
         shift
+        if [[ ( "${ADWS_TASKBAR_PREVIEW:-}" == 1 || "${ADWS_TASKBAR_BACKEND:-}" == rust ) && -x "$ROOT/libexec/taskbar-preview/adws-start-menu" ]]; then
+            exec "$ROOT/libexec/taskbar-preview/adws-start-menu" --root "$ROOT" "$@"
+        fi
         for menu in "$ROOT/libexec/adws-start-menu" "$ROOT/src/adws-start-menu/target/release/adws-start-menu"; do
             if [ -x "$menu" ]; then exec "$menu" --root "$ROOT" "$@"; fi
         done

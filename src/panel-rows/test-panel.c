@@ -132,8 +132,44 @@ static void test_hover_leave(Panel *p) {
     g_assert_false(p->controls_visible);
 }
 
+// Exercise a watchdog that persists its final state only after TERM. Removing a
+// monitor must return promptly; once the host's shutdown barrier returns the
+// preview launcher can delete its runtime directory without a late write.
+static void test_rows_shutdown(void) {
+    GError *error = NULL;
+    gchar *folder = g_dir_make_tmp("adws-rows-stop-XXXXXX", &error);
+    g_assert_no_error(error);
+    gchar *record = g_build_filename(folder, "stopped", NULL);
+    gchar *script = g_strdup_printf(
+        "import os,signal,time; import pathlib; "
+        "signal.signal(signal.SIGTERM, lambda *_: (time.sleep(.2), pathlib.Path(r'%s').write_text('stopped'), exit(0))); "
+        "print('{\"primary\":\"ready\"}', flush=True); time.sleep(20)", record);
+    gchar *arg = g_shell_quote(script);
+    gchar *command = g_strdup_printf("python3 -c %s", arg);
+    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    GtkWidget *root = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_container_add(GTK_CONTAINER(window), root);
+    wbcffi_init_info info = {.obj=(wbcffi_module *)root, .waybar_version="ADWS native taskbar", .get_root_widget=test_root};
+    wbcffi_config_entry entry = {.key="exec", .value=command};
+    Panel *panel = wbcffi_init(&info, &entry, 1);
+    gtk_widget_show_all(window);
+    gint64 deadline = g_get_monotonic_time() + 3 * G_TIME_SPAN_SECOND;
+    while (!panel->has_content && g_get_monotonic_time() < deadline) animate_for(5);
+    g_assert_true(panel->has_content);
+    wbcffi_deinit(panel);
+    g_assert_false(g_file_test(record, G_FILE_TEST_EXISTS));
+    gtk_widget_destroy(window);
+    adws_panel_finish_shutdown();
+    g_assert_true(g_file_test(record, G_FILE_TEST_EXISTS));
+    adws_panel_finish_shutdown(); // Idempotent with no pending runner.
+    unlink(record); rmdir(folder);
+    g_free(command); g_free(arg); g_free(script); g_free(record); g_free(folder);
+    settle();
+}
+
 int main(int argc, char **argv) {
     gtk_init(&argc, &argv);
+    test_rows_shutdown();
     if (g_getenv("ADWS_TEST_STYLE")) {
         GtkCssProvider *live = gtk_css_provider_new();
         GError *error = NULL;

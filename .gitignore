@@ -29,3 +29,5 @@ src/panel-rows/test-start-instances
 /docs/checkpoints/
 *.backup-*
 /omp.cache
+
+/libexec/taskbar-preview/

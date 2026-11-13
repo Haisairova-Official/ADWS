@@ -19,6 +19,9 @@ pub fn identity(app: &str) -> String {
     app.trim_end_matches(".desktop").to_lowercase()
 }
 pub fn path() -> PathBuf {
+    if let Some(path) = std::env::var_os("ADWS_TASKBAR_PINS_FILE").filter(|path| !path.is_empty()) {
+        return PathBuf::from(path);
+    }
     std::env::var_os("XDG_CONFIG_HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)

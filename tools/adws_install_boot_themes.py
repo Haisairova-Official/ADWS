@@ -27,10 +27,15 @@ import uuid
 
 SCHEMA = 1
 MARKER = '# ADWS optional login theme'
-ALLOWED_CONFIG = {'/etc/sddm.conf.d/99-adws-theme.conf', '/etc/plymouth/plymouthd.conf'}
+SDDM_FRAGMENT = '/etc/sddm.conf.d/99-adws-theme.conf'
+ALLOWED_CONFIG = {SDDM_FRAGMENT, '/etc/plymouth/plymouthd.conf'}
 BACKUP_ROOT = Path('/var/lib/adws/boot-theme-backups')
 NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}')
 SYSTEM_ENV = {'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C','LANG':'C','LANGUAGE':'','TERM':'dumb'}
+
+
+def owned_sddm_fragment(content):
+    return bool(re.fullmatch(re.escape(MARKER)+r'\n\[Theme\]\nCurrent='+NAME.pattern+r'\n',content))
 
 
 class _WritersRunning(RuntimeError):
@@ -320,7 +325,7 @@ def _safe_glob(root,directory,pattern,warnings):
         warnings.append(str(exc));return []
 
 
-def detect(root=Path('/'),runner=subprocess.run):
+def detect(root=Path('/'),runner=subprocess.run,*,login_only=False):
     from adws_login_manager import detect as detect_login
     root=Path(root).resolve();warnings=[]
     def readonly_run(argv,**kwargs):
@@ -357,12 +362,27 @@ def detect(root=Path('/'),runner=subprocess.run):
     theme_dir=sddm.get('Theme','ThemeDir',fallback='/usr/share/sddm/themes')
     result['sddm'].update(current=sddm.get('Theme','Current',fallback=''),theme_dir=theme_dir,
         shadowing_current=ini('/etc/sddm.conf').get('Theme','Current',fallback=None))
-    for folder in _safe_glob(root,theme_dir,'*',warnings):
+    try:
+        themes_root = _system(root, theme_dir)
+        folders = sorted(themes_root.iterdir()) if themes_root.is_dir() else []
+    except (ValueError, OSError) as exc:
+        warnings.append(str(exc))
+        folders = []
+    for folder in folders:
         if not folder.is_dir() or not NAME.fullmatch(folder.name):continue
-        if (folder/'Main.qml').is_file() and (folder/'metadata.desktop').is_file():result['sddm']['themes'].append(folder.name)
+        try:
+            if folder.is_symlink() or not (folder/'metadata.desktop').is_file():continue
+            meta = _ini(_read(root,relative(folder/'metadata.desktop')))
+            main = Path(meta.get('SddmGreeterTheme','MainScript',fallback='Main.qml'))
+            if main.is_absolute() or '..' in main.parts:continue
+            if _system(root,relative(folder/main)).is_file():result['sddm']['themes'].append(folder.name)
+        except (ValueError, OSError, UnicodeError, configparser.Error):
+            continue
     for path in paths:
         if path.startswith('/etc/sddm.conf.d/') and Path(path).name>'99-adws-theme.conf' and ini(path).has_option('Theme','Current'):
             result['sddm'].setdefault('later_overrides',[]).append(path)
+    if login_only:
+        return result
     plymouth=result['plymouth'];plymouth['installed']=bool((root/'usr/bin/plymouth').exists() or (root/'usr/sbin/plymouthd').exists())
     plymouth['current']=ini('/etc/plymouth/plymouthd.conf').get('Daemon','Theme',fallback='')
     plymouth['theme_modules']={}
@@ -441,40 +461,57 @@ def _theme_inputs(root,directory):
     return result
 
 
-def plan(login_theme='preserve',boot_theme='preserve',*,root=Path('/'),runner=subprocess.run):
-    info=detect(root,runner);root=Path(info['root'])
+def plan(login_theme='preserve',boot_theme='preserve',*,root=Path('/'),runner=subprocess.run,
+         login_only=False,release_login=False):
+    if (login_only and boot_theme!='preserve') or (release_login and (not login_only or login_theme!='preserve')):
+        raise ValueError('Invalid login theme operation')
+    info=detect(root,runner,login_only=login_only);root=Path(info['root'])
     result={'schema_version':SCHEMA,'root':str(root),'selection':{'login_theme':login_theme,'boot_theme':boot_theme},
             'detected':info,'packages':[],'changes':[],'artifacts':[],'commands':[],'conflicts':[],'unsupported':[],
             'inputs':{},'activation':[],
             'preserve':['display-manager selection','bootloader/default boot entry','existing desktops','UKI signing keys']}
     def conflict(text):result['conflicts'].append(text)
     def unsupported(text):result['unsupported'].append(text);conflict(text)
+    if login_only:result['selection']['login_only']=True
+    if release_login:result['selection']['release_login']=True
     def inputs(paths):
         for path in paths:result['inputs'][path]=_state(_system(root,path))
     def change(path,text):
         actual=_system(root,path)
         if actual.exists() and actual.read_text()==text:return False
         result['changes'].append({'path':path,'before':_state(actual),'content':text});return True
-    if login_theme=='preserve' and boot_theme=='preserve':
+    if login_theme=='preserve' and boot_theme=='preserve' and not login_only:
         result['status']='preserved';return result
     if any(not isinstance(value,str) or (value!='preserve' and not NAME.fullmatch(value)) for value in [login_theme,boot_theme]):
         conflict('Theme names must be installed simple names, never paths or shell fragments')
     for warning in info['warnings']:
         if not warning.startswith('Active bootloader unavailable:'):conflict('Inspection incomplete: '+warning)
     try:
-        if login_theme!='preserve':
+        if login_only or login_theme!='preserve':
+            owned_file=_system(root,SDDM_FRAGMENT)
+            old=_read(root,SDDM_FRAGMENT)
+            owned=owned_sddm_fragment(old)
             if info['login_manager']['id']!='sddm':unsupported('Automatic login themes support only the selected SDDM; existing login manager is preserved')
+            elif owned_file.exists() and not owned:conflict('ADWS SDDM fragment path is occupied by user content')
+            elif release_login:
+                if owned:
+                    inputs(path for path in info['inputs'] if '/sddm' in path)
+                    result['changes'].append({'path':SDDM_FRAGMENT,'before':_state(owned_file),'content':None})
+                    result['activation'].append('next_login; current login manager is not restarted')
             elif login_theme not in info['sddm']['themes']:conflict('Requested SDDM theme is not already installed and complete')
             elif info['sddm']['shadowing_current'] not in (None,login_theme):conflict('/etc/sddm.conf overrides Theme.Current; resolve that existing user setting explicitly')
             elif info['sddm'].get('later_overrides'):conflict('A later SDDM user override takes priority over the ADWS theme fragment')
             else:
-                path='/etc/sddm.conf.d/99-adws-theme.conf';old=_read(root,path)
-                if old and not old.startswith(MARKER):conflict('ADWS SDDM fragment path is occupied by user content')
+                inputs(path for path in info['inputs'] if '/sddm' in path)
+                theme_path=info['sddm']['theme_dir']+'/'+login_theme
+                if login_only:
+                    metadata=theme_path+'/metadata.desktop'
+                    main=_ini(_read(root,metadata)).get('SddmGreeterTheme','MainScript',fallback='Main.qml')
+                    inputs((metadata,theme_path+'/'+main))
                 else:
-                    inputs(path for path in info['inputs'] if '/sddm' in path)
-                    result['inputs'].update(_theme_inputs(root,info['sddm']['theme_dir']+'/'+login_theme))
-                    if change(path,MARKER+'\n[Theme]\nCurrent='+login_theme+'\n'):
-                        result['activation'].append('next_login; current login manager is not restarted')
+                    result['inputs'].update(_theme_inputs(root,theme_path))
+                if change(SDDM_FRAGMENT,MARKER+'\n[Theme]\nCurrent='+login_theme+'\n'):
+                    result['activation'].append('next_login; current login manager is not restarted')
         if boot_theme!='preserve':
             ply=info['plymouth'];mk=ply['mkinitcpio']
             if not ply['installed'] or boot_theme not in ply['themes']:conflict('Plymouth and the requested theme/module must already be installed')
@@ -603,7 +640,7 @@ def _result(journal,directory):
     return {'status':'applied-pending-session-validation','backup':str(directory),
             'activation':journal['activation'],'selection':journal['selection'],
             'changed':[dict(entry) for entry in journal['entries']],
-            'verification':{'login':'pending-next-login' if journal['selection']['login_theme']!='preserve' else 'preserved',
+            'verification':{'login':'pending-next-login' if journal['selection']['login_theme']!='preserve' or journal['selection'].get('login_only') else 'preserved',
                             'boot':'pending-next-reboot' if journal['selection']['boot_theme']!='preserve' else 'preserved'}}
 
 
@@ -633,7 +670,7 @@ def _apply_locked(proposal,backup_dir,run):
             # Persist the intended config hash before writing: interruption recovery
             # can distinguish this write from a later administrator edit.
             after=None
-            if kind=='config':
+            if kind=='config' and row['content'] is not None:
                 content=row['content'].encode()
                 after={'sha256':hashlib.sha256(content).hexdigest(),'size':len(content),
                        'mode':row['before']['mode'] if row['before'] else 0o644}
@@ -663,7 +700,10 @@ def _apply_locked(proposal,backup_dir,run):
         for row in proposal['changes']:
             target=_system(root,row['path'])
             if _state(target)!=row['before']:raise ValueError('Config changed during theme application')
-            _atomic(target,row['content'].encode(),row['before']['mode'] if row['before'] else 0o644)
+            if row['content'] is None:
+                target.unlink()
+            else:
+                _atomic(target,row['content'].encode(),row['before']['mode'] if row['before'] else 0o644)
             overrides[row['path']]=_state(target)
         staged_commands,outputs=_staged_presets(proposal,directory) if current['commands'] else ([],{})
         for command in staged_commands:

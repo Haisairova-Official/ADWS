@@ -20,6 +20,8 @@ with patch('adws_display.outputs',return_value=monitors), patch('adws_display.de
  w=SystemSettingsWindow(config)
  pump();shot(w,'home')
  w.account_header.clicked();pump();assert w.current=='region'
+ ordered = [page.key for page in w.page_definitions]
+ assert ordered[-1] == 'about' and ordered.index('wallpaper') < ordered.index('sddm') < ordered.index('updates')
  for page in w.page_definitions:
   print('PAGE',page.key,flush=True)
   w.show_page(page.key);pump(.8)
@@ -38,11 +40,17 @@ with patch('adws_display.outputs',return_value=monitors), patch('adws_display.de
     w.app_dirty.clear();w.dirty.discard('apps')
    selector=chooser._adws_choice_button
    selector.set_active(True);pump();shot(w,'app-choices');selector.set_active(False)
+  if page.key == 'about':
+   assert w.page_title.get_text() == config._tr('关于 ADWS')
+  if page.key == 'updates':
+   assert w.owners['desktop'].update_button.is_ancestor(w.pages['updates'])
   if page.key=='displays':
    adjustment=w.pages[page.key].get_vadjustment()
    adjustment.set_value(adjustment.get_upper()-adjustment.get_page_size());pump()
    shot(w,'display-controls')
    adjustment.set_value(0)
+ for query, target in [('license', 'about'), ('登录屏幕', 'sddm'), ('update', 'updates')]:
+  w.search.set_text(query);w.filter_navigation();assert w.rows[target].get_child_visible()
  w.search.set_text('lyrics');w.filter_navigation();assert w.rows['layout'].get_child_visible()
  w.search.set_text('zzzz-no-results');w.filter_navigation();assert w.empty_search.get_visible()
  w.search.set_text('');w.filter_navigation()

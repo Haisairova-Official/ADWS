@@ -43,6 +43,8 @@ def validate(data):
             raise ValueError('Invalid group opacity')
         for key in ('background_color','background_image'):
             if not isinstance(row.get(key,''),str):raise ValueError('Invalid group background')
+        if not isinstance(row.get('show_hidden', False), bool):
+            raise ValueError('Invalid hidden file preference')
         if not isinstance(row.get('cells'),dict):
             raise ValueError('Invalid desktop grid')
         for key,cell in row['cells'].items():
@@ -83,15 +85,22 @@ def grid(row, names):
         cell=row['cells'].get(name)
         if cell and tuple(cell) not in used:
             cells[name]=list(cell);used.add(tuple(cell))
+    index = 0
     for name in names:
         if name in cells: continue
-        index=0
         while (index%row['columns'],index//row['columns']) in used: index+=1
         cell=[index%row['columns'],index//row['columns']]
         cells[name]=cell;used.add(tuple(cell))
     # Retain temporarily missing entries so folder remounts recover layout.
     row['cells'].update(cells)
     return cells
+
+
+def arrange_visible(row, ordered_names):
+    """Apply one explicit arrangement; keep off-screen and hidden file positions."""
+    columns = row['columns']
+    for index, name in enumerate(ordered_names):
+        row['cells'][name] = [index % columns, index // columns]
 
 
 def move_icon(row, name, column, line):

@@ -5,6 +5,7 @@ from .i18n import tr as _tr, prepare_gtk_language
 import argparse
 from dataclasses import replace
 from datetime import datetime
+from functools import lru_cache
 import json
 import logging
 import math
@@ -22,7 +23,8 @@ from .selection import move_group, rectangle_hits
 from .overview import OverviewWatcher
 from .visibility import MarkerVisibility, WindowFade
 from .model import (Entry, scan_desktop, desktop_directory, launch_entry, UntrustedLauncher,
-                    atomic_save_json, arrange_grid, sort_entries, open_in_thunar,
+                    atomic_save_json, arrange_grid, sort_entries, open_in_file_manager,
+                    reveal_in_file_manager,
                     file_manager_location)
 
 TRACE = 5
@@ -98,6 +100,26 @@ def read_palette_colors() -> dict[str, str]:
     return {}
 
 
+def menu_item_with_icon(label, icon=None):
+    import gi
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk
+
+    widget = Gtk.MenuItem(label=label)
+    if icon:
+        widget.remove(widget.get_child())
+        row = Gtk.Box(spacing=8)
+        row.pack_start(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU), False, False, 0)
+        row.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
+        widget.add(row)
+    return widget
+
+
+@lru_cache(maxsize=1)
+def context_menu_template():
+    return (Path(__file__).resolve().parents[3] / "config/context-menu.css").read_text(encoding="utf-8")
+
+
 def apply_menu_palette(menu, cfg) -> None:
     """让桌面图标层的 GTK 右键菜单跟随 matugen 调色板（每次弹出重读）。"""
     try:
@@ -126,32 +148,18 @@ def apply_menu_palette(menu, cfg) -> None:
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     transition = f'background-color {duration}ms ease-in-out, color {duration}ms ease-in-out' if animations else 'none'
-    css = f"""
-        menu.desktop-menu {{
-            background-color: {background}; background-image: none; color: {foreground};
-            font-family: "{font}"; padding: 6px; border-radius: 12px;
-            border: none; box-shadow: none;
-        }}
-        menu.desktop-menu menuitem {{
-            color: {foreground}; padding: 5px 12px; border-radius: 8px;
-            background-image: none; background-color: transparent;
-        }}
-        menu.desktop-menu menuitem:hover, menu.desktop-menu menuitem:selected {{
-            background-color: {hover}; color: {foreground};
-        }}
-        menu.desktop-menu separator {{ background-color: {outline}; }}
-        menu.desktop-menu menuitem.desktop-exit {{ transition: {transition}; }}
-        menu.desktop-menu menuitem.desktop-exit label {{ transition: color {duration if animations else 0}ms ease-in-out; }}
-        menu.desktop-menu menuitem.desktop-exit:hover, menu.desktop-menu menuitem.desktop-exit:selected {{
-            background-color: #c62828; color: #ffffff;
-        }}
-        menu.desktop-menu menuitem.desktop-exit:hover label, menu.desktop-menu menuitem.desktop-exit:selected label {{ color: #ffffff; }}
-        window.desktop-menu-popup, window.desktop-menu-popup decoration {{
-            background-color: transparent; background-image: none;
-            border: none; box-shadow: none;
-        }}
-    """
     try:
+        tokens = {
+            "__ADWS_MENU_FONT_RULE__": f'font-family: "{font}";',
+            "__ADWS_MENU_RADIUS__": "12px",
+            "__ADWS_MENU_TRANSITION__": transition,
+            "__ADWS_MENU_LABEL_TRANSITION__": f"color {duration}ms ease-in-out" if animations else "none",
+        }
+        css = context_menu_template()
+        for token, value in tokens.items():
+            css = css.replace(token, value)
+        palette = {"bg": background, "fg": foreground, "hover": hover, "outline": outline}
+        css = "".join(f"@define-color adws_menu_{key} {value};\n" for key, value in palette.items()) + css
         candidate = Gtk.CssProvider()
         candidate.load_from_data(css.encode("utf-8"))
         provider = getattr(menu, "_adws_palette_provider", None)
@@ -168,14 +176,19 @@ def apply_menu_palette(menu, cfg) -> None:
         top = popup.get_toplevel()
         if isinstance(top, Gtk.Window):
             top.get_style_context().add_class('desktop-menu-popup')
+            top.get_style_context().add_class('adws-context-popup')
             top.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
             if not top.get_realized():
                 visual = top.get_screen().get_rgba_visual()
                 if visual is not None: top.set_visual(visual)
 
     def attach(widget):
-        widget.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
+        context = widget.get_style_context()
+        context.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
+        if context.has_class('desktop-exit'):
+            context.add_class('adws-destructive')
         if isinstance(widget, Gtk.Menu):
+            context.add_class('adws-context-menu')
             widget.get_style_context().add_class('desktop-menu')
             popup_shell(widget)
             if not getattr(widget, '_adws_shell_hooked', False):
@@ -293,6 +306,8 @@ def run_gui(args, cfg, directory):
     from gi.repository import Gtk, Gdk, Gio, GLib, Pango, PangoCairo, GtkLayerShell
     from PIL import Image, ImageFilter
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
+    from adws_group_file_actions import launcher_display_name, rename_on_disk
+    from adws_group_names import create_item as create_group_item
     from adws_theme import start as start_theme_watch
     start_theme_watch()
 
@@ -365,6 +380,8 @@ def run_gui(args, cfg, directory):
                                  Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK |
                                  Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
             self.area.set_has_tooltip(True)
+            if self.owner.group_manager:
+                self.area.connect("popup-menu", self.background_keyboard_menu)
             self.overlay = Gtk.Overlay()
             self.overlay.add(self.area)
             self.overlay.connect('get-child-position', self.position_rename_editor)
@@ -630,7 +647,7 @@ def run_gui(args, cfg, directory):
             if self.rename_input is not None:
                 # Editing shortcuts belong to the entry, never the desktop selection.
                 return False
-            if self.owner.group_manager and focus is not None and any(focus.is_ancestor(layer.fixed) for layer in self.owner.group_manager.layers):
+            if self.owner.group_manager:
                 return False
             if self.owner.overview_active or self.owner.hidden:
                 return False
@@ -665,10 +682,12 @@ def run_gui(args, cfg, directory):
                 return True
             if self.owner.overview_active:
                 return False
-            if self.owner.hidden:
+            if self.owner.group_manager or self.owner.hidden:
                 if event.button == 3:
                     self.popup(event, None)
                     return True
+                if self.owner.group_manager and event.button == 1:
+                    self.area.grab_focus()
                 return False
             key = self.hit(event.x, event.y)
             if event.button == 3:
@@ -721,7 +740,7 @@ def run_gui(args, cfg, directory):
             return True
 
         def button_release(self, _widget, event):
-            if event.button != 1:
+            if self.owner.group_manager or event.button != 1:
                 return False
             had_press = self.press is not None
             if self.dragging and self.press_key and self.press:
@@ -777,7 +796,7 @@ def run_gui(args, cfg, directory):
 
         def motion(self, _widget, event):
             LOG.log(TRACE, _tr('鼠标移动：x=%.1f y=%.1f'), event.x, event.y)
-            if self.owner.overview_active or self.owner.hidden:
+            if self.owner.group_manager or self.owner.overview_active or self.owner.hidden:
                 return False
             self.hover = self.hit(event.x, event.y)
             if self.press:
@@ -798,7 +817,7 @@ def run_gui(args, cfg, directory):
             return False
 
         def tooltip(self, _widget, x, y, keyboard, tooltip):
-            if self.owner.hidden or self.owner.overview_active or self.new_item is not None:
+            if self.owner.group_manager or self.owner.hidden or self.owner.overview_active or self.new_item is not None:
                 return False
             if keyboard or self.dragging or self.marquee:
                 return False
@@ -925,13 +944,7 @@ def run_gui(args, cfg, directory):
         def make_menu(self, key):
             menu = Gtk.Menu()
             def item(parent, label, callback=None, icon=None):
-                widget = Gtk.MenuItem(label=label)
-                if icon:
-                    widget.remove(widget.get_child())
-                    row = Gtk.Box(spacing=8)
-                    row.pack_start(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU), False, False, 0)
-                    row.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
-                    widget.add(row)
+                widget = menu_item_with_icon(label, icon)
                 widget.set_sensitive(callback is not None)
                 if callback:
                     widget.connect("activate", lambda *_: (LOG.info(_tr('菜单操作：%s'), label), callback()))
@@ -958,11 +971,24 @@ def run_gui(args, cfg, directory):
                 widget.set_active(active)
                 widget.connect("toggled", lambda w: (LOG.info(_tr('菜单开关：%s=%s'), label, w.get_active()), callback(w.get_active())))
                 parent.append(widget)
+            def exit_action():
+                exit_item = item(menu, _tr('退出桌面环境'), self.confirm_exit)
+                exit_item.get_style_context().add_class('desktop-exit')
             if self.owner.group_manager:
                 item(menu, _tr('创建图标组'), lambda: self.owner.group_manager.edit(self), 'folder-new-symbolic')
+                item(menu, _tr('桌面小组件…'), lambda: open_adws_config('desktop-widgets'), 'view-grid-symbolic')
+                separator(menu)
+                check(menu, _tr('显示图标组'), not self.owner.hidden, self.owner.set_icons_visible)
+                check(menu, _tr('显示桌面小组件'), not self.owner.widgets_hidden, self.owner.widget_manager.set_visible)
+                separator(menu)
+                item(menu, _tr('壁纸'), lambda: open_adws_config('wallpaper'), 'preferences-desktop-wallpaper-symbolic')
                 item(menu, _tr('默认显示器…'), lambda: self.owner.group_manager.choose_default(self), 'video-display-symbolic')
+                item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
+                separator(menu)
+                exit_action()
+                return menu
             item(menu, _tr('桌面小组件…'), lambda: open_adws_config('desktop-widgets'), 'view-grid-symbolic')
-            check(menu, _tr('显示桌面图标'), not self.owner.hidden, lambda show: self.owner.toggle() if show == self.owner.hidden else None)
+            check(menu, _tr('显示桌面图标'), not self.owner.hidden, self.owner.set_icons_visible)
             check(menu, _tr('显示桌面小组件'), not self.owner.widgets_hidden, lambda show: self.owner.widget_manager.set_visible(show))
             separator(menu)
             if self.owner.hidden:
@@ -971,10 +997,9 @@ def run_gui(args, cfg, directory):
                 separator(menu)
                 item(menu, _tr('桌面配置…'), self.show_desktop_settings, 'video-display-symbolic')
                 item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
-                exit_item = item(menu, _tr('退出桌面环境'), self.confirm_exit)
-                exit_item.get_style_context().add_class('desktop-exit')
+                exit_action()
                 return menu
-            if not key and not self.owner.group_manager:
+            if not key:
                 new_menu = submenu(_tr('新建'))
                 item(new_menu, _tr('文件夹'), lambda: self.create_item("folder", "folder"))
                 item(new_menu, _tr('文本文档'), lambda: self.create_item("text", "text.txt"))
@@ -984,7 +1009,7 @@ def run_gui(args, cfg, directory):
                 item(menu, ''.join([_tr('打开选中的 '), f'{len(self.selection)}', _tr(' 项')]) if len(self.selection) > 1 else _tr('打开'),
                      self.open_selected if len(self.selection) > 1 else lambda: self.open_entry(key))
                 item(menu, _tr('用指定应用打开…'), lambda: self.open_with(key), 'application-x-executable-symbolic')
-                item(menu, _tr('在 Thunar 中显示'), self.reveal_selected)
+                item(menu, _tr('在文件管理器中显示'), self.reveal_selected)
                 item(menu, _tr('复制文件路径'), self.copy_paths)
                 item(menu, _tr('重命名…'), (lambda: self.rename_entry(key)) if len(self.selection) <= 1 else None)
                 separator(menu)
@@ -1023,8 +1048,7 @@ def run_gui(args, cfg, directory):
             separator(menu)
             item(menu, _tr('桌面配置…'), self.show_desktop_settings, 'video-display-symbolic')
             item(menu, _tr('ADWS设置'), lambda: open_adws_config(''), 'preferences-system-symbolic')
-            exit_item = item(menu, _tr('退出桌面环境'), self.confirm_exit)
-            exit_item.get_style_context().add_class("desktop-exit")
+            exit_action()
             return menu
 
         @logged_action(_tr('打开退出确认框'))
@@ -1062,15 +1086,35 @@ def run_gui(args, cfg, directory):
 
         @logged_action(_tr('打开桌面右键菜单'))
         def popup(self, event, key):
-            if self.menu:
+            self.show_context_menu(self.make_menu(key), event, self.area)
+
+        def background_keyboard_menu(self, _widget):
+            if self.owner.overview_active:
+                return False
+            self.popup(None, None)
+            return True
+
+        def show_context_menu(self, menu, event, anchor):
+            if self.menu is not None:
                 self.menu.destroy()
-            self.menu = self.make_menu(key)
-            apply_menu_palette(self.menu, cfg)
-            self.menu.show_all()
+            self.menu = menu
+            def destroyed(widget):
+                if self.menu is widget:
+                    self.menu = None
+            def dispose():
+                if self.menu is menu:
+                    menu.destroy()
+                return GLib.SOURCE_REMOVE
+            menu.connect('destroy', destroyed)
+            # GTK can deliver activate after deactivate; release the popup on idle.
+            menu.connect('deactivate', lambda *_: GLib.idle_add(dispose))
+            apply_menu_palette(menu, cfg)
+            menu.show_all()
             if event is not None:
-                self.menu.popup_at_pointer(event)
+                menu.popup_at_pointer(event)
             else:
-                self.menu.popup_at_widget(self.area, Gdk.Gravity.CENTER, Gdk.Gravity.CENTER, None)
+                menu.popup_at_widget(anchor, Gdk.Gravity.CENTER, Gdk.Gravity.CENTER, None)
+                menu.select_first(True)
 
         def chosen_entries(self):
             return [entry for entry in self.owner.entries if str(entry.path) in self.selection]
@@ -1082,7 +1126,9 @@ def run_gui(args, cfg, directory):
 
         @logged_action(_tr('在文件管理器中显示选中项目'))
         def reveal_selected(self):
-            self.owner.reveal_files(self.chosen_entries())
+            reveal_in_file_manager([entry.path for entry in self.chosen_entries()],
+                                   self.get_display().get_app_launch_context(),
+                                   lambda message: self.show_error(_tr('打开失败'), message))
 
         def unique_target(self, name):
             """返回桌面目录中不存在的文件名，重复时自动追加 (2)、(3)…"""
@@ -1140,7 +1186,7 @@ def run_gui(args, cfg, directory):
             self.selection = {key}
             self.selection_anchor = key
             self.rename_key = key
-            launcher = entry.kind in ('application', 'link') and not entry.error
+            launcher = launcher_display_name(entry)
             name = entry.name if launcher or entry is self.new_item else entry.path.name
             editor = self.rename_editor = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             field = self.rename_input = Gtk.Entry()
@@ -1208,7 +1254,7 @@ def run_gui(args, cfg, directory):
             if entry is None:
                 self.cancel_rename()
                 return True
-            launcher = entry.kind in ('application', 'link') and not entry.error
+            launcher = launcher_display_name(entry)
             name = self.rename_input.get_text()
             old_name = entry.name if launcher else entry.path.name
             if name == old_name and entry is not self.new_item:
@@ -1219,38 +1265,15 @@ def run_gui(args, cfg, directory):
             if entry is self.new_item:
                 target = directory / name
                 try:
-                    if self.new_item_kind == 'folder':
-                        target.mkdir()
-                    else:
-                        # Exclusive creation protects files and dangling symlinks,
-                        # including a file created after the editor was opened.
-                        with target.open('x', encoding='utf-8') as stream:
-                            if self.new_item_kind == 'markdown':
-                                stream.write(_tr('# 新文档\n'))
+                    create_group_item(directory, name, self.new_item_kind)
                 except OSError as exc:
                     return self.rename_error(str(exc))
                 self.cancel_rename()
                 self.finish_file_change(target)
                 LOG.info('%s: %s', _tr('新建项目'), target)
                 return True
-            target = entry.path if launcher else entry.path.with_name(name)
             try:
-                source = Gio.File.new_for_path(key)
-                if launcher:
-                    # Desktop launchers display Name, not their file basename.
-                    _, content, etag = source.load_contents(None)
-                    data = GLib.KeyFile()
-                    data.load_from_data(content.decode('utf-8'), len(content),
-                                        GLib.KeyFileFlags.KEEP_COMMENTS | GLib.KeyFileFlags.KEEP_TRANSLATIONS)
-                    for field in data.get_keys('Desktop Entry')[0]:
-                        if field == 'Name' or field.startswith('Name['):
-                            data.set_string('Desktop Entry', field, name)
-                    payload, _ = data.to_data()
-                    source.replace_contents(payload.encode('utf-8'), etag, False,
-                                            Gio.FileCreateFlags.NONE, None)
-                else:
-                    # NONE must never overwrite a file, directory or dangling link.
-                    source.move(Gio.File.new_for_path(str(target)), Gio.FileCopyFlags.NONE, None, None)
+                target = rename_on_disk(entry, name)
             except (GLib.Error, OSError, ValueError) as exc:
                 return self.rename_error(str(exc))
             for positions in self.owner.positions.values():
@@ -1446,8 +1469,9 @@ def run_gui(args, cfg, directory):
                 value /= 1024
 
         @logged_action(_tr('打开属性'))
-        def show_properties(self):
-            entries = self.chosen_entries()
+        def show_properties(self, entries=None):
+            if entries is None:
+                entries = self.chosen_entries()
             if not entries:
                 return None
             dialog = Gtk.Dialog(title=_tr('属性'), transient_for=self, modal=True, destroy_with_parent=True)
@@ -1829,25 +1853,13 @@ def run_gui(args, cfg, directory):
             self.refresh()
             self.save_state()
 
-        @logged_action(_tr('打开文件管理器定位文件'))
-        def reveal_files(self, entries):
-            uris = [entry.path.as_uri() for entry in entries]
-            if not uris:
-                return
-            def completed(connection, result):
-                try:
-                    connection.call_finish(result)
-                except GLib.Error:
-                    self.open_directory()
-            try:
-                connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-                connection.call("org.xfce.Thunar", "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1",
-                                "ShowItems", GLib.Variant("(ass)", (uris, "")), None, Gio.DBusCallFlags.NONE, 1500, None, completed)
-            except GLib.Error:
-                self.open_directory()
-
         def toggle(self):
-            hidden = not self.hidden
+            self.set_icons_visible(self.hidden)
+
+        def set_icons_visible(self, visible):
+            hidden = not visible
+            if hidden == self.hidden:
+                return
             if not args.preview and cfg.visibility_marker:
                 marker=Path(cfg.visibility_marker).expanduser()
                 try:
@@ -1882,7 +1894,7 @@ def run_gui(args, cfg, directory):
                 view.apply_input_region()
 
         @logged_action(_tr('打开终端'))
-        def open_terminal(self):
+        def open_terminal(self, directory_path=None):
             import subprocess
             from .terminal import configured_argv
             argv = configured_argv()
@@ -1894,7 +1906,8 @@ def run_gui(args, cfg, directory):
                     return
                 argv = [executable]
             try:
-                process = subprocess.Popen(argv, cwd=directory, start_new_session=True)
+                process = subprocess.Popen(argv, cwd=directory if directory_path is None else directory_path,
+                                           start_new_session=True)
                 LOG.info(_tr('终端启动请求已提交：%s，PID=%s'), argv[0], process.pid)
             except OSError as exc:
                 LOG.warning(_tr('打开终端失败: %s'), exc)
@@ -1902,10 +1915,14 @@ def run_gui(args, cfg, directory):
         @logged_action(_tr('打开桌面文件夹'))
         def open_directory(self):
             try:
-                open_in_thunar(directory.as_uri(), Gdk.Display.get_default().get_app_launch_context())
+                open_in_file_manager(directory.as_uri(), Gdk.Display.get_default().get_app_launch_context())
                 LOG.info(_tr('桌面文件夹打开请求已提交：%s'), directory)
             except Exception as exc:
                 LOG.warning(_tr('打开桌面文件夹失败: %s'), exc)
+                active = self.get_active_window()
+                view = active if active in self.views else next(iter(self.views), None)
+                if view:
+                    view.show_error(_tr('打开失败'), str(exc))
 
         def diagnostics(self):
             return {"namespace": "niri-desktop-layer", "desktop": str(directory),

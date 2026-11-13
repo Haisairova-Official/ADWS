@@ -11,13 +11,25 @@ gi.require_version('Gtk','3.0')
 from gi.repository import Gtk,Gdk,GLib
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'tools'));sys.path.insert(0,str(ROOT/'src/niri-desktop-layer'))
 from adws_desktop_groups import Manager,Layer
-from adws_desktop_groups_model import validate
+from adws_desktop_groups_model import new_group, validate
+from desktop_layer.app import apply_menu_palette
+from desktop_layer.i18n import tr
 Gtk.init([])
 
 def children(widget):
     yield widget
     if isinstance(widget,Gtk.Container):
         for child in widget.get_children():yield from children(child)
+
+def menu_rows(menu):
+    rows = {}
+    for item in menu.get_children():
+        if isinstance(item, Gtk.SeparatorMenuItem):
+            continue
+        label = next(w.get_text() for w in children(item) if isinstance(w, Gtk.Label))
+        assert label not in rows
+        rows[label] = item
+    return rows
 
 def pump(condition):
     until=time.monotonic()+5
@@ -35,11 +47,73 @@ with tempfile.TemporaryDirectory() as folder:
     try:
         for index in (1,2):
             window=Gtk.Window();window.set_default_size(800,600);window.monitor_key='screen-'+str(index);window.monitor_label='Screen '+str(index);window.monitor=Gdk.Display.get_default().get_monitor(0)
+            def popup(menu, event, anchor, window=window):
+                window.menu = menu
+                apply_menu_palette(menu, None)
+                menu.show_all()
+                if event is None:
+                    menu.popup_at_widget(anchor, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST, None)
+                else:
+                    menu.popup_at_pointer(event)
+            window.show_context_menu = popup
             window.area=Gtk.DrawingArea();window.overlay=Gtk.Overlay();window.overlay.add(window.area);window.add(window.overlay);window.show_all()
             windows.append(window);application.views.append(window)
         layers=[Layer(manager,w) for w in windows]
         pump(lambda:bool(layers[0].cards) and not manager.loading)
         assert len(layers[0].cards)==1 and not layers[1].cards
+        card = layers[0].cards[0]
+        icon = next(w for w in children(card.grid) if isinstance(w, Gtk.Button) and w.get_tooltip_text() == 'a.txt')
+        event = Gdk.Event.new(Gdk.EventType.BUTTON_PRESS)
+        event.button.button = 3
+        event.button.window = icon.get_window()
+        event.set_device(Gdk.Display.get_default().get_default_seat().get_pointer())
+        assert icon.emit('button-press-event', event)
+        menu = Gtk.grab_get_current()
+        assert isinstance(menu, Gtk.Menu) and menu.get_style_context().has_class('adws-context-menu')
+        files = menu_rows(menu)
+        for label in ('打开','用指定应用打开…','打开所在文件夹','复制文件路径','重命名…','移到回收站','属性'):
+            assert tr(label) in files, (label, list(files))
+        files[tr('复制文件路径')].activate()
+        assert Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text() == str(root/'a.txt')
+        menu.popdown();menu.destroy()
+        assert card.emit('popup-menu')
+        menu = windows[0].menu
+        groups = menu_rows(menu)
+        submenu = groups[tr('新建')].get_submenu()
+        assert list(menu_rows(submenu)) == [tr(label) for label in ('文件夹','文本文档','Markdown 文档')]
+        for label in ('打开文件夹','刷新','图标组设置','移除图标组'):
+            assert tr(label) in groups
+        assert isinstance(menu.get_children()[-2], Gtk.SeparatorMenuItem)
+        assert menu.get_children()[-1].get_style_context().has_class('adws-destructive')
+        menu.popdown()
+        menu.destroy()
+        # Two presentations of the same folder must still have independent grids.
+        (root/'.hidden.txt').write_text('hidden fixture')
+        original = manager.data['groups'][0]
+        duplicate = new_group(root, name='Second group')
+        duplicate['cells']['a.txt'] = [2, 3]
+        manager.data['groups'].append(duplicate)
+        manager.refresh()
+        pump(lambda: len(layers[0].cards) == 2 and not manager.loading)
+        def activate_group_submenu(parent, label):
+            card = layers[0].cards[0]
+            assert card.emit('popup-menu')
+            popup = windows[0].menu
+            submenu = menu_rows(popup)[tr(parent)].get_submenu()
+            menu_rows(submenu)[tr(label)].activate()
+            popup.popdown()
+            popup.destroy()
+        activate_group_submenu('查看', '显示隐藏文件')
+        def filenames(card):
+            return {w.get_tooltip_text() for w in card.grid.get_children() if isinstance(w,Gtk.Button)}
+        pump(lambda: '.hidden.txt' in filenames(layers[0].cards[0]) and not manager.loading)
+        assert '.hidden.txt' not in filenames(layers[0].cards[1])
+        original['cells']['a.txt'] = [2, 4]
+        activate_group_submenu('排列图标', '名称')
+        assert original['cells']['a.txt'] != [2, 4]
+        assert duplicate['cells']['a.txt'] == [2, 3]
+        manager.data['groups'].remove(duplicate)
+        manager.render()
         def choose_default():
             dialog=next(w for w in Gtk.Window.list_toplevels() if isinstance(w,Gtk.Dialog) and w.get_visible())
             combo=next(w for w in children(dialog) if isinstance(w,Gtk.ComboBoxText));combo.set_active_id('screen-2');dialog.response(Gtk.ResponseType.OK);return False

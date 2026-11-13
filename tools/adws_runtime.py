@@ -21,6 +21,9 @@ def matches(component, argv):
     if component == "desktop":
         script = argv[1] if name.startswith("python") and len(argv) > 1 else argv[0]
         return Path(script).name == "desktop-layer" and "--preview" not in argv
+    if name == "adws-taskbar":
+        from adws_taskbar_backend import is_native_argv
+        return is_native_argv(argv)
     if name != "waybar":
         return False
     for i, arg in enumerate(argv):
@@ -60,6 +63,8 @@ def protect_desktop_children(targets):
 
 
 def pids(component):
+    if component == "taskbar" and os.environ.get("ADWS_TASKBAR_PREVIEW") == "1":
+        return []
     result = []
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit():
@@ -110,24 +115,37 @@ def taskbar_environment(environ=None, proc=Path('/proc')):
 
 def start_taskbar(config, style):
     """Verify files and detect early exit; preserve startup errors in a log."""
+    if os.environ.get("ADWS_TASKBAR_PREVIEW") == "1":
+        from adws_native_taskbar import reload_preview
+        return reload_preview()
     from adws_health import validate_waybar, state_home, waybar_capability_errors
-    errors = waybar_capability_errors() + validate_waybar(config, style)
-    if errors:
-        return False, '\n'.join(errors)
+    from adws_taskbar_backend import native_command, selected_backend, session_lock
     log = state_home() / 'adws/taskbar.log'
     env = taskbar_environment()
     try:
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with log.open('ab') as output:
-            output.write(b'\n--- ADWS taskbar start ---\n')
-            output.flush()
-            child = subprocess.Popen([resolve_waybar() or 'waybar', '-c', str(config), '-s', str(style)], env=env,
-                                     start_new_session=True, stdout=output, stderr=output)
-        time.sleep(.5)
-        code = child.poll()
-        if code is not None:
-            return False, ''.join([_tr('任务栏启动失败（退出码 '), f'{code}', _tr('），日志：'), f'{log}'])
-    except OSError as error:
+        with session_lock():
+            if pids('taskbar'):
+                return True, ''
+            if selected_backend() == 'rust':
+                command = native_command(config, style)
+                env['ADWS_TASKBAR_BACKEND'] = 'rust'
+                env['ADWS_TASKBAR_MANAGED'] = '1'
+            else:
+                errors = waybar_capability_errors() + validate_waybar(config, style)
+                if errors:
+                    return False, '\n'.join(errors)
+                command = [resolve_waybar() or 'waybar', '-c', str(config), '-s', str(style)]
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with log.open('ab') as output:
+                output.write(b'\n--- ADWS taskbar start ---\n')
+                output.flush()
+                child = subprocess.Popen(command, env=env, start_new_session=True,
+                                         stdout=output, stderr=output)
+            time.sleep(.5)
+            code = child.poll()
+            if code is not None:
+                return False, ''.join([_tr('任务栏启动失败（退出码 '), f'{code}', _tr('），日志：'), f'{log}'])
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         return False, ''.join([_tr('任务栏启动失败：'), f'{error}', _tr('；日志：'), f'{log}'])
     return True, ''
 
@@ -166,6 +184,13 @@ def help_text(component=None):
         usage = _tr('adws <命令> [选项]')
         commands = _tr('全局选项：\n  -v                   仅显示版本\n  --status             同时查看桌面和任务栏状态\n  --uninstall          卸载 ADWS（默认取消，可选择保留配置）\n\n命令：\n  desktop              管理桌面图标和桌面右键菜单\n  taskbar              管理底部任务栏\n  config               打开设置（--tab desktop|taskbar|components）\n  check                检查组件与配置状态\n  install              安装配置和命令入口\n  autostart            桌面登录自启：on / off / status\n  layout               组件布局：show / render / apply / gui\n  mplg                 插件管理：init / build / add / list / run / validate\n  build-taskbar        编译并安装任务栏模块\n  restart              重启组件：desktop / taskbar\n  help                 显示此帮助\n\n')
     if component is None:
+        from adws_i18n import chinese
+        commands += ('  taskbar-backend [rust|waybar]   查看或选择正式底栏\n' if chinese() else
+                     '  taskbar-backend [rust|waybar]   Show or select the installed bottom-bar host\n')
+        commands += ('  build-taskbar-preview   构建独立试运行版及配套组件\n'
+                     '  taskbar-preview         在独立 Niri 窗口试运行任务栏\n' if chinese() else
+                     '  build-taskbar-preview   Build the native trial and its modules\n'
+                     '  taskbar-preview         Try the native taskbar in a separate Niri window\n')
         commands += _tr('  niri-compat          可选 Niri 补丁：status / build / install / restore\n')
         commands += _tr('  setup                打开初始设置向导\n')
         commands = commands.replace("  -v", _tr("  -u, --update         检查 GitHub Release 更新，确认后安装\n      --preview        与 -u / --update 合用，检查 Beta 渠道\n") + "  -v", 1)
@@ -245,6 +270,14 @@ def main(argv=None, quiet=False):
     args = parser.parse_args(argv)
     if args.log_level is not None and not args.debug:
         parser.error(_tr('-1 到 -6 仅用于 --debug/-d'))
+    if os.environ.get("ADWS_TASKBAR_PREVIEW") == "1" and args.component in (None, "taskbar"):
+        if args.start or args.restart:
+            from adws_native_taskbar import reload_preview
+            ok, message = reload_preview()
+            print(message)
+            return 0 if ok else 1
+        print("This preview is managed by its own window or foreground launcher.")
+        return 0
     if args.component is None:
         if args.debug:
             parser.error(_tr('调试需要指定 desktop 或 taskbar，例如 adws -d desktop -6'))
@@ -286,10 +319,19 @@ def main(argv=None, quiet=False):
                 config, style = folder / 'config-bottom.jsonc', folder / 'style-bottom.css'
                 if not config.is_file() or not style.is_file():
                     parser.exit(1, _tr('缺少任务栏配置，请先运行 adws install。\n'))
-                from adws_health import waybar_capability_errors
-                errors = waybar_capability_errors()
-                if errors: parser.exit(1, '\n'.join(errors)+'\n')
-                command = [resolve_waybar(), '-c', str(config), '-s', str(style), '-l', ('critical', 'error', 'warning', 'info', 'debug', 'trace')[level - 1]]
+                from adws_taskbar_backend import native_command, selected_backend
+                try:
+                    if selected_backend() == 'rust':
+                        command = native_command(config, style)
+                        env['ADWS_TASKBAR_BACKEND'] = 'rust'
+                        env['ADWS_TASKBAR_MANAGED'] = '1'
+                    else:
+                        from adws_health import waybar_capability_errors
+                        errors = waybar_capability_errors()
+                        if errors: parser.exit(1, '\n'.join(errors)+'\n')
+                        command = [resolve_waybar(), '-c', str(config), '-s', str(style), '-l', ('critical', 'error', 'warning', 'info', 'debug', 'trace')[level - 1]]
+                except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+                    parser.exit(1, str(error) + '\n')
                 env['RUST_LOG'] = ('off', 'error', 'warn', 'info', 'debug', 'trace')[level - 1]
                 if level >= 5:
                     env['ADWS_PANEL_DEBUG'] = '1'

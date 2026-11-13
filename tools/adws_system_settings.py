@@ -29,10 +29,12 @@ PAGES = (
     Page('layout', '任务栏插件配置', '添加任务栏组件，调整排列和组件设置。', 'application-x-addon-symbolic', '工作空间', 'layout plugin component clock lyrics 布局 插件 组件 时钟 歌词'),
     Page('start', '开始菜单', '启动器、按钮图样、菜单主题与键位。', 'view-app-grid-symbolic', '工作空间', 'start launcher keyboard rofi fuzzel 开始 启动器 快捷键'),
     Page('wallpaper', '壁纸', '选择图片与壁纸管理工具。', 'preferences-desktop-wallpaper-symbolic', '个性化', 'wallpaper background awww swww swaybg 壁纸 背景'),
+    Page('sddm', 'SDDM 接管', '查看登录管理器，设置登录界面的主题。', 'preferences-desktop-display-symbolic', '个性化', 'sddm login manager greeter theme 登录 接管 欢迎界面 登录屏幕 主题'),
     Page('sidebar', '侧边栏', '信息、小工具与天气。', 'view-list-symbolic', '工作空间', 'sidebar widgets weather 侧边栏 小工具 天气'),
     Page('apps', '默认应用', '选择打开网页、文件夹与文本的应用。', 'application-x-executable-symbolic', '个性化', 'default browser files editor 默认 浏览器 文件管理器 编辑器'),
     Page('components', '会话与组件', '管理桌面、任务栏的运行与登录自启。', 'system-run-symbolic', '系统', 'session services autostart restart 组件 自启 重启 会话'),
-    Page('about', '更新与配置', '检查更新、导入导出配置或重新运行向导。', 'help-about-symbolic', '系统', 'about update beta import export setup 关于 更新 导入 导出 向导'),
+    Page('updates', '更新与配置', '检查更新、导入导出配置或重新运行向导。', 'software-update-available-symbolic', '系统', 'update beta import export setup 更新 导入 导出 向导'),
+    Page('about', '关于 ADWS', '查看版本、贡献者与开源许可。', 'help-about-symbolic', '系统', 'about adws version contributors credits license gpl 关于 版本 作者 贡献者 开源 许可证 许可 协议 致谢'),
 )
 
 
@@ -93,7 +95,14 @@ def distribution_logo(release, size=80):
 
 def run_settings(config, tab=None, window_factory=None, start_instance=None):
     """Route repeated launches to the existing window without losing its edits."""
-    app = Gio.Application(application_id='org.AkiACGCommunity.ADWS.Settings',
+    app_id = 'org.AkiACGCommunity.ADWS.Settings'
+    preview = os.environ.get('ADWS_TASKBAR_PREVIEW') == '1'
+    if preview:
+        # Separate concurrent previews, including explicit direct-session launches.
+        import hashlib
+        instance = hashlib.sha256(os.fsencode(os.environ['ADWS_PLUGIN_RUNTIME_DIR'])).hexdigest()[:16]
+        app_id += '.Preview' + instance
+    app = Gio.Application(application_id=app_id,
                           flags=Gio.ApplicationFlags.FLAGS_NONE)
     window = None
     factory = window_factory or SystemSettingsWindow
@@ -103,7 +112,10 @@ def run_settings(config, tab=None, window_factory=None, start_instance=None):
         target = parameter.get_string()
         if window is None:
             window = factory(config, tab=target or None)
-            if window_factory is None:
+            if preview:
+                from adws_native_taskbar import follow_preview
+                follow_preview(window)
+            if window_factory is None and not preview:
                 try:
                     from adws_native_auth import start
                     window.authentication_agent=start(window)
@@ -322,6 +334,12 @@ class SystemSettingsWindow(Gtk.Window):
         return widget
 
     def build_page(self, key):
+        if key == 'sddm':
+            from adws_sddm_page import SddmPage
+            return self.scroll(SddmPage(self))
+        if key == 'about':
+            from adws_about_page import build_page
+            return self.scroll(build_page(self))
         if key == 'plugins':
             from adws_plugin_manager import PluginManager
             return self.scroll(PluginManager(self))
@@ -339,9 +357,9 @@ class SystemSettingsWindow(Gtk.Window):
             return self.scroll(self.input_page)
         if key == 'home':
             return self.scroll(self.build_home())
-        if key in ('desktop', 'components', 'about'):
+        if key in ('desktop', 'components', 'updates'):
             owner = self.owner('desktop')
-            index = {'desktop': 0, 'components': 1, 'about': 2}[key]
+            index = {'desktop': 0, 'components': 1, 'updates': 2}[key]
             widget = self.detach(owner.notebook.stack.get_child_by_name(str(index)))
             self.group_sections(widget, key)
             if key == 'components':
@@ -450,7 +468,7 @@ class SystemSettingsWindow(Gtk.Window):
         hero.pack_start(information, True, True, 0)
         box.pack_start(hero, False, False, 0)
         box.pack_start(label('常用设置', 'settings-section-title'), False, False, 0)
-        keys = ['taskbar', 'desktop', 'displays', 'wallpaper', 'sound', 'network', 'input', 'about']
+        keys = ['taskbar', 'desktop', 'displays', 'wallpaper', 'sound', 'network', 'input', 'updates']
         keys = [key for key in keys if key in self.rows]
         grid = Gtk.Grid(column_spacing=14, row_spacing=14, column_homogeneous=True)
         for i, key in enumerate(keys):
@@ -485,7 +503,7 @@ class SystemSettingsWindow(Gtk.Window):
             setter(0)
         content.set_spacing(18)
         section = None
-        default = {'desktop':'桌面图标', 'components':'运行与自启', 'about':'ADWS', 'start':'开始按钮'}[key]
+        default = {'desktop':'桌面图标', 'components':'运行与自启', 'updates':'ADWS', 'start':'开始按钮'}[key]
         for child in children:
             if child.get_no_show_all():
                 content.pack_start(child, False, False, 0)

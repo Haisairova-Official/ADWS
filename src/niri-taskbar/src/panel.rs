@@ -1,12 +1,13 @@
-use std::{cell::RefCell, path::PathBuf, process::Command};
+use std::{cell::RefCell, process::Command, rc::Rc};
 
+use crate::paths::application_tool_candidates;
 use waybar_cffi::gtk::{
     self as gtk,
-    prelude::{BoxExt, ContainerExt, GtkMenuExt, GtkMenuItemExt, MenuShellExt, WidgetExt},
+    prelude::{Cast, GtkMenuExt, GtkMenuItemExt, IsA, MenuShellExt, WidgetExt, WidgetExtManual},
 };
 
 thread_local! {
-    static ACTIVE_MENU: RefCell<Option<gtk::Menu>> = RefCell::new(None);
+    pub(super) static ACTIVE_CONTEXT_MENU: RefCell<Option<gtk::Menu>> = const { RefCell::new(None) };
 }
 
 /// 在底栏空白处提供右键菜单，提供桌面配置、任务栏设置与 ADWS 系统设置入口。
@@ -29,48 +30,66 @@ pub fn connect_panel_menu(toplevel: &gtk::Widget) {
             }
         }
 
-        let menu = gtk::Menu::new();
-        let desktop_item = settings_menu_item(crate::i18n::text("桌面配置", "Desktop configuration"), "video-display-symbolic");
-        desktop_item.connect_activate(|_| {
-            tracing::info!("{}", crate::i18n::text("打开桌面配置", "Open desktop configuration"));
-            open_adws_config("desktop");
-        });
-        menu.append(&desktop_item);
-        let taskbar_item = settings_menu_item(crate::i18n::text("任务栏设置", "Taskbar settings"), "view-grid-symbolic");
-        taskbar_item.connect_activate(|_| {
-            tracing::info!("{}", crate::i18n::text("打开任务栏设置", "Open taskbar settings"));
-            open_adws_config("taskbar");
-        });
-        menu.append(&taskbar_item);
-        let system_item = settings_menu_item(crate::i18n::text("ADWS设置", "ADWS settings"), "preferences-system-symbolic");
-        system_item.connect_activate(|_| open_adws_config(""));
-        menu.append(&system_item);
-        crate::menu_style::apply(&menu);
-        menu.show_all();
-        menu.connect_deactivate(|_| {
-            ACTIVE_MENU.with(|slot| slot.borrow_mut().take());
-        });
-
-        ACTIVE_MENU.with(|slot| {
-            let mut active = slot.borrow_mut();
-            if let Some(old) = active.take() {
-                old.popdown();
-            }
-            *active = Some(menu.clone());
-        });
-        // 传入触发事件，让 GTK 在指针位置弹出菜单；不传时部分 Wayland 环境会定位失败。
-        menu.popup_at_pointer(Some(event));
+        show_menu(panel_menu(), Some(event), widget);
         gtk::glib::Propagation::Stop
+    });
+    toplevel.connect_popup_menu(|widget| {
+        show_menu(panel_menu(), None, widget);
+        true
     });
 }
 
-fn settings_menu_item(title: &str, icon: &str) -> gtk::MenuItem {
-    let item = gtk::MenuItem::new();
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    row.pack_start(&gtk::Image::from_icon_name(Some(icon), gtk::IconSize::Menu), false, false, 0);
-    row.pack_start(&gtk::Label::new(Some(title)), false, false, 0);
-    item.add(&row);
-    item
+fn panel_menu() -> gtk::Menu {
+    let menu = gtk::Menu::new();
+    for (title, icon, page) in [
+        (crate::i18n::text("桌面配置", "Desktop configuration"), "video-display-symbolic", "desktop"),
+        (crate::i18n::text("任务栏设置", "Taskbar settings"), "view-grid-symbolic", "taskbar"),
+        (crate::i18n::text("ADWS设置", "ADWS settings"), "preferences-system-symbolic", ""),
+    ] {
+        let item = crate::menu_style::action_item(title, icon);
+        item.connect_activate(move |_| open_adws_config(page));
+        menu.append(&item);
+    }
+    menu
+}
+
+pub(crate) fn show_menu(menu: gtk::Menu, event: Option<&gtk::gdk::EventButton>, anchor: &impl IsA<gtk::Widget>) {
+    // popdown emits deactivate synchronously. Release the slot before calling it.
+    if let Some(previous) = ACTIVE_CONTEXT_MENU.with(|slot| slot.borrow_mut().take()) {
+        previous.popdown();
+        unsafe { previous.destroy(); }
+    }
+    let focus = anchor.toplevel()
+        .and_then(|widget| widget.downcast::<gtk::Window>().ok())
+        .and_then(|window| crate::button::popup_keyboard_focus(&window));
+    if let Some(guard) = focus {
+        let guard = Rc::new(RefCell::new(Some(guard)));
+        let deactivate = guard.clone();
+        menu.connect_deactivate(move |_| { deactivate.borrow_mut().take(); });
+        let unmap = guard.clone();
+        menu.connect_unmap(move |_| { unmap.borrow_mut().take(); });
+        menu.connect_destroy(move |_| { guard.borrow_mut().take(); });
+    }
+    crate::menu_style::apply(&menu);
+    menu.connect_deactivate(|menu| {
+        ACTIVE_CONTEXT_MENU.with(|slot| {
+            let mut active = slot.borrow_mut();
+            if active.as_ref() == Some(menu) {
+                active.take();
+            }
+        });
+        // GTK dispatches the chosen action after deactivation.
+        let menu = menu.clone();
+        gtk::glib::idle_add_local_once(move || unsafe { menu.destroy(); });
+    });
+    ACTIVE_CONTEXT_MENU.with(|slot| { slot.replace(Some(menu.clone())); });
+    menu.show_all();
+    if let Some(event) = event {
+        menu.popup_at_pointer(Some(event));
+    } else {
+        menu.popup_at_widget(anchor, gtk::gdk::Gravity::NorthWest, gtk::gdk::Gravity::SouthWest, gtk::current_event().as_ref());
+        menu.select_first(true);
+    }
 }
 
 // Filter at GtkWidget's generic event stage, before configure-event is
@@ -137,21 +156,6 @@ mod configure_tests {
         }
         unsafe { popup.destroy(); bar.destroy(); }
     }
-}
-
-// Resolve installed commands before the build-directory fallback: update packages
-// are compiled in staging and then moved into the persistent installation path.
-fn application_tool_candidates(relative: &str) -> Vec<PathBuf> {
-    let mut entries = Vec::new();
-    if let Some(entry) = gtk::glib::find_program_in_path("adws") { entries.push(entry); }
-    if let Ok(home) = std::env::var("HOME") {
-        entries.push(PathBuf::from(home).join(".local/bin/adws"));
-    }
-    let mut candidates: Vec<_> = entries.into_iter().filter_map(|entry| {
-        std::fs::canonicalize(entry).ok().and_then(|entry| entry.parent().map(|root| root.join(relative)))
-    }).collect();
-    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join(relative));
-    candidates
 }
 
 fn open_adws_config(tab: &str) {

@@ -98,7 +98,8 @@ def desktop_pids() -> list[int]:
 
 
 def taskbar_pids() -> list[int]:
-    return running_pids(r"[c]onfig-bottom[.]jsonc")
+    from adws_runtime import pids
+    return pids("taskbar")
 
 
 def desktop_state_path() -> Path:
@@ -262,21 +263,10 @@ def set_marker(marker: Path, hidden: bool) -> None:
             pass
 
 
-def toggle_taskbar_script() -> Path | None:
-    candidates = [
-        PROJECT_ROOT / "scripts/taskbar-toggle.sh",
-        home() / ".local/bin/taskbar-toggle.sh",
-    ]
-    return next((path for path in candidates if path.exists()), None)
-
-
 def run_taskbar_toggle() -> tuple[bool, str]:
-    script = toggle_taskbar_script()
-    if script is None:
-        return False, _tr('找不到 taskbar-toggle.sh')
-    env = {key: value for key, value in os.environ.items() if key != "GDK_BACKEND"}
+    from adws_topbar_controls import toggle
     try:
-        subprocess.Popen([str(script)], env=env, start_new_session=True)
+        toggle(refresh=True)
         return True, _tr('已发送任务栏切换信号')
     except OSError as exc:
         return False, _tr('运行失败：%s') % exc
@@ -503,7 +493,7 @@ def write_taskbar_overrides(use_theme: bool, color_text: str, radius: int, resto
                  "}\n") % (MARKER, background, radius, radius)
     style.write_text(text, encoding="utf-8")
     project_copy = PROJECT_ROOT / "config/waybar/style-bottom.css"
-    if style.resolve() != project_copy.resolve():
+    if os.environ.get("ADWS_TASKBAR_PREVIEW") != "1" and style.resolve() != project_copy.resolve():
         project_copy.write_text(text, encoding="utf-8")
     return style
 
@@ -538,14 +528,14 @@ def write_taskbar_font(font_family: str, font_size: float) -> Path:
     text += font_block
     style.write_text(text, encoding="utf-8")
     project_copy = PROJECT_ROOT / "config/waybar/style-bottom.css"
-    if style.resolve() != project_copy.resolve():
+    if os.environ.get("ADWS_TASKBAR_PREVIEW") != "1" and style.resolve() != project_copy.resolve():
         project_copy.write_text(text, encoding="utf-8")
     return style
 
 
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description=_tr('ADWS 统一设置'))
-    parser.add_argument("--tab", choices=("desktop", "desktop-widgets", "plugins", "taskbar", "components", "about", "start", "layout", "wallpaper", "apps", "sidebar", "waybar", "displays", "input", "network", "bluetooth", "sound", "power", "region"), default=None)
+    parser.add_argument("--tab", choices=("desktop", "desktop-widgets", "plugins", "taskbar", "components", "about", "updates", "sddm", "start", "layout", "wallpaper", "apps", "sidebar", "waybar", "displays", "input", "network", "bluetooth", "sound", "power", "region"), default=None)
     parser.add_argument("--start-instance", help=_tr("开始按钮实例"))
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--restart-desktop", action="store_true", help=_tr('重启桌面图标层（不打开界面）'))
@@ -659,7 +649,7 @@ class ConfigWindow(Gtk.Window):
         self.notebook.append_page(self.appearance_page, Gtk.Label(label=_tr('外观')))
         self.notebook.append_page(self.components_page, Gtk.Label(label=_tr('组件')))
         self.notebook.append_page(self.about_page, Gtk.Label(label=_tr('关于')))
-        order = {"desktop": 0, "appearance": 0, "components": 1, "about": 2}
+        order = {"desktop": 0, "appearance": 0, "components": 1, "about": 2, "updates": 2}
         if tab in order:
             self.notebook.set_current_page(order[tab])
         footer = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
@@ -1405,6 +1395,8 @@ def main(argv=None):
         return 0 if ok else 1
     GLib.set_prgname("adws-config")
     from adws_oobe import needed, main as setup_main
+    if os.environ.get("ADWS_TASKBAR_PREVIEW") == "1" and not live_config_path().is_file():
+        return 0  # The preview closed before this settings process initialized.
     if needed():
         old_argv = sys.argv
         try:
