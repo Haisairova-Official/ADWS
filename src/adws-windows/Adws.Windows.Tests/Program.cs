@@ -115,5 +115,28 @@ await Test("disposing WM terminates owned child", async () =>
     wm.Dispose();
     Check(child.WaitForExit(3000), "Orphan WM process");
 });
+await Test("column insertion, bounded navigation and removal", () => Sync(() =>
+{
+    var order = new ColumnOrder();
+    var a = Request().Windows[0] with { Id = 30, Focused = true };
+    var b = a with { Id = 50, Focused = false };
+    var c = a with { Id = 10, Focused = false };
+    order.Update([a,b]);
+    Check(order.Update([c,b,a]).Select(w => w.Id).SequenceEqual(new long[]{30,10,50}), "new column position");
+    Check(order.Neighbor([b,a,c], -1) is null, "wrapped at edge");
+    Check(order.Neighbor([b,a,c], 1)?.Id == 10, "wrong neighbor");
+    Check(order.Neighbor([b,a], 1)?.Id == 50, "closed column left a gap");
+}));
+await Test("viewport follows third column without resizing the first two", () => Sync(() =>
+{
+    var view = new ColumnViewport();
+    var r = Request(2);
+    var first = view.Arrange(r);
+    var three = Request(3);
+    Check(view.Arrange(three).Placements.SequenceEqual(first.Placements), "opening resized visible columns");
+    three = three with { Windows = three.Windows.Select((w,i) => w with { Focused = i == 2 }).ToArray() };
+    Check(view.Arrange(three).Placements.Select(p => p.Id).SequenceEqual(new long[]{2,3}), "viewport did not advance");
+    Check(view.Arrange(r).Placements.SequenceEqual(first.Placements), "viewport did not return");
+}));
 Console.WriteLine($"{passed} checks passed; no desktop mutations performed.");
 return 0;

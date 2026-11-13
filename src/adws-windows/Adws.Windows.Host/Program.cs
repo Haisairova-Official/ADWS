@@ -183,7 +183,21 @@ internal sealed class WorkerForm : Form
     private readonly CheckBox automatic = new() { Text = "Automatic tiling (test session)", AutoSize = true };
     private readonly Dictionary<long, WindowInfo> originals = [];
     private bool dirty = true, busy, closing;
+    private bool scrolling;
     private long sequence;
+    private readonly Dictionary<string, ColumnOrder> columns = [];
+    private ColumnOrder Columns(string screen)
+    {
+        if (!columns.TryGetValue(screen, out var order)) columns[screen] = order = new();
+        return order;
+    }
+    private void FocusNeighbor(int direction)
+    {
+        var monitor = Screen.FromHandle(Native.GetForegroundWindow()).DeviceName;
+        var current = backend.Snapshot().Where(w => Screen.FromHandle((nint)w.Id).DeviceName == monitor).ToArray();
+        var target = Columns(monitor).Neighbor(current, direction);
+        if (target is not null) backend.Focus(target);
+    }
     private int ticks;
     private readonly string? smokeReport;
     private int eventCount, maxWindows, minWindows = int.MaxValue, layouts, moveFailures, focusAccepted;
@@ -227,7 +241,7 @@ internal sealed class WorkerForm : Form
         Shown += (_, _) =>
         {
             // Ctrl+Alt+T: terminal; Ctrl+Alt+L: tile; Ctrl+Alt+J: next focus.
-            foreach (var binding in new (int, uint)[] { (1, 0x54), (2, 0x4C), (3, 0x4A) })
+            foreach (var binding in new (int, uint)[] { (1, 0x54), (2, 0x4C), (3, 0x4A), (4, 0x25), (5, 0x27), (6, 0x53) })
                 if (!Native.RegisterHotKey(Handle, binding.Item1, 0x4003, binding.Item2))
                     status.Text = "A shortcut is unavailable; buttons remain usable.";
             RefreshWindows(); timer.Start();
@@ -242,6 +256,9 @@ internal sealed class WorkerForm : Form
     {
         long? selected = (windows.SelectedItem as WindowInfo)?.Id;
         var snapshot = backend.Snapshot();
+        var groups = snapshot.GroupBy(w => Screen.FromHandle((nint)w.Id).DeviceName).ToArray();
+        foreach (var absent in columns.Keys.Except(groups.Select(g => g.Key)).ToArray()) columns.Remove(absent);
+        snapshot = groups.SelectMany(g => Columns(g.Key).Update(g.ToArray())).ToArray();
         if (backend.OnlyProcessId.HasValue)
         {
             maxWindows = Math.Max(maxWindows, snapshot.Length);
@@ -259,7 +276,7 @@ internal sealed class WorkerForm : Form
         {
             var snapshot = RefreshWindows();
             WriteSmokeReport();
-            var command = config.Wm ?? new CommandSpec(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "dotnet.exe"), [Path.Combine(AppContext.BaseDirectory, "Adws.Windows.Wm.dll")]);
+            var command = (scrolling ? null : config.Wm) ?? new CommandSpec(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "dotnet.exe"), scrolling ? [Path.Combine(AppContext.BaseDirectory, "Adws.Windows.Wm.dll"), "--columns"] : [Path.Combine(AppContext.BaseDirectory, "Adws.Windows.Wm.dll")]);
             foreach (var group in snapshot.GroupBy(w => Screen.FromHandle((nint)w.Id).DeviceName))
             {
                 var area = Screen.FromHandle((nint)group.First().Id).WorkingArea;
@@ -274,6 +291,16 @@ internal sealed class WorkerForm : Form
                     var before = group.First(w => w.Id == p.Id);
                     originals.TryAdd(before.Id, before);
                     if (!backend.Move(before, p.Bounds)) failed++;
+                }
+                if (scrolling && placements.Length > 0)
+                {
+                    var visible = placements.Select(p => p.Id).ToHashSet();
+                    foreach (var other in group.Where(w => !visible.Contains(w.Id)))
+                    {
+                        Native.GetWindowThreadProcessId((nint)other.Id, out uint pid);
+                        if (pid == other.ProcessId)
+                            Native.SetWindowPos((nint)other.Id, (nint)placements[^1].Id, 0, 0, 0, 0, 0x13);
+                    }
                 }
                 status.Text = failed == 0 ? "Layout applied" : $"{failed} window(s) refused placement";
                 if (backend.OnlyProcessId.HasValue)
@@ -302,6 +329,16 @@ internal sealed class WorkerForm : Form
             {
                 case 1: Program.Report(() => { using var p = Program.Start(config.Terminal); }); break;
                 case 2: _ = Tile(); break;
+                case 6:
+                    if (busy) break;
+                    scrolling = !scrolling;
+                    automatic.Checked = scrolling;
+                    wm.Dispose();
+                    if (scrolling) _ = Tile();
+                    else { foreach (var original in originals.Values) backend.Move(original, original.Bounds); originals.Clear(); }
+                    break;
+                case 4: FocusNeighbor(-1); break;
+                case 5: FocusNeighbor(1); break;
                 case 3:
                     var items = backend.Snapshot();
                     if (items.Length > 0)
@@ -321,7 +358,7 @@ internal sealed class WorkerForm : Form
         WriteSmokeReport();
         wm.Dispose();
         foreach (var original in originals.Values) backend.Move(original, original.Bounds);
-        for (int id = 1; id <= 3; id++) Native.UnregisterHotKey(Handle, id);
+        for (int id = 1; id <= 6; id++) Native.UnregisterHotKey(Handle, id);
         backend.Dispose(); base.OnFormClosed(e);
     }
     private void WriteSmokeReport()
