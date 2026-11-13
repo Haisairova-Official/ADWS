@@ -1,0 +1,23 @@
+name: Windows native MVP
+on:
+  push:
+    paths: ['src/adws-windows/**', '.github/workflows/windows-native.yml']
+  pull_request:
+    paths: ['src/adws-windows/**', '.github/workflows/windows-native.yml']
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and run isolated protocol checks
+        shell: pwsh
+        run: ./src/adws-windows/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adws-windows-native-mvp
+          path: src/adws-windows/artifacts/win-x64/

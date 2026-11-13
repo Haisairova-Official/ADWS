@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Adws.Windows.Core/Adws.Windows.Core.csproj" />
+    <Compile Include="../Adws.Windows.Host/WmClient.cs" Link="WmClient.cs" />
+    <Compile Include="../Adws.Windows.Host/ProcessJob.cs" Link="ProcessJob.cs" />
+  </ItemGroup>
+</Project>

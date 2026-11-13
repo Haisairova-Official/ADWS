@@ -6,6 +6,9 @@
 
 **A simpler desktop experience for Niri.**
 
+Windows 原生后端实验：[`Experimental-WinSupport` 开发说明](docs/windows-native-mvp.md)。
+独立 Shell Host、Win32 后端与可替换 WM 原型；尚未通过 Explorer-free VM 登录验收，请勿用于日常账户 Shell。
+
 稳定版本 / Stable: **1.35** · 内部版本 / Internal revision: **Q** (`Pre-1.35`) · [更新记录 / Changelog](CHANGELOG.md)
 
 [中文](#中文) · [English](#english)
