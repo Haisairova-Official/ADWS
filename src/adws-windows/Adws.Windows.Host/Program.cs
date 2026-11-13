@@ -8,6 +8,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        if (args.Contains("--column-demo")) { ColumnDemo.Run(args.Contains("--smooth")); return 0; }
         if (args.Contains("--fixture"))
         {
             var first = new Form { Text = "ADWS smoke window A", Bounds = new(100, 100, 350, 250) };
@@ -183,6 +184,7 @@ internal sealed class WorkerForm : Form
     private readonly CheckBox automatic = new() { Text = "Automatic tiling (test session)", AutoSize = true };
     private readonly Dictionary<long, WindowInfo> originals = [];
     private bool dirty = true, busy, closing;
+    private readonly Dictionary<string,Placement[]> previousView = [];
     private bool scrolling;
     private long sequence;
     private readonly Dictionary<string, ColumnOrder> columns = [];
@@ -285,6 +287,13 @@ internal sealed class WorkerForm : Form
                     new(area.X, area.Y, area.Width, area.Height), group.ToArray());
                 var placements = await wm.Arrange(command, request);
                 if (closing) return;
+                if (scrolling)
+                {
+                    if (previousView.TryGetValue(group.Key, out var previous))
+                        await ColumnMotion.Play(previous, placements, request.WorkArea, request.Windows, () => closing);
+                    if (closing) return;
+                    previousView[group.Key] = placements;
+                }
                 int failed = 0;
                 foreach (var p in placements)
                 {
@@ -331,6 +340,7 @@ internal sealed class WorkerForm : Form
                 case 2: _ = Tile(); break;
                 case 6:
                     if (busy) break;
+                    previousView.Clear();
                     scrolling = !scrolling;
                     automatic.Checked = scrolling;
                     wm.Dispose();
