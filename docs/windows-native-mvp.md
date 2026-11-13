@@ -158,3 +158,9 @@ GitHub Actions 工作流只编译和执行进程协议检查，不作为真实 S
 - [Job Objects](https://learn.microsoft.com/windows/win32/procthread/job-objects)
 - [Shell Launcher](https://learn.microsoft.com/windows/configuration/shell-launcher/)
 - [按账户配置 Shell Launcher](https://learn.microsoft.com/windows/configuration/shell-launcher/configure)
+
+## Windows 桌面会话
+
+在已发布的 win-x64 目录运行 `Adws.Windows.Host.exe --desktop`。每台屏幕显示渐变背景，主屏底边显示开始按钮和窗口列表。点击窗口标题切换窗口。开始菜单支持搜索用户与系统 Programs 文件夹中的快捷方式，单击结果或按 ↓、Enter 启动，Esc 关闭。搜索框直接按 Enter 可运行可执行文件路径。已配置的文件管理器也会出现在菜单内。「恢复控制台」提供停止与退出入口。
+
+Windows 原生视图沿用 ADWS 开始菜单的搜索、快捷应用排序与 taskbar-pins.json 的 apps[].desktop_id 结构。配置路径为 %APPDATA%/adws/taskbar-pins.json，Windows 快捷方式 ID 是相对于 Programs 文件夹的路径，使用正斜杠。GTK 三层界面、四组主题与电源页尚待移植。当前不枚举仅通过 AppUserModelID 注册的应用。

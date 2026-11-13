@@ -29,18 +29,18 @@ internal sealed class Win32Backend : IDisposable
         catch { Dispose(); throw; }
     }
 
-    public WindowInfo[] Snapshot()
+    public WindowInfo[] Snapshot(bool tasks = false)
     {
         var result = new List<WindowInfo>();
         Native.EnumWindows((hwnd, _) =>
         {
             Native.GetWindowThreadProcessId(hwnd, out uint pid);
             if (OnlyProcessId.HasValue && pid != OnlyProcessId.Value) return true;
-            if (pid == Environment.ProcessId || !Native.IsWindowVisible(hwnd) || Native.IsIconic(hwnd) ||
+            if (pid == Environment.ProcessId || !Native.IsWindowVisible(hwnd) || (!tasks && Native.IsIconic(hwnd)) ||
                 Native.GetWindow(hwnd, 4) != 0) return true; // Owned dialogs float.
             long style = Native.GetWindowLongPtr(hwnd, -16).ToInt64();
             long exStyle = Native.GetWindowLongPtr(hwnd, -20).ToInt64();
-            if ((exStyle & (0x80 | 0x08000000)) != 0 || (style & 0x40000) == 0) return true;
+            if ((exStyle & (0x80 | 0x08000000)) != 0 || (!tasks && (style & 0x40000) == 0)) return true;
             if (Native.DwmGetWindowAttribute(hwnd, 14, out int cloaked, sizeof(int)) != 0 || cloaked != 0) return true;
             var name = new StringBuilder(256);
             Native.GetClassName(hwnd, name, name.Capacity);
@@ -50,8 +50,8 @@ internal sealed class Win32Backend : IDisposable
             if (title.Length == 0 || !Native.GetWindowRect(hwnd, out var r)) return true;
             var screen = Screen.FromHandle(hwnd).Bounds;
             // Fullscreen/maximized windows are left alone in this MVP.
-            if ((style & 0x01000000) != 0 || ((style & 0x00C00000) == 0 && r.Left <= screen.Left && r.Top <= screen.Top &&
-                r.Right >= screen.Right && r.Bottom >= screen.Bottom)) return true;
+            if (!tasks && ((style & 0x01000000) != 0 || ((style & 0x00C00000) == 0 && r.Left <= screen.Left && r.Top <= screen.Top &&
+                r.Right >= screen.Right && r.Bottom >= screen.Bottom))) return true;
             result.Add(new(hwnd.ToInt64(), pid, title.ToString(), new(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top),
                 hwnd == Native.GetForegroundWindow()));
             return true;
@@ -72,7 +72,9 @@ internal sealed class Win32Backend : IDisposable
     {
         nint hwnd = (nint)expected.Id;
         Native.GetWindowThreadProcessId(hwnd, out uint pid);
-        return pid == expected.ProcessId && Native.IsWindowVisible(hwnd) && Native.SetForegroundWindow(hwnd);
+        if (pid != expected.ProcessId || !Native.IsWindowVisible(hwnd)) return false;
+        if (Native.IsIconic(hwnd)) Native.ShowWindowAsync(hwnd, 9);
+        return Native.SetForegroundWindow(hwnd);
     }
 
     public void Dispose()

@@ -30,7 +30,7 @@ internal static class Program
             File.WriteAllText(args[index + 1], json);
             return 0;
         }
-        if (!args.Contains("--test-session"))
+        if (!args.Contains("--test-session") && !args.Contains("--desktop"))
         {
             MessageBox.Show("ADWS Windows MVP: run --test-session only in a VM or dedicated test account. " +
                 "No shell registration is performed. Use --inspect --output file.json for read-only diagnostics.");
@@ -51,7 +51,7 @@ internal static class Program
             int reportAt = Array.IndexOf(args, "--report");
             uint? scope = scopeAt >= 0 ? uint.Parse(args[scopeAt + 1]) : null;
             string? report = reportAt >= 0 ? args[reportAt + 1] : null;
-            Application.Run(new WorkerForm(config, heartbeat, guardian, scope, report));
+            Application.Run(new WorkerForm(config, heartbeat, guardian, scope, report, args.Contains("--desktop")));
         }
         else
         {
@@ -59,7 +59,7 @@ internal static class Program
             if (!created) { MessageBox.Show("ADWS test host is already running."); return 2; }
             int reportAt = Array.IndexOf(args, "--report");
             Application.Run(new RecoveryForm(config, args.Contains("--smoke"),
-                reportAt >= 0 ? args[reportAt + 1] : null));
+                reportAt >= 0 ? args[reportAt + 1] : null, args.Contains("--desktop")));
         }
         return 0;
     }
@@ -87,9 +87,11 @@ internal sealed class RecoveryForm : Form
     private readonly string? report;
     private Process? fixture;
     private readonly long started = Environment.TickCount64;
-    public RecoveryForm(HostConfig config, bool smoke = false, string? report = null)
+    private readonly bool desktop;
+    public RecoveryForm(HostConfig config, bool smoke = false, string? report = null, bool desktop = false)
     {
         this.config = config;
+        this.desktop = desktop;
         this.smoke = smoke; this.report = report;
         Text = "ADWS — Recovery / 恢复";
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
@@ -117,7 +119,7 @@ internal sealed class RecoveryForm : Form
                 : Environment.TickCount64 - lastBeat > 10000 ? "Host unresponsive. Stop/restart is available."
                 : "Host responsive. DWM remains the compositor.";
         };
-        Shown += (_, _) => Program.Report(StartWorker);
+        Shown += (_, _) => { Program.Report(StartWorker); if (desktop) WindowState = FormWindowState.Minimized; };
         timer.Start();
     }
     private static void Add(Control panel, string text, Action action)
@@ -139,6 +141,7 @@ internal sealed class RecoveryForm : Form
             arguments.AddRange(["--scope-pid", fixture.Id.ToString()]);
             if (report is not null) arguments.AddRange(["--report", report]);
         }
+        if (desktop) arguments.Add("--desktop");
         worker = Program.Start(Program.Self(arguments.ToArray()));
     }
     private void StopWorker()
@@ -185,7 +188,8 @@ internal sealed class WorkerForm : Form
     private readonly string? smokeReport;
     private int eventCount, maxWindows, minWindows = int.MaxValue, layouts, moveFailures, focusAccepted;
     private string? lastError;
-    public WorkerForm(HostConfig config, EventWaitHandle heartbeat, Process guardian, uint? scope = null, string? report = null)
+    private DesktopSurface? surface;
+    public WorkerForm(HostConfig config, EventWaitHandle heartbeat, Process guardian, uint? scope = null, string? report = null, bool desktop = false)
     {
         this.config = config; this.heartbeat = heartbeat; this.guardian = guardian;
         backend.OnlyProcessId = scope; smokeReport = report;
@@ -208,6 +212,7 @@ internal sealed class WorkerForm : Form
         actions.Controls.Add(executable);
         Add(actions, "Launch", () => { using var p = Program.Start(new(executable.Text, [])); });
         actions.Controls.Add(automatic); actions.Controls.Add(status);
+        if (desktop) surface = new DesktopSurface(this, config, backend, guardian);
         backend.Changed += () => { dirty = true; eventCount++; };
         timer.Tick += async (_, _) =>
         {
@@ -244,7 +249,7 @@ internal sealed class WorkerForm : Form
         }
         windows.BeginUpdate(); windows.Items.Clear(); windows.Items.AddRange(snapshot);
         if (selected.HasValue) windows.SelectedItem = snapshot.FirstOrDefault(w => w.Id == selected);
-        windows.EndUpdate(); return snapshot;
+        windows.EndUpdate(); surface?.UpdateTasks(); return snapshot;
     }
     private async Task Tile()
     {
@@ -258,6 +263,7 @@ internal sealed class WorkerForm : Form
             foreach (var group in snapshot.GroupBy(w => Screen.FromHandle((nint)w.Id).DeviceName))
             {
                 var area = Screen.FromHandle((nint)group.First().Id).WorkingArea;
+                if (surface is not null) area = surface.TileArea(area);
                 var request = new LayoutRequest(1, ++sequence, "layout", ["enumerate", "move-resize", "focus-best-effort"],
                     new(area.X, area.Y, area.Width, area.Height), group.ToArray());
                 var placements = await wm.Arrange(command, request);
@@ -310,6 +316,7 @@ internal sealed class WorkerForm : Form
     }
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        surface?.Dispose();
         closing = true; timer.Stop(); timer.Dispose();
         WriteSmokeReport();
         wm.Dispose();

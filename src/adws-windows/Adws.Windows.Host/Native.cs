@@ -5,6 +5,7 @@ namespace Adws.Windows;
 
 internal static class Native
 {
+    [DllImport("user32.dll")] internal static extern bool ShowWindowAsync(nint hwnd, int how);
     internal delegate bool EnumProc(nint hwnd, nint data);
     internal delegate void EventProc(nint hook, uint kind, nint hwnd, int obj, int child, uint thread, uint time);
     [StructLayout(LayoutKind.Sequential)] internal struct Rect { public int Left, Top, Right, Bottom; }
