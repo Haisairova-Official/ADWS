@@ -129,6 +129,7 @@ internal sealed class RecoveryForm : Form
         button.Click += (_, _) => Program.Report(action);
         panel.Controls.Add(button);
     }
+    private WiriBridge? external;
     private void StartWorker()
     {
         StopWorker();
@@ -143,6 +144,12 @@ internal sealed class RecoveryForm : Form
             if (report is not null) arguments.AddRange(["--report", report]);
         }
         if (desktop) arguments.Add("--desktop");
+        if (desktop && !smoke && config.Wiri is { } wiri)
+        {
+            external = new(wiri);
+            try { external.Connect().GetAwaiter().GetResult(); }
+            catch { external.Disconnect(); external = null; WindowState = FormWindowState.Normal; throw; }
+        }
         worker = Program.Start(Program.Self(arguments.ToArray()));
     }
     private void StopWorker()
@@ -154,6 +161,7 @@ internal sealed class RecoveryForm : Form
             if (!worker.WaitForExit(2500)) worker.Kill(); // User-launched applications survive.
         }
         worker.Dispose(); worker = null;
+        external?.Disconnect(); external = null;
     }
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
@@ -244,7 +252,8 @@ internal sealed class WorkerForm : Form
         {
             // Ctrl+Alt+T: terminal; Ctrl+Alt+L: tile; Ctrl+Alt+J: next focus.
             foreach (var binding in new (int, uint)[] { (1, 0x54), (2, 0x4C), (3, 0x4A), (4, 0x25), (5, 0x27), (6, 0x53) })
-                if (!Native.RegisterHotKey(Handle, binding.Item1, 0x4003, binding.Item2))
+                if (desktop && config.Wiri is not null && binding.Item1 != 1) continue;
+                else if (!Native.RegisterHotKey(Handle, binding.Item1, 0x4003, binding.Item2))
                     status.Text = "A shortcut is unavailable; buttons remain usable.";
             RefreshWindows(); timer.Start();
         };

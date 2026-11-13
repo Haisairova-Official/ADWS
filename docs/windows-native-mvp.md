@@ -168,3 +168,13 @@ Windows 原生视图沿用 ADWS 开始菜单的搜索、快捷应用排序与 ta
 ## 滚动列实验
 
 Ctrl+Alt+S 切换双列视口。Ctrl+Alt+左／右切换本屏相邻列。新窗口插入上次聚焦列右侧，现有列保持半屏宽。视口外窗口保留在本屏并排到可见列后方。关闭模式尝试恢复原矩形。当前按列跳转，尚无连续动画或合成器裁切。设计参考 https://github.com/niri-wm/niri 。
+
+### wiri 与文件桌面
+
+在 Windows 发布目录中将 windows-config.json 设置为如下结构。directory 指向官方 wiri.exe 和 wiri-ctl.exe 所在目录，configFile 指向个人 KDL，两个相对路径均以 ADWS 可执行文件所在目录为基准。
+
+    {"wiri":{"directory":"wiri","configFile":"wiri/config.kdl"}}
+
+使用 --desktop 启动。宿主优先连接运行中的 wiri，已有实例继续使用其当前配置；没有运行的实例时由恢复进程启动。宿主退出时仅关闭自己启动的 wiri。面板保留底部区域，从 wiri 查询窗口、发送聚焦命令，外部模式下列管理快捷键交给 wiri。
+
+任务按钮按可执行文件路径分组；点击组选择窗口，右键固定或取消固定，关闭全部窗口后从固定入口重新启动可执行文件。固定记录保存于 %APPDATA%/adws/windows-taskbar-pins.json。主屏文件桌面显示当前用户的桌面目录，支持图标、多选、框选、双击打开和刷新。无外部文件管理器配置时文件夹在桌面视图内打开，Backspace 返回上层，右键可返回桌面。当前未实现拖放重排、系统托盘或悬停预览。

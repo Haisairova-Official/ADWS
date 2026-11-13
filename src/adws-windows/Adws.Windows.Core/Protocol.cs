@@ -87,8 +87,11 @@ public record CommandSpec(string FileName, string[] Arguments)
     }
 }
 
+public record WiriConfig(string Directory, string ConfigFile);
+
 public sealed class HostConfig
 {
+    public WiriConfig? Wiri { get; set; }
     public CommandSpec? Wm { get; set; }
     public CommandSpec Terminal { get; set; } = new("cmd.exe", []);
     public CommandSpec? FileManager { get; set; }
