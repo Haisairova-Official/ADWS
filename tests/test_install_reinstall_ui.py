@@ -48,9 +48,29 @@ class Reinstall(unittest.TestCase):
             snapshot.restore()
             self.assertEqual(file.read_text(), 'personal')
 
+    def test_startup_routes_gui_tui_and_machine_readable_modes(self):
+        cases = [
+            ([], True, 'select'),
+            ([], False, 'tui'),
+            (['--gui'], False, 'gui'),
+            (['--tui', '--resume'], True, 'tui'),
+            (['--plan'], True, 'plain'),
+            (['--verify'], True, 'plain'),
+        ]
+        for args, available, expected in cases:
+            with self.subTest(args=args, available=available), patch.object(sys, 'argv', ['install.sh', *args]), \
+                 patch.object(workflow, 'interactive', return_value=True), \
+                 patch.object(workflow, 'gui_available', return_value=available) as probe, \
+                 patch.object(workflow, 'start_interface', return_value='select'), \
+                 patch.object(workflow, 'run_gui', return_value='gui'), \
+                 patch.object(workflow, 'run_wizard', return_value='tui'), \
+                 patch.object(workflow, 'main', return_value='plain'):
+                self.assertEqual(workflow.run_interactive(), expected)
+                self.assertEqual(probe.call_count, int(not args))
+
     def test_failure_can_retry_without_exiting(self):
         with patch.object(workflow, 'main', side_effect=[ValueError('conflict'), 0]) as main, \
-             patch.object(workflow, 'interactive', return_value=True), \
+             patch.object(workflow, 'gui_available', return_value=False), patch.object(workflow, 'interactive', return_value=True), \
              patch.object(workflow, 'choose', return_value=0), patch.object(sys, 'argv', ['install.sh']):
             self.assertEqual(workflow.run_interactive(), 0)
             self.assertEqual(main.call_count, 2)

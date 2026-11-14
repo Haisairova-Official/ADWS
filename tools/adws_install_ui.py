@@ -6,9 +6,10 @@ import unicodedata
 
 
 def interactive():
-    return sys.stdin.isatty() and sys.stdout.isatty() and os.environ.get('TERM', '') not in ('', 'dumb')
+    return graphics is not None or sys.stdin.isatty() and sys.stdout.isatty() and os.environ.get('TERM', '') not in ('', 'dumb')
 
 
+graphics = None
 _screen = None
 _history = None
 
@@ -26,7 +27,7 @@ class History:
 
 def navigate(function, *args):
     global _history
-    if _screen is None:
+    if _screen is None and graphics is None:
         return function(*args)
     saved = _history
     history = History()
@@ -82,6 +83,10 @@ def _page(draw):
 
 
 def waiting(message):
+    if graphics is not None:
+        if not (_history and _history.position < len(_history.answers)):
+            graphics.waiting(message)
+        return
     if _screen is not None and not (_history and _history.position < len(_history.answers)):
         height, width = _screen.getmaxyx()
         label = _clip('  请稍候 · ' + message, max(0, width - 1))
@@ -269,6 +274,9 @@ def _menu(title, labels, default=0, detail='', checked=None, descriptions=None):
 
 
 def choose(title, labels, default=0, detail='', descriptions=None):
+    if graphics is not None:
+        return _decision(('menu', title, tuple(labels)), lambda old: graphics.choose(
+            title, labels, default if old is None else old, detail, descriptions, can_back()))
     if interactive():
         return _decision(('menu', title, tuple(labels)),
                          lambda old: _menu(title, labels, default if old is None else old,
@@ -290,6 +298,9 @@ def show_text(title, text):
         print(text)
         return
     if _history and _history.position < len(_history.answers):
+        return
+    if graphics is not None:
+        graphics.show_text(title, text)
         return
     def read(screen):
         dialog = Dialog(screen)
@@ -334,7 +345,13 @@ def prompt(message):
     return input(message)
 
 
+def can_back():
+    return bool(_history and _history.position)
+
+
 def text_entry(title):
+    if graphics is not None:
+        return _decision(('input', title), lambda old: graphics.text_entry(title, old or '', can_back()))
     if not interactive():
         return input(title)
     def edit(screen, initial):
@@ -394,6 +411,8 @@ def select_targets(title, targets, initial=(), labels=None):
     targets = list(targets)
     def read(old):
         enabled = initial if old is None else old
+        if graphics is not None:
+            return graphics.checklist(title, targets, enabled, labels or {}, can_back())
         checked = {i for i, key in enumerate(targets) if key in enabled}
         if targets:
             _menu(title, [(labels or {}).get(key, key) for key in targets], checked=checked)

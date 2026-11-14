@@ -917,6 +917,9 @@ def review_plan(plan):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description='ADWS 统一安装：先预览，再执行；持久续装和独立验收。')
+    interfaces = parser.add_mutually_exclusive_group()
+    interfaces.add_argument('--gui', action='store_true', help='直接打开图形安装向导')
+    interfaces.add_argument('--tui', action='store_true', help='直接使用终端安装界面')
     parser.add_argument('--mode',choices=('fresh','integrate','migrate'))
     parser.add_argument('--plan',action='store_true',help='只显示计划，不修改任何配置')
     parser.add_argument('--resume',action='store_true');parser.add_argument('--verify',action='store_true')
@@ -1222,16 +1225,81 @@ def main(argv=None):
 
 
 def execute_reviewed(plan, directory):
+    import adws_install_ui as ui
+    if ui.graphics is not None:
+        return ui.graphics.execute(plan, directory)
     if not interactive():
         return execute(plan, directory)
     from adws_install_progress import monitor
     return monitor(plan, directory, lambda: execute(plan, directory))
 
 
+def gui_available():
+    if not (os.environ.get('WAYLAND_DISPLAY') or os.environ.get('DISPLAY')):
+        return False
+    # Probe in a separate process: a TUI-only installation must not inherit
+    # GTK threads or display connections when it forks the package transaction.
+    probe = "from adws_install_gui import Gtk; raise SystemExit(0 if Gtk.init_check()[0] else 1)"
+    try:
+        return subprocess.run([sys.executable, '-c', probe], cwd=ROOT/'tools', timeout=5,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def run_gui(function, args):
+    try:
+        from adws_install_gui import run
+    except (ImportError, ValueError) as error:
+        raise RuntimeError('图形安装需要 GTK 3、PyGObject 和 VTE 2.91。可用 ./install.sh --tui 打开终端安装。') from error
+    return run(function, args)
+
+
+def start_interface(args):
+    labels = ['图形向导', '终端界面']
+    descriptions = ['在窗口中选择组件、审核计划和查看安装进度。',
+                    '使用键盘完成配置，在终端查看安装进度。']
+    if interactive():
+        def select():
+            try:
+                selected = choose('选择安装方式', labels, descriptions=descriptions)
+            except Back:
+                return 130
+            if selected:
+                return installer_pages(args)
+            return None
+        result = run_wizard(select)
+        return run_gui(installer_pages, args) if result is None else result
+
+    # A launch from the desktop may have no terminal to host curses.
+    open_terminal = False
+    def select_in_window(flags):
+        nonlocal open_terminal
+        if choose('选择安装方式', labels, descriptions=descriptions):
+            open_terminal = True
+            return 0
+        return installer_pages(flags)
+    result = run_gui(select_in_window, args)
+    if open_terminal:
+        from adws_topbar_update import terminal_command
+        command = shlex.join([str(ROOT/'install.sh'), '--tui', *args])
+        return subprocess.call(terminal_command(command))
+    return result
+
+
 def run_interactive():
     args = sys.argv[1:]
     if any(flag in args for flag in ('--plan', '--help', '-h', '--verify', '--continue-after-upgrade')):
         return main(args)
+    if '--gui' in args:
+        if '--tui' in args:
+            raise ValueError('请选择 --gui 或 --tui 其中一种安装方式。')
+        return run_gui(installer_pages, args)
+    if '--tui' not in args and gui_available():
+        # Preserve redirected stdin/stdout for existing text-based invocations.
+        if interactive() or (not sys.stdin.isatty() and
+                             os.path.realpath('/proc/self/fd/0') == os.devnull):
+            return start_interface(args)
     return run_wizard(installer_pages, args)
 
 

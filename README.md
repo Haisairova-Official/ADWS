@@ -27,6 +27,9 @@ In development: VMware mode in Settings → Input & shortcuts → Shortcuts supp
 [1.37 更新说明](docs/release-1.37.md) · [安装与交付纲领、优先级及验收进度](docs/installer-roadmap.md) 是安装器改进依据。新版入口先展示变更计划，区分全新安装、已有 Niri 集成和旧机迁移：
 
 ```sh
+./install.sh          # 自动检测并选择安装界面
+./install.sh --gui    # 直接打开图形向导
+./install.sh --tui    # 直接打开终端界面
 ./install.sh --mode fresh --plan
 ./install.sh --mode integrate
 ./install.sh --mode migrate --from-home /path/to/old/home
