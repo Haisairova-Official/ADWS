@@ -17,11 +17,11 @@ import subprocess
 import sys
 import tempfile
 
-from adws_install_ui import choose, interactive, prompt, select_targets, text_entry
+from adws_install_ui import Back, navigate, choose, interactive, prompt, select_targets, show_text, text_entry, run_wizard, waiting
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 1
-DEFAULT_PACKAGES = {'terminal':'foot','browser':'firefox','file_manager':'thunar','text_editor':'mousepad'}
+DEFAULT_PACKAGES = {'terminal':'kitty','browser':'firefox','file_manager':'thunar','text_editor':'mousepad'}
 APP_ROLES = {'terminal': ('TerminalEmulator', ()), 'browser': ('WebBrowser', ('x-scheme-handler/http','x-scheme-handler/https','text/html')),
              'file_manager': ('FileManager', ('inode/directory',)), 'text_editor': ('TextEditor', ('text/plain',))}
 
@@ -154,7 +154,16 @@ def installed_apps():
         for role,(category,_) in APP_ROLES.items():
             if category in app['categories'] and not app['terminal']:
                 result[role].append({key:app[key] for key in ('desktop_id','name','argv')})
+    for role in ('browser', 'terminal'):
+        result[role].sort(key=lambda app: not preferred_app(role, app))
     return result
+
+
+def preferred_app(role, app):
+    desktop_ids = {'browser': ('firefox.desktop', 'org.mozilla.firefox.desktop', 'firefox_firefox.desktop'),
+                   'terminal': ('kitty.desktop', 'net.kovidgoyal.kitty.desktop')}
+    return (app['desktop_id'].lower() in desktop_ids[role]
+            or Path(app['argv'][0]).name.lower() == DEFAULT_PACKAGES[role])
 
 
 def fresh_file_manager(mode):
@@ -182,27 +191,30 @@ def thunar_entry(app):
 
 def choose_applications(mode, choices):
     """Collect choices before computing the reviewed package list."""
+    waiting('正在读取已安装的应用…')
     for role, apps in installed_apps().items():
         if choices.get(role) or not apps:
             continue
-        if interactive():
-            labels = [a['name'] for a in apps]
-            if role == 'file_manager':
-                labels.insert(0, '使用 Thunar' if fresh_file_manager(mode) else '保留系统默认文件管理器')
-            role_name = {'terminal': '终端', 'browser': '浏览器', 'file_manager': '文件管理器', 'text_editor': '文本编辑器'}[role]
-            index = choose('选择默认' + role_name, labels)
-            if role == 'file_manager' and index == 0:
-                continue
-            choices[role] = apps[index - int(role == 'file_manager')]['desktop_id']
-            continue
-        print(role+': '+', '.join(f'{i+1} {a["name"]}' for i,a in enumerate(apps)))
+        labels = [app['name'] for app in apps]
+        extra = None
         if role == 'file_manager':
-            default = 'Thunar' if fresh_file_manager(mode) else '保留系统默认文件管理器'
-            value = input(f'选择已安装应用 [回车：{default}] ').strip()
-            if not value:
+            extra = '使用 Thunar' if fresh_file_manager(mode) else '保留系统默认文件管理器'
+        elif role == 'terminal' and not any(preferred_app(role, app) for app in apps):
+            extra = '安装 kitty 并设为默认终端'
+        if extra:
+            labels.insert(0, extra)
+        role_name = {'terminal': '终端', 'browser': '浏览器', 'file_manager': '文件管理器', 'text_editor': '文本编辑器'}[role]
+        if interactive():
+            index = choose('选择默认' + role_name, labels)
+            if extra and index == 0:
                 continue
-        else:
-            value = input('选择已安装应用 [1] ').strip() or '1'
+            choices[role] = apps[index - int(bool(extra))]['desktop_id']
+            continue
+        print(role + ': ' + ', '.join(f'{i+1} {app["name"]}' for i, app in enumerate(apps)))
+        value = input(f'选择已安装应用 [回车：{extra or labels[0]}] ').strip()
+        if not value and extra:
+            continue
+        value = value or '1'
         if not value.isdigit() or not 1 <= int(value) <= len(apps):
             raise ValueError('无效应用选择')
         choices[role] = apps[int(value)-1]['desktop_id']
@@ -243,6 +255,8 @@ def selected_plan(mode, root=ROOT, choices=None, features=None, migration_source
                                                'argv':['thunar'],'install_package':THUNAR_PACKAGES[manager][0]}
             continue
         selected = next((a for a in available[role] if a['desktop_id']==wanted),None) if wanted else next(iter(available[role]),None)
+        if role == 'terminal' and not wanted:
+            selected = next((app for app in available[role] if preferred_app(role, app)), None)
         if wanted and not selected: raise ValueError(f'{role}: 所选应用未安装或不可运行：{wanted}')
         applications[role] = selected or {'desktop_id':None,'name':DEFAULT_PACKAGES[role], 'argv':[DEFAULT_PACKAGES[role]],'install_package':DEFAULT_PACKAGES[role]}
     include_file_manager = fresh_manager and (not choices.get('file_manager') or thunar_entry(applications['file_manager']))
@@ -884,7 +898,6 @@ def review_plan(plan):
     if plan['blocking']:
         summary = '待处理：' + str(len(plan['blocking'])) + ' 项，继续查看原因。\n' + summary
     if interactive():
-        import pydoc
         while True:
             action = choose('审核安装计划', ['继续', '查看软件包明细', '查看完整计划'], detail=summary)
             if action == 0:
@@ -895,9 +908,9 @@ def review_plan(plan):
                     lines.append(feature['label'] + '：' + (' '.join(feature['packages']) or '沿用已有实现'))
                 if resolution:
                     lines.append('已满足：' + ' '.join(resolution['satisfied']))
-                pydoc.pager('\n\n'.join(lines))
+                show_text('软件包明细', '\n\n'.join(lines))
             else:
-                pydoc.pager(json.dumps(plan, ensure_ascii=False, indent=2))
+                show_text('完整安装计划', json.dumps(plan, ensure_ascii=False, indent=2))
     else:
         print(summary)
 
@@ -967,13 +980,16 @@ def main(argv=None):
         else:
             print(json.dumps(plan,ensure_ascii=False,indent=2))
         if prompt('复查以上计划并继续？[y/N] ').strip().lower() not in ('y','yes'):return 130
-        return execute(plan,directory)
+        return execute_reviewed(plan,directory)
     mode=args.mode
     if mode is None:
         if args.plan:mode='integrate'
         else:
             mode = ('fresh', 'integrate', 'migrate')[choose('安装方案',
-                ['全新安装', '已有 Niri 集成 / 重新安装', '从旧机迁移'], default=1)]
+                ['全新安装', '已有 Niri 集成 / 重新安装', '从旧机迁移'], default=1,
+                descriptions=['创建 Niri 默认配置，并检查已有文件。',
+                              '保留现有 Niri 配置，审核需要补齐的软件和 ADWS 配置。',
+                              '从旧机 HOME 目录选择要导入的个人配置。'])]
     if mode=='migrate' and not args.from_home and not args.plan:args.from_home=text_entry('旧机 HOME 目录（只读来源）：').strip()
     app_choices = {role:getattr(args, role) for role in APP_ROLES}
     if not args.plan:
@@ -982,12 +998,13 @@ def main(argv=None):
     optional_features = ['brightness', 'lock', 'palette']
     skipped = args.skip_feature or []
     if interactive() and not args.plan and args.skip_feature is None:
-        enabled = select_targets('可选功能 · 按空格切换，回车确认', optional_features,
+        enabled = select_targets('可选功能', optional_features,
                                  initial=optional_features, labels={k: FEATURE_MANIFEST[k]['label'] for k in optional_features})
         skipped = [feature for feature in optional_features if feature not in enabled]
     selected = [feature for feature in selected_features(mode) if feature not in skipped]
     if args.palette_targets and 'palette' in skipped:
         raise ValueError('启用自动配色后才能注册配色同步目标。')
+    waiting('正在检查现有 Niri 配置和桌面组件…')
     plan=selected_plan(mode,choices=app_choices,features=selected,migration_source=args.from_home)
     plan['skipped_features'] = skipped
     existing = {name: path_state for name in WAYBAR_DEFAULTS
@@ -1052,11 +1069,13 @@ def main(argv=None):
         migration=reviewed()
         if not args.plan:
             for row in list(migration['needs_review']):
-                key=row['path'];print('需审核：'+key+' — '+row['reason'])
+                key=row['path']
                 while True:
                     value = ('k', 'i', 'r', 'd')[choose('迁移文件 · ' + key,
                         ['保留目标', '导入新文件', '备份后覆盖', '查看差异'], detail=row['reason'])]
-                    if value=='d':print(text_diff(migration,key));continue
+                    if value=='d':
+                        show_text('文件差异 · ' + key, text_diff(migration,key))
+                        continue
                     if value not in ('i','r','k'):continue
                     choices[key]={'i':'import','r':'replace','k':'keep'}[value];break
                 migration=reviewed()
@@ -1089,6 +1108,7 @@ def main(argv=None):
             plan['package_candidates'] += {'pacman':['gsettings-desktop-schemas'],'apt-get':['gsettings-desktop-schemas'],'dnf':['gsettings-desktop-schemas']}[manager]
         plan['package_candidates']=list(dict.fromkeys(plan['package_candidates']))
         if palette['conflicts']:plan['blocking'].append('自动配色配置存在冲突；保留原文件，请先审核。')
+    waiting('正在核对配置文件和迁移路径…')
     from adws_install_source_migration import plan as source_migration_plan
     plan['source_migration']=source_migration_plan(ROOT)
     if plan['source_migration']['conflicts']:
@@ -1182,6 +1202,7 @@ def main(argv=None):
                                       'satisfied': sorted(satisfied)}
     if plan['system_upgrade']:
         from adws_install_arch_packages import review as package_review
+        waiting('正在下载仓库索引并预览系统升级…')
         plan['package_review']=package_review(plan['package_resolution']['missing'])
         if plan['package_review']['status'] == 'failed':
             plan['blocking'].append('软件包事务无法解析：' + ' '.join(
@@ -1197,27 +1218,42 @@ def main(argv=None):
     plan['approved']=True
     directory=base/datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     write_json(directory/'plan.json',plan);write_json(base/'current.json',{'directory':str(directory)})
-    return execute(plan,directory)
+    return execute_reviewed(plan,directory)
+
+
+def execute_reviewed(plan, directory):
+    if not interactive():
+        return execute(plan, directory)
+    from adws_install_progress import monitor
+    return monitor(plan, directory, lambda: execute(plan, directory))
 
 
 def run_interactive():
     args = sys.argv[1:]
+    if any(flag in args for flag in ('--plan', '--help', '-h', '--verify', '--continue-after-upgrade')):
+        return main(args)
+    return run_wizard(installer_pages, args)
+
+
+def installer_pages(args):
     while True:
         try:
-            return main(args)
+            return navigate(main, args)
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not interactive() or '--plan' in args or '--verify' in args or '--continue-after-upgrade' in args:
                 raise
-            print('安装未完成：' + str(error), file=sys.stderr)
             options = ['重新配置安装', '查看完整错误', '退出']
             current = state_root() / 'current.json'
             if current.is_file():
                 options.insert(1, '复查并续装上次事务')
             while True:
-                action = options[choose('安装未完成', options, detail=str(error))]
+                try:
+                    action = options[choose('安装未完成', options, detail=str(error))]
+                except Back:
+                    args = []
+                    break
                 if action == '查看完整错误':
-                    import pydoc
-                    pydoc.pager(str(error))
+                    show_text('完整错误', str(error))
                     continue
                 if action == '退出':
                     return 1

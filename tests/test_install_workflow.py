@@ -32,6 +32,7 @@ class InstallWorkflowTests(unittest.TestCase):
         })
         self.environment.start(); self.addCleanup(self.environment.stop)
         self.apps = {role:[{'desktop_id':role+'.desktop','name':role,'argv':['true']}] for role in workflow.APP_ROLES}
+        self.apps['terminal'][0]['desktop_id'] = 'kitty.desktop'
         self.apps['file_manager'] = [
             {'desktop_id':'dolphin.desktop','name':'Dolphin','argv':['dolphin']},
             {'desktop_id':'thunar.desktop','name':'Thunar','argv':['thunar']},
@@ -780,10 +781,17 @@ class InstalledApplicationEntryTests(unittest.TestCase):
         self.entry('Alacritty.desktop','alacritty',extra='TryExec=alacritty\n')
         selected=workflow.installed_apps()['terminal']
         self.assertEqual({a['desktop_id'] for a in selected}, {'foot.desktop','kitty.desktop','Alacritty.desktop'})
+        self.assertEqual(selected[0]['desktop_id'], 'kitty.desktop')
         self.assertTrue(all(a['argv'] in (['foot'],['kitty'],['alacritty']) for a in selected))
         inventory={a['desktop_id']:a for a in workflow.desktop_inventory()}
         self.assertTrue(inventory['foot-server.desktop']['background_only'])
         self.assertTrue(inventory['kitty-open.desktop']['no_display'])
+
+    def test_firefox_precedes_another_browser_in_the_app_menu(self):
+        self.entry('a-browser.desktop', 'viewer', categories='WebBrowser;')
+        self.entry('org.mozilla.firefox.desktop', 'viewer', categories='WebBrowser;')
+        browsers = workflow.installed_apps()['browser']
+        self.assertEqual([app['desktop_id'] for app in browsers], ['org.mozilla.firefox.desktop', 'a-browser.desktop'])
 
     def test_service_filter_uses_real_arguments_not_id_or_localized_name(self):
         self.entry('normal-looking.desktop', 'env -u REMOVE COLOR=blue foot --server=/tmp/test.sock')
@@ -810,7 +818,9 @@ class InstalledApplicationEntryTests(unittest.TestCase):
         with patch('adws_install_features.feature_plan',return_value={'manager':'pacman','packages':[],'features':[]}), patch('adws_setup.cargo_source_configuration',return_value=None), patch.object(workflow,'fingerprint',return_value='fixture'), patch.object(workflow,'prebuilt_status',return_value={'status':'missing'}):
             with self.assertRaisesRegex(ValueError,'foot-server.desktop'):
                 workflow.selected_plan('fresh',root=self.folder,choices={'terminal':'foot-server.desktop'})
-            proposal=workflow.selected_plan('fresh',root=self.folder)
+            by_default = workflow.selected_plan('fresh',root=self.folder)
+            self.assertEqual(by_default['applications']['terminal']['install_package'], 'kitty')
+            proposal=workflow.selected_plan('fresh',root=self.folder,choices={'terminal':'foot.desktop'})
         self.assertEqual(proposal['applications']['terminal']['desktop_id'],'foot.desktop')
         self.assertEqual(proposal['applications']['terminal']['argv'],['foot'])
 
