@@ -78,6 +78,14 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(self.niri.read_text(), 'input {}\n')
         self.assertEqual(self.control.call_count, 2)
 
+    def test_keyboard_profile_follows_keep_config_choice(self):
+        from adws_keyboard import BEGIN, END
+        block = BEGIN + '\n// profile: reversed\ninclude ".adws-keyboard-example.kdl"\n' + END + '\n'
+        for answer in ('', 'n'):
+            self.niri.write_text('input {}\n' + block)
+            self.assertEqual(self.run_answers(['y', answer])[0], 0)
+            self.assertEqual(self.niri.read_text(), 'input {}\n' + (block if not answer else ''))
+
     def test_purge_removes_only_owned_config(self):
         result, _, _ = self.run_answers(['yes', 'n'])
         self.assertEqual(result, 0)

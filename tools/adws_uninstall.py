@@ -80,7 +80,7 @@ def ask(prompt, default):
         print(_tr('请输入 y 或 n。'))
 
 
-def remove_autostart():
+def remove_autostart(*, keep_keyboard_profile=False):
     from adws_windows import config_path
     path = config_path()
     if not path.is_file():
@@ -94,8 +94,9 @@ def remove_autostart():
     cleaned = top_pattern.sub('', cleaned)
     from adws_windows import PATTERN as WINDOW_RULES
     cleaned = WINDOW_RULES.sub('', cleaned)
-    from adws_keyboard import clean_block
-    cleaned = clean_block(cleaned)
+    if not keep_keyboard_profile:
+        from adws_keyboard import clean_block
+        cleaned = clean_block(cleaned)
     launchers = {str(ROOT / 'src/niri-desktop-layer/start-desktop-layer')}
     previous_root = read_inventory().get('root')
     if isinstance(previous_root, str):
@@ -295,7 +296,7 @@ def uninstall():
             stop_all()
             # Uninstall only ADWS-owned components and app configuration.
             # System settings chosen by the user remain effective.
-            remove_autostart()
+            remove_autostart(keep_keyboard_profile=keep_config)
             remove_owned_files(keep_config)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(''.join([_tr('卸载未完成：'), f'{error}']), file=sys.stderr)

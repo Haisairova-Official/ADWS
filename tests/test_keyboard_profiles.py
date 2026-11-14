@@ -41,6 +41,17 @@ class KeyboardProfiles(unittest.TestCase):
             self.assertEqual(before, self.config.read_bytes())
         self.assertEqual(keys.clean_block(self.config.read_text()).strip(), self.original.strip())
 
+    @patch('adws_keyboard.niri_binary', return_value='/usr/bin/niri')
+    @patch('adws_keyboard.subprocess.run', return_value=subprocess.CompletedProcess([], 0, '', ''))
+    def test_migrated_include_survives_profile_reapplication(self, _run, _binary):
+        keys.apply_profile('reversed', self.config)
+        previous = self.directory / keys.PATTERN.search(self.config.read_text())[2]
+        previous.write_text('// migrated version')
+        keys.apply_profile('reversed', self.config)
+        active = self.directory / keys.PATTERN.search(self.config.read_text())[2]
+        self.assertEqual(active.read_text(), keys.bindings('reversed'))
+        self.assertEqual(previous.read_text(), '// migrated version')
+
     def test_actions_are_taps_and_never_replace_combinations(self):
         for profile in keys.PROFILES:
             content = keys.bindings(profile, Path('/a path/ADWS'))

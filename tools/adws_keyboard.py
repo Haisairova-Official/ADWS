@@ -92,8 +92,12 @@ def apply_profile(profile, path=None, root=ROOT):
     if release_only is None:
         raise ValueError(_tr('此 Niri 配置不支持该键位方案，未修改配置。'))
     content = bindings(profile, root, release_only=release_only)
-    digest = hashlib.sha256(content.encode()).hexdigest()[:20]
-    included = path.parent / ('.adws-keyboard-' + digest + '.kdl')
+    digest = hashlib.sha256(content.encode()).hexdigest()
+    included = path.parent / ('.adws-keyboard-' + digest[:20] + '.kdl')
+    if included.is_file() and included.read_bytes() != content.encode():
+        # A migrated include may retain its old filename after launcher paths
+        # changed. Leave it available to other configs and existing backups.
+        included = path.parent / ('.adws-keyboard-' + digest + '.kdl')
     # Immutable includes keep the running configuration valid until the main
     # config can be replaced atomically. Never overwrite another profile file.
     created = not included.exists()
