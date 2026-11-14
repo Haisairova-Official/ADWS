@@ -14,7 +14,7 @@ REQUIRED = (
     'tools/adws_login_manager.py',
     'install.sh', 'adws', 'scripts/adws-install.sh', 'scripts/adws-install-session.sh', 'scripts/adws-i18n.sh',
     'scripts/adws-bootstrap.sh', 'scripts/package-bootstrap.py', 'tools/adws_bootstrap.py', 'tools/adws_download.py',
-    'tools/adws_install_workflow.py', 'tools/adws_install_transaction.py', 'tools/adws_install_features.py',
+    'tools/adws_install_ui.py', 'tools/adws_install_workflow.py', 'tools/adws_install_transaction.py', 'tools/adws_install_features.py',
     'tools/adws_install_niri.py', 'tools/adws_install_migration.py', 'tools/adws_install_startup.py',
     'tools/adws_install_source_migration.py',
     'tools/adws_install_topbar_migration.py', 'tools/adws_install_bar_lifecycle.py',

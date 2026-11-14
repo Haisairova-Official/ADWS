@@ -17,6 +17,8 @@ import subprocess
 import sys
 import tempfile
 
+from adws_install_ui import choose, interactive, prompt, select_targets, text_entry
+
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 1
 DEFAULT_PACKAGES = {'terminal':'foot','browser':'firefox','file_manager':'thunar','text_editor':'mousepad'}
@@ -183,6 +185,16 @@ def choose_applications(mode, choices):
     for role, apps in installed_apps().items():
         if choices.get(role) or not apps:
             continue
+        if interactive():
+            labels = [a['name'] for a in apps]
+            if role == 'file_manager':
+                labels.insert(0, '使用 Thunar' if fresh_file_manager(mode) else '保留系统默认文件管理器')
+            role_name = {'terminal': '终端', 'browser': '浏览器', 'file_manager': '文件管理器', 'text_editor': '文本编辑器'}[role]
+            index = choose('选择默认' + role_name, labels)
+            if role == 'file_manager' and index == 0:
+                continue
+            choices[role] = apps[index - int(role == 'file_manager')]['desktop_id']
+            continue
         print(role+': '+', '.join(f'{i+1} {a["name"]}' for i,a in enumerate(apps)))
         if role == 'file_manager':
             default = 'Thunar' if fresh_file_manager(mode) else '保留系统默认文件管理器'
@@ -249,6 +261,29 @@ def selected_plan(mode, root=ROOT, choices=None, features=None, migration_source
     if mode=='migrate' and not migration_source: plan['blocking'].append('迁移模式需要 --from-home 指定只读来源目录')
     plan['package_candidates'].extend(a['install_package'] for a in applications.values() if 'install_package' in a)
     return plan
+
+
+WAYBAR_DEFAULTS = ('config-bottom.jsonc', 'style-bottom.css', 'modules.jsonc', 'colors.css')
+
+
+def config_state(path):
+    if path.is_symlink():
+        return {'link': os.readlink(path)}
+    if path.is_file():
+        return {'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+    return None
+
+
+def replace_reviewed_defaults(plan):
+    folder = Path(plan['config_home']) / 'waybar'
+    targets = plan.get('replace_waybar_defaults', {})
+    for name, expected in targets.items():
+        if name not in WAYBAR_DEFAULTS or expected is None or config_state(folder / name) != expected:
+            raise ValueError('待覆盖配置已变化，请重新审核：' + name)
+    # The enclosing transaction has backed up each target. Deployment installs
+    # missing templates and records ownership using the usual installation path.
+    for name in targets:
+        (folder / name).unlink()
 
 
 def approved_plan():
@@ -430,6 +465,7 @@ class Journal:
         if row.get('status')=='passed' and verify is not None and verify():
             row['revalidated']=True;self.save();return
         self.data['steps'][name]={'status':'running'};self.save()
+        print('正在执行 · ' + name, flush=True)
         try:
             operation()
             if verify is not None and not verify(): raise RuntimeError('步骤复查失败：'+name)
@@ -593,6 +629,15 @@ def _execute(plan, directory):
         def operation(backup):
             nonlocal nickname_change,theme_change
             journal.data['backups'].append(str(backup));journal.save()
+            replace_reviewed_defaults(plan)
+            from adws_commands import ENTRIES
+            for name, expected in plan.get('replace_commands', {}).items():
+                path = Path(name)
+                if (path.parent != Path.home() / '.local/bin' or path.name not in ENTRIES
+                        or config_state(path) != expected or expected is None):
+                    raise ValueError('待覆盖命令已变化，请重新审核：' + name)
+            for name in plan.get('replace_commands', {}):
+                Path(name).unlink()
             if package_owners:
                 from adws_install_package_owners import apply_reviewed_package_owners
                 journal.step('package-startup-ownership',lambda:write_json(Path(directory)/'package-owner-result.json',apply_reviewed_package_owners(package_owners,Path(backup)/'package-startup')))
@@ -805,6 +850,23 @@ def execute(plan, directory, *, continuation_token=None):
         raise
 
 
+def review_plan(plan):
+    summary = '\n'.join([
+        '方案：' + plan['mode'] + '    配置目录：' + plan['config_home'],
+        '默认应用：' + '、'.join(app['name'] for app in plan['applications'].values()),
+        '备份后覆盖：' + ('、'.join([*plan.get('replace_waybar_defaults', {}), *plan.get('replace_commands', {})]) or '无'),
+        '候选软件包：' + ' '.join(plan['package_candidates']),
+    ])
+    if plan['blocking']:
+        summary = '待处理：' + str(len(plan['blocking'])) + ' 项，继续查看原因。\n' + summary
+    if interactive():
+        import pydoc
+        while choose('审核安装计划', ['继续', '查看完整计划'], detail=summary):
+            pydoc.pager(json.dumps(plan, ensure_ascii=False, indent=2))
+    else:
+        print(summary)
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description='ADWS 统一安装：先预览，再执行；持久续装和独立验收。')
     parser.add_argument('--mode',choices=('fresh','integrate','migrate'))
@@ -861,21 +923,30 @@ def main(argv=None):
         path=base/'current.json'
         directory=Path(json.loads(path.read_text())['directory'])
         plan=json.loads((directory/'plan.json').read_text())
-        print(json.dumps(plan,ensure_ascii=False,indent=2))
-        if input('复查以上计划并继续？[y/N] ').strip().lower() not in ('y','yes'):return 130
+        if interactive():
+            review_plan(plan)
+        else:
+            print(json.dumps(plan,ensure_ascii=False,indent=2))
+        if prompt('复查以上计划并继续？[y/N] ').strip().lower() not in ('y','yes'):return 130
         return execute(plan,directory)
     mode=args.mode
     if mode is None:
         if args.plan:mode='integrate'
         else:
-            value=input('安装方案：1 全新安装 / 2 已有 Niri 集成 / 3 旧机迁移 [2] ').strip() or '2'
-            mode={'1':'fresh','2':'integrate','3':'migrate'}.get(value)
-            if mode is None:raise ValueError('无效方案')
-    if mode=='migrate' and not args.from_home and not args.plan:args.from_home=input('旧机 HOME 目录（只读来源）：').strip()
+            mode = ('fresh', 'integrate', 'migrate')[choose('安装方案',
+                ['全新安装', '已有 Niri 集成 / 重新安装', '从旧机迁移'], default=1)]
+    if mode=='migrate' and not args.from_home and not args.plan:args.from_home=text_entry('旧机 HOME 目录（只读来源）：').strip()
     app_choices = {role:getattr(args, role) for role in APP_ROLES}
     if not args.plan:
         choose_applications(mode, app_choices)
     plan=selected_plan(mode,choices=app_choices,migration_source=args.from_home)
+    existing = {name: path_state for name in WAYBAR_DEFAULTS
+                if (path_state := config_state(Path(plan['config_home']) / 'waybar' / name)) is not None}
+    if existing and not args.plan:
+        policy = choose('已有任务栏配置', ['保留现有配置', '备份后覆盖为本版默认配置'],
+                        detail='涉及文件：' + '、'.join(existing))
+        if policy:
+            plan['replace_waybar_defaults'] = existing
     plan['system_upgrade']=args.system_upgrade is True
     if plan['system_upgrade'] and plan['features']['manager']!='pacman':
         raise ValueError('--system-upgrade 当前仅支持 Arch/pacman；其他系统保留原包管理流程。')
@@ -886,18 +957,18 @@ def main(argv=None):
     if plan['theme_plan']['conflicts']:plan['blocking'].append('可选登录／启动主题存在冲突；默认保留系统现状，请审核。')
     plan['autostart']=args.autostart if args.autostart is not None else mode=='fresh'
     if not args.plan:
-        if not plan['build_fallback']:plan['build_fallback']=input('预编译不匹配时允许源码构建（下载依赖并编译）？[y/N] ').lower() in ('y','yes')
+        if not plan['build_fallback']:plan['build_fallback']=prompt('预编译不匹配时允许源码构建（下载依赖并编译）？[y/N] ').lower() in ('y','yes')
         if args.autostart is None:
-            default=plan['autostart'];value=input('添加缺失的 Niri 登录启动项（ADWS、输入法和剪贴板等）？已有项目保留启用状态；换目录时受管路径更新会列入计划。'+(' [Y/n] ' if default else ' [y/N] ')).lower()
+            default=plan['autostart'];value=prompt('添加缺失的 Niri 登录启动项（ADWS、输入法和剪贴板等）？已有项目保留启用状态；换目录时受管路径更新会列入计划。'+(' [Y/n] ' if default else ' [y/N] ')).lower()
             plan['autostart']=default if not value else value in ('y','yes')
         from adws_i18n import chinese
         if plan['mirror']=='official' and chinese():
-            if input('本次构建使用国内镜像 RsProxy（不改现有源）？[y/N] ').lower() in ('y','yes'):plan['mirror']='rsproxy'
+            if prompt('本次构建使用国内镜像 RsProxy（不改现有源）？[y/N] ').lower() in ('y','yes'):plan['mirror']='rsproxy'
         if not shutil.which('niri'):
-            plan['niri_method']='source' if input('Niri 安装：1 系统源 / 2 官方源码 [1] ').strip()=='2' else 'repository'
+            plan['niri_method'] = ('repository', 'source')[choose('安装 Niri', ['系统软件源', '官方源码'])]
         if plan['features']['manager']=='pacman' and args.system_upgrade is None:
             default=mode=='fresh'
-            value=input('完整升级 Arch 系统并补齐依赖？包管理器将展示最终升级列表供确认；不会单独刷新数据库后局部升级。'+(' [Y/n] ' if default else ' [y/N] ')).strip().lower()
+            value=prompt('完整升级 Arch 系统并补齐依赖？包管理器将展示最终升级列表供确认；不会单独刷新数据库后局部升级。'+(' [Y/n] ' if default else ' [y/N] ')).strip().lower()
             plan['system_upgrade']=default if not value else value in ('y','yes')
     # Finish the complete package/configuration proposal before the single approval.
     from adws_setup import PACKAGES
@@ -925,7 +996,8 @@ def main(argv=None):
             for row in list(migration['needs_review']):
                 key=row['path'];print('需审核：'+key+' — '+row['reason'])
                 while True:
-                    value=input('导入新文件(i) / 覆盖(r) / 保留目标(k，默认) / 查看差异(d)：').lower() or 'k'
+                    value = ('k', 'i', 'r', 'd')[choose('迁移文件 · ' + key,
+                        ['保留目标', '导入新文件', '备份后覆盖', '查看差异'], detail=row['reason'])]
                     if value=='d':print(text_diff(migration,key));continue
                     if value not in ('i','r','k'):continue
                     choices[key]={'i':'import','r':'replace','k':'keep'}[value];break
@@ -934,14 +1006,17 @@ def main(argv=None):
         if migration['needs_review']:plan['blocking'].append('迁移文件尚未审核；请按预览选择导入、覆盖或保留。')
     targets=args.palette_targets
     if targets is None and not args.plan:
-        value=input('自动配色同步目标（kitty alacritty foot mako dunst icons，以空格分隔；留空保留现状）：').strip()
-        targets=value.split() if value else []
+        if interactive():
+            targets = select_targets('自动配色同步目标', list(TARGETS))
+        else:
+            value=prompt('自动配色同步目标（kitty alacritty foot mako dunst icons，以空格分隔；留空保留现状）：').strip()
+            targets=value.split() if value else []
     if targets:
         from adws_palette_sync import registration_plan
         if 'icons' in targets and not args.palette_icon_base and not args.plan:
-            args.palette_icon_base=input('请输入保留并继承的现有图标主题名称：').strip()
+            args.palette_icon_base=text_entry('请输入保留并继承的现有图标主题名称：').strip()
         if 'foot' in targets and not args.foot_shell and not args.plan:
-            value=input('Foot 实时配色：注册到 bash / zsh，留空保留现有方式（首次配置仅新窗口生效）：').strip()
+            value = ('', 'bash', 'zsh')[choose('Foot 实时配色', ['保留现有方式', 'bash', 'zsh'])]
             if value not in ('','bash','zsh'):raise ValueError('无效的 Foot Shell 选择')
             args.foot_shell=value or None
         palette=registration_plan(targets,config_home=plan['config_home'],data_home=plan['data_home'],home=plan['home'],
@@ -987,7 +1062,15 @@ def main(argv=None):
         plan['launcher_plan']=plan['legacy_plan']['launcher_policy']
     from adws_commands import plan as command_plan
     plan['command_plan']=command_plan(ROOT)
-    if plan['command_plan']['conflicts']:plan['blocking'].append('用户命令目录存在非 ADWS 同名程序，不能覆盖。')
+    command_conflicts = plan['command_plan']['conflicts']
+    if command_conflicts:
+        replaceable = all(config_state(Path(name)) is not None for name in command_conflicts)
+        if not args.plan and replaceable and choose('同名的用户命令',
+                ['保留并返回审核', '备份后覆盖这些命令'], detail='\n'.join(command_conflicts)):
+            plan['replace_commands'] = {name: config_state(Path(name)) for name in command_conflicts}
+            plan['command_plan']['conflicts'] = []
+        else:
+            plan['blocking'].append('用户命令存在冲突：' + '、'.join(command_conflicts))
     from adws_install_niri import action_commands
     plan['shortcut_plan']=action_commands(ROOT,plan['features'],plan['session_plan']['lock_argv'],require_installed=False)
     if plan['session_plan']['conflicts']:plan['blocking'].append('输入法环境或用户服务有冲突，请先审核会话配置。')
@@ -1012,18 +1095,45 @@ def main(argv=None):
         plan['package_review']=package_review(plan['package_candidates'])
         if plan['package_review']['status']=='failed' or not plan['package_review'].get('source_fingerprint'):
             plan['blocking'].append('无法完成软件包升级预览，请先检查报告中的仓库或网络问题。')
-    print(json.dumps(plan,ensure_ascii=False,indent=2))
-    if args.plan:return 0
+    if args.plan:
+        print(json.dumps(plan,ensure_ascii=False,indent=2))
+        return 0
+    review_plan(plan)
     if plan['blocking']:raise ValueError('\n'.join(plan['blocking']))
-    if input('确认执行以上变更？[y/N] ').strip().lower() not in ('y','yes'):return 130
+    if prompt('确认执行以上变更？[y/N] ').strip().lower() not in ('y','yes'):return 130
     plan['approved']=True
     directory=base/datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     write_json(directory/'plan.json',plan);write_json(base/'current.json',{'directory':str(directory)})
     return execute(plan,directory)
 
 
+def run_interactive():
+    args = sys.argv[1:]
+    while True:
+        try:
+            return main(args)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            if not interactive() or '--plan' in args or '--verify' in args or '--continue-after-upgrade' in args:
+                raise
+            print('安装未完成：' + str(error), file=sys.stderr)
+            options = ['重新配置安装', '查看完整错误', '退出']
+            current = state_root() / 'current.json'
+            if current.is_file():
+                options.insert(1, '复查并续装上次事务')
+            while True:
+                action = options[choose('安装未完成', options, detail=str(error)[:500])]
+                if action == '查看完整错误':
+                    import pydoc
+                    pydoc.pager(str(error))
+                    continue
+                if action == '退出':
+                    return 1
+                args = ['--resume'] if action == '复查并续装上次事务' else []
+                break
+
+
 if __name__=='__main__':
-    try:raise SystemExit(main())
+    try:raise SystemExit(run_interactive())
     except (OSError,ValueError,RuntimeError,subprocess.SubprocessError) as exc:
         print('安装未完成：'+str(exc),file=sys.stderr);raise SystemExit(1)
     except (EOFError,KeyboardInterrupt):raise SystemExit(130)

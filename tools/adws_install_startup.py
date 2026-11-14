@@ -104,7 +104,10 @@ def audit(config_home, niri_path=None, enabled_units=None, unit_dirs=None, autos
                 unknown.append({'path':str(path),'line':number,'reason':'unparsed_startup_or_include'});continue
             if node == 'spawn-sh-at-startup':
                 try:
-                    args=shlex.split(argv[0])
+                    # A literal delay does not own a service. Inspect its command,
+                    # retaining the normal review path for other shell chains.
+                    command = re.sub(r'^\s*sleep\s+[0-9]+(?:\.[0-9]+)?[smhd]?\s*&&\s*', '', argv[0])
+                    args=shlex.split(command)
                     if any(token in ('&&','||','|',';','&') for token in args):raise ValueError('Complex shell startup')
                     record('niri',f'{path}:{number}',args,managed_startup=managed,startup_node=node)
                 except ValueError: unknown.append({'path':str(path),'line':number,'reason':'unparsed_shell_startup'})

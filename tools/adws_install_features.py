@@ -157,6 +157,25 @@ def _provider_executable(argv):
     return Path(command[0]).name if command else None
 
 
+def distinct_wallpaper_instances(owners):
+    namespaces = set()
+    for row in owners:
+        argv = _provider_command(row['argv']) or []
+        if not argv or Path(argv[0]).name != 'awww-daemon':
+            return False
+        args = argv[1:]
+        if not args:
+            namespace = None
+        elif len(args) == 2 and args[0] in ('-n', '--namespace') and args[1]:
+            namespace = args[1]
+        else:
+            return False
+        if namespace in namespaces:
+            return False
+        namespaces.add(namespace)
+    return True
+
+
 def provider_hints(config_home, niri_path=None, environ=None, audit_options=None):
     """Read configured owners/frontend environment before choosing dependencies.
 
@@ -190,8 +209,10 @@ def provider_hints(config_home, niri_path=None, environ=None, audit_options=None
             if provider not in FEATURE_MANIFEST[feature]['providers']:
                 conflicts.append({'feature':feature,'kind':'unrecognized-provider-command','owner':row})
             else:candidates.append(provider)
-        if len(owners)>1:conflicts.append({'feature':feature,'kind':'multiple-configured-owners','owners':owners})
-        if len(owners)==1 and len(candidates)==1:providers[feature]=candidates[0]
+        shared = feature == 'wallpaper' and distinct_wallpaper_instances(owners)
+        if len(owners)>1 and not shared:conflicts.append({'feature':feature,'kind':'multiple-configured-owners','owners':owners})
+        if candidates and (len(owners) == 1 or shared):
+            providers[feature] = candidates[0]
     env_candidates=set()
     for key,value in effective.items():
         if not value:continue

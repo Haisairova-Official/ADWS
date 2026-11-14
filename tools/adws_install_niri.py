@@ -403,6 +403,19 @@ def relocation_plan(config_path, source_migration):
         return any(isinstance(value,str) and (value==str(old_root) or str(old_root)+'/' in value) for value in values)
     for name in audited['niri_files']:
         original=Path(name).read_text();lines=original.splitlines(keepends=True)
+        # This older generated include carries its own exact binding template.
+        from adws_vm_mode import toggle_binding
+        key = re.search(r'^\s*([A-Za-z0-9+_-]+) repeat=false', original, re.M)
+        header = '// Managed by ADWS virtual machine mode.\n'
+        vm_script = Path('tools/adws_vm_mode.py')
+        if (key and Path(name).name.startswith('.adws-vm-mode-')
+                and original == header + toggle_binding(old_root / vm_script, key[1])
+                and (new_root / vm_script).is_file()):
+            result['originals'][name] = original
+            result['files'][name] = header + toggle_binding(new_root / vm_script, key[1])
+            result['replacements'].append({'path': name, 'line': 3,
+                'before': [str(old_root / vm_script)], 'after': [str(new_root / vm_script)]})
+            continue
         for number,line in enumerate(lines,1):
             if line.lstrip().startswith(('//','#','/-','spawn-at-startup ','spawn-sh-at-startup ')):continue
             if not references(line):continue

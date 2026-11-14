@@ -104,7 +104,11 @@ def plan(config_home, *, state_home=None, data_home=None, cache_home=None,
             result['conflicts'].append({'kind': 'legacy-niri-includes-require-review', 'source': str(niri),
                                        'target': str(niri), 'detail': unknown})
         for name in hashes:
-            text = Path(name).read_text()
+            lines = Path(name).read_text().splitlines()
+            # Window match predicates are identifiers, not commands or paths.
+            text = '\n'.join(line for line in lines
+                             if not line.lstrip().startswith('//')
+                             and not re.fullmatch(r'\s*match\s+app-id=(?:r#)?"[^"]*"#?\s*;?\s*(?://.*)?', line))
             if LEGACY_REFERENCE.search(text):
                 result['conflicts'].append({'kind': 'legacy-niri-command-requires-conversion', 'source': name,
                     'target': name, 'detail': 'Niri startup/rules still reference MNWS; do not change them after provider ownership review.'})
