@@ -48,6 +48,23 @@ def _redact(message):
     return ''.join(c for c in text if c in '\n\t' or ord(c) >= 32)[:8192]
 
 
+def transaction_issue(output):
+    """Classify pacman's diagnostics while keeping the package names and constraints."""
+    lines = [line for line in output.splitlines()
+             if line.strip() and not line.startswith(('安装未完成：', '正在查找软件包冲突', 'looking for conflicting packages'))]
+    message = _redact('\n'.join(lines[-12:])).strip()
+    lower = message.lower()
+    for kind, label, markers in (
+        ('file-conflict', '软件包文件冲突', ('conflicting files', 'exists in filesystem', '冲突的文件', '已存在于文件系统')),
+        ('package-conflict', '软件包互斥', ('are in conflict', 'conflicting dependencies', '有冲突', '未解决的软件包冲突')),
+        ('dependency', '依赖或版本要求未满足', ('breaks dependency', 'unable to satisfy dependency', 'could not satisfy dependencies', '破坏依赖', '无法满足依赖')),
+        ('missing-target', '软件源缺少目标包', ('target not found', '未找到目标', '找不到目标')),
+    ):
+        if any(marker in lower for marker in markers):
+            return {'kind': kind, 'message': label + '\n' + message}
+    return {'kind': 'transaction-failed', 'message': 'pacman 事务失败' + ('\n' + message if message else '')}
+
+
 def _query_config(path, run, timeout):
     result = run(['pacman-conf', '--config', str(path)], capture_output=True, text=True,
                  timeout=timeout, env={**os.environ, 'LC_ALL': 'C'})
@@ -214,7 +231,9 @@ def review(packages, *, pacman_conf='/etc/pacman.conf', timeout=120,
             result = run(command, capture_output=True, text=True, timeout=remaining(),
                          env={**os.environ, 'LC_ALL': 'C'})
             if result.returncode:
-                raise ValueError('Pacman could not resolve the preview: '+_redact(result.stderr))
+                report['status'] = 'failed'
+                report['conflicts'].append(transaction_issue(result.stderr))
+                return report
             if len(result.stdout) > 8*1024*1024: raise ValueError('Package preview output exceeds limit')
             resolved = []
             for line in result.stdout.splitlines():

@@ -47,6 +47,15 @@ class NiriInstallTests(unittest.TestCase):
             for manager in ('apt-get','pacman','dnf'):
                 with self.assertRaises(RuntimeError):niri.package_candidates(manager,['niri'])
 
+    def test_pacman_uses_capabilities_including_version_constraints(self):
+        needs = ['fcitx5', 'niri>=26', 'addon']
+        with patch.object(niri, 'query', return_value=completed('addon\n', code=127)) as query:
+            self.assertEqual(niri.installed_packages('pacman', needs), {'fcitx5', 'niri>=26'})
+            query.assert_called_once_with(['pacman', '-T', '--', *needs])
+        with patch.object(niri, 'query', return_value=completed(stderr='database error', code=1)):
+            with self.assertRaises(RuntimeError):
+                niri.installed_packages('pacman', needs)
+
     def test_existing_compositor_and_config_are_preserved(self):
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'config.kdl';path.write_text('// my fork configuration\n')

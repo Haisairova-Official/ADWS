@@ -109,10 +109,19 @@ def install_packages(programs=(), groups=(), *, system_upgrade=False):
             if missing:
                 raise RuntimeError('NEW_PLAN_REQUIRED: dependencies missing after the reviewed system upgrade: ' + ', '.join(sorted(missing)))
             return
-    print(_tr('准备安装：') + ', '.join(packages))
+    if manager == 'pacman':
+        from adws_niri_install import installed_packages
+        satisfied = installed_packages(manager, packages)
+        packages = [name for name in packages if name not in satisfied]
+        if not packages and not system_upgrade:
+            return
+    if packages:
+        print(_tr('准备安装：') + ', '.join(packages))
+    elif system_upgrade:
+        print('所需依赖均已满足，继续已确认的 Arch 系统升级。')
     if plan is None and not confirm(_tr('是否补齐以上依赖？')):
         raise RuntimeError(_tr('已取消安装；补齐依赖后可重新运行 install.sh。'))
-    flags = (['--needed', '--noconfirm'] if manager == 'pacman' else ['-y']) if plan else []
+    flags = (['--needed'] if manager == 'pacman' else ['-y']) if plan else []
     if system_upgrade:
         from adws_install_arch_packages import execution_command
         # The package manager presents its freshly resolved transaction for

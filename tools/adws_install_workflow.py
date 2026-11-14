@@ -787,14 +787,27 @@ def install_log(path):
     """Tee child output as well as Python output; never log environment/passwords."""
     sys.stdout.flush(); sys.stderr.flush()
     out, err = os.dup(1), os.dup(2)
+    start = path.stat().st_size if path.exists() else 0
+    package_error = None
     tee = subprocess.Popen(['tee','-a',str(path)], stdin=subprocess.PIPE, stdout=out, stderr=err)
     try:
         os.dup2(tee.stdin.fileno(),1); os.dup2(tee.stdin.fileno(),2)
         yield
+    except subprocess.CalledProcessError as error:
+        if isinstance(error.cmd, (list, tuple)) and 'pacman' in error.cmd[:2]:
+            package_error = error
+        else:
+            raise
     finally:
         sys.stdout.flush(); sys.stderr.flush()
         os.dup2(out,1); os.dup2(err,2); os.close(out); os.close(err)
         tee.stdin.close(); tee.wait(timeout=10)
+    if package_error is not None:
+        from adws_install_arch_packages import transaction_issue
+        with path.open('rb') as log:
+            log.seek(max(start, path.stat().st_size - 32768))
+            issue = transaction_issue(log.read().decode(errors='replace'))
+        raise RuntimeError(issue['message'] + '\n完整日志：' + str(path)) from package_error
 
 
 @contextlib.contextmanager
@@ -851,18 +864,40 @@ def execute(plan, directory, *, continuation_token=None):
 
 
 def review_plan(plan):
+    from adws_install_features import FEATURE_MANIFEST
+    skipped = [FEATURE_MANIFEST[name]['label'] for name in plan.get('skipped_features', [])]
+    skipped.extend(plan.get('skipped_packages', []))
+    resolution = plan.get('package_resolution')
+    package_line = ('需补齐的软件包：' + (' '.join(resolution['missing']) or '无')
+                    if resolution else '候选软件包：' + ' '.join(plan['package_candidates']))
     summary = '\n'.join([
         '方案：' + plan['mode'] + '    配置目录：' + plan['config_home'],
         '默认应用：' + '、'.join(app['name'] for app in plan['applications'].values()),
         '备份后覆盖：' + ('、'.join([*plan.get('replace_waybar_defaults', {}), *plan.get('replace_commands', {})]) or '无'),
-        '候选软件包：' + ' '.join(plan['package_candidates']),
+        '跳过的可选项：' + ('、'.join(skipped) or '无'),
+        package_line,
     ])
+    if resolution:
+        summary += '\n已满足依赖：' + str(len(resolution['satisfied'])) + ' 项'
+        for requirement, provider in resolution['providers'].items():
+            summary += f'\n  {requirement} ← {provider}'
     if plan['blocking']:
         summary = '待处理：' + str(len(plan['blocking'])) + ' 项，继续查看原因。\n' + summary
     if interactive():
         import pydoc
-        while choose('审核安装计划', ['继续', '查看完整计划'], detail=summary):
-            pydoc.pager(json.dumps(plan, ensure_ascii=False, indent=2))
+        while True:
+            action = choose('审核安装计划', ['继续', '查看软件包明细', '查看完整计划'], detail=summary)
+            if action == 0:
+                break
+            if action == 1:
+                lines = [summary]
+                for feature in plan['features']['features']:
+                    lines.append(feature['label'] + '：' + (' '.join(feature['packages']) or '沿用已有实现'))
+                if resolution:
+                    lines.append('已满足：' + ' '.join(resolution['satisfied']))
+                pydoc.pager('\n\n'.join(lines))
+            else:
+                pydoc.pager(json.dumps(plan, ensure_ascii=False, indent=2))
     else:
         print(summary)
 
@@ -887,6 +922,10 @@ def main(argv=None):
     parser.add_argument('--palette-targets',nargs='+',choices=TARGETS,help='明确选择随壁纸配色同步的终端、通知或默认图标')
     parser.add_argument('--palette-icon-base',help='图标配色继承的现有图标主题')
     parser.add_argument('--foot-shell',choices=('bash','zsh'),help='给所选 Shell 注册 Foot 终端内实时配色')
+    parser.add_argument('--skip-feature', action='append', choices=('brightness','lock','palette'),
+                        help='跳过可选功能及其专用依赖，可重复指定')
+    parser.add_argument('--input-addons', choices=('auto','install','skip'), default='auto',
+                        help='可选 Fcitx 拼音扩展；全新中文拼音配置需要此包')
     parser.add_argument('--from-home');parser.add_argument('--build-fallback',action='store_true')
     parser.add_argument('--system-upgrade',action=argparse.BooleanOptionalAction,default=None,
                         help='Arch：完整升级系统并补齐依赖；使用临时仓库预览，实际包事务需确认，不执行单独 -Sy')
@@ -939,7 +978,18 @@ def main(argv=None):
     app_choices = {role:getattr(args, role) for role in APP_ROLES}
     if not args.plan:
         choose_applications(mode, app_choices)
-    plan=selected_plan(mode,choices=app_choices,migration_source=args.from_home)
+    from adws_install_features import selected_features, FEATURE_MANIFEST
+    optional_features = ['brightness', 'lock', 'palette']
+    skipped = args.skip_feature or []
+    if interactive() and not args.plan and args.skip_feature is None:
+        enabled = select_targets('可选功能 · 按空格切换，回车确认', optional_features,
+                                 initial=optional_features, labels={k: FEATURE_MANIFEST[k]['label'] for k in optional_features})
+        skipped = [feature for feature in optional_features if feature not in enabled]
+    selected = [feature for feature in selected_features(mode) if feature not in skipped]
+    if args.palette_targets and 'palette' in skipped:
+        raise ValueError('启用自动配色后才能注册配色同步目标。')
+    plan=selected_plan(mode,choices=app_choices,features=selected,migration_source=args.from_home)
+    plan['skipped_features'] = skipped
     existing = {name: path_state for name in WAYBAR_DEFAULTS
                 if (path_state := config_state(Path(plan['config_home']) / 'waybar' / name)) is not None}
     if existing and not args.plan:
@@ -974,10 +1024,18 @@ def main(argv=None):
     from adws_setup import PACKAGES
     manager=plan['features']['manager']
     if plan['build_fallback']:
-        plan['package_candidates'] += PACKAGES[manager]['build']+PACKAGES[manager]['waybar-build']
+        from adws_waybar_compat import resolve_waybar
+        plan['package_candidates'] += PACKAGES[manager]['build']
+        if not resolve_waybar():
+            plan['package_candidates'] += PACKAGES[manager]['waybar-build']
     if not shutil.which('niri'):
-        from adws_niri_install import BUILD_PACKAGES, SESSION_PACKAGES
-        plan['package_candidates'] += SESSION_PACKAGES + (BUILD_PACKAGES[manager] if plan['niri_method']=='source' else ['niri'])
+        from adws_niri_install import BUILD_PACKAGES, SESSION_PACKAGES, installed_packages, package_candidates
+        present = installed_packages(manager, SESSION_PACKAGES)
+        optional = [name for name in SESSION_PACKAGES if name not in present]
+        available = package_candidates(manager, optional)
+        plan['skipped_packages'] = [name for name in optional if name not in available]
+        plan['package_candidates'] += [name for name in SESSION_PACKAGES if name in present or name in available]
+        plan['package_candidates'] += BUILD_PACKAGES[manager] if plan['niri_method']=='source' else ['niri']
     plan['package_candidates']=list(dict.fromkeys(plan['package_candidates']))
     if plan['migration_source']:
         from adws_install_personal import review, text_diff
@@ -1005,7 +1063,7 @@ def main(argv=None):
         plan['migration_plan']=migration
         if migration['needs_review']:plan['blocking'].append('迁移文件尚未审核；请按预览选择导入、覆盖或保留。')
     targets=args.palette_targets
-    if targets is None and not args.plan:
+    if targets is None and not args.plan and 'palette' not in skipped:
         if interactive():
             targets = select_targets('自动配色同步目标', list(TARGETS))
         else:
@@ -1073,6 +1131,23 @@ def main(argv=None):
             plan['blocking'].append('用户命令存在冲突：' + '、'.join(command_conflicts))
     from adws_install_niri import action_commands
     plan['shortcut_plan']=action_commands(ROOT,plan['features'],plan['session_plan']['lock_argv'],require_installed=False)
+    addon = 'fcitx5-chinese-addons'
+    if addon in plan['package_candidates']:
+        needs_pinyin = bool(plan['session_plan'].get('required_data'))
+        if needs_pinyin and args.input_addons == 'skip':
+            plan['blocking'].append('本次将创建中文拼音配置，需要 fcitx5-chinese-addons。')
+        if not needs_pinyin:
+            install_addon = args.input_addons == 'install'
+            if args.input_addons == 'auto' and interactive() and not args.plan:
+                install_addon = bool(choose('可选输入法扩展', ['沿用已有输入方案', '安装 Fcitx 拼音扩展'],
+                                            detail='使用 Rime、Mozc 或其他输入方案时可以跳过拼音扩展。'))
+            if not install_addon:
+                plan['package_candidates'].remove(addon)
+                for feature in plan['features']['features']:
+                    if addon in feature['packages']:
+                        feature['packages'].remove(addon)
+                plan['features']['packages'].remove(addon)
+                plan.setdefault('skipped_packages', []).append(addon)
     if plan['session_plan']['conflicts']:plan['blocking'].append('输入法环境或用户服务有冲突，请先审核会话配置。')
     if plan['prebuilt']['status']=='integrity-error':plan['blocking'].append('预编译包校验失败，请重新获取可信安装包。')
     elif plan['prebuilt']['status']!='verified' and not plan['build_fallback']:
@@ -1090,10 +1165,28 @@ def main(argv=None):
     plan['package_owner_plan']=reviewed_package_owners(plan['features'],plan['package_candidates'],plan['config_home'],niri_path=plan['niri_config_path'])
     if plan['package_owner_plan']['conflicts']:
         plan['blocking'].append('软件包自启动归属存在冲突，请先审核；不会覆盖现有用户入口。')
+    if manager == 'pacman':
+        from adws_niri_install import installed_packages, query
+        names = plan['package_candidates']
+        satisfied = installed_packages(manager, names)
+        missing = [name for name in names if name not in satisfied]
+        # pacman -Qq reports the concrete installed name for a virtual target.
+        # Query only aliases, since batched output need not preserve input order.
+        concrete = set(query(['pacman', '-Qq']).stdout.splitlines())
+        aliases = {}
+        for name in sorted(satisfied - concrete):
+            owner = query(['pacman', '-Qq', '--', name])
+            if owner.returncode == 0:
+                aliases[name] = owner.stdout.strip()
+        plan['package_resolution'] = {'missing': missing, 'providers': aliases,
+                                      'satisfied': sorted(satisfied)}
     if plan['system_upgrade']:
         from adws_install_arch_packages import review as package_review
-        plan['package_review']=package_review(plan['package_candidates'])
-        if plan['package_review']['status']=='failed' or not plan['package_review'].get('source_fingerprint'):
+        plan['package_review']=package_review(plan['package_resolution']['missing'])
+        if plan['package_review']['status'] == 'failed':
+            plan['blocking'].append('软件包事务无法解析：' + ' '.join(
+                issue['message'] for issue in plan['package_review']['conflicts']))
+        elif not plan['package_review'].get('source_fingerprint'):
             plan['blocking'].append('无法完成软件包升级预览，请先检查报告中的仓库或网络问题。')
     if args.plan:
         print(json.dumps(plan,ensure_ascii=False,indent=2))
@@ -1121,7 +1214,7 @@ def run_interactive():
             if current.is_file():
                 options.insert(1, '复查并续装上次事务')
             while True:
-                action = options[choose('安装未完成', options, detail=str(error)[:500])]
+                action = options[choose('安装未完成', options, detail=str(error))]
                 if action == '查看完整错误':
                     import pydoc
                     pydoc.pager(str(error))

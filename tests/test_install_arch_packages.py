@@ -135,9 +135,22 @@ class ArchPackageReviewTests(unittest.TestCase):
         self.returncode = 1
         self.stderr = 'conflict; mirror https://token:SECRET@example.invalid/private-token/pkg failed'
         result = self.review()
-        self.assertEqual(result['status'], 'requires_interactive_review')
+        self.assertEqual(result['status'], 'failed')
         self.assertNotIn('SECRET', json.dumps(result)); self.assertNotIn('private-token', json.dumps(result))
         self.assertIn('conflict', result['conflicts'][0]['message'])
+
+    def test_transaction_diagnostics(self):
+        for expected, line in (
+            ('package-conflict', ':: a-2 与 a-patched-1 有冲突'),
+            ('dependency', ":: installing core (2) breaks dependency 'core=1' required by plugin"),
+            ('file-conflict', 'addon: /etc/example exists in filesystem'),
+            ('missing-target', 'error: target not found: example'),
+            ('transaction-failed', 'error: could not lock database'),
+        ):
+            with self.subTest(expected):
+                issue = arch.transaction_issue(line)
+                self.assertEqual(issue['kind'], expected)
+                self.assertIn(line, issue['message'])
 
     def test_size_timeout_and_malformed_output_are_bounded(self):
         result = self.review(max_database_bytes=2)

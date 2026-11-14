@@ -75,10 +75,11 @@ class ManagedSetupTests(unittest.TestCase):
                 setup.confirm('Unreviewed decision')
             ask.assert_not_called()
 
-    def test_exact_approved_packages_only(self):
+    @patch('adws_niri_install.installed_packages', return_value=set())
+    def test_exact_approved_packages_only(self, installed):
         with patch.object(setup, 'approved_plan', return_value=self.plan()), patch.object(setup.shutil,'which',return_value='/bin/tool'), patch.object(setup.os,'geteuid',return_value=0), patch.object(setup.subprocess,'run') as run:
             setup.install_packages(['waybar'])
-            run.assert_called_once_with(['pacman','-S','--needed','--noconfirm','waybar'],check=True)
+            run.assert_called_once_with(['pacman','-S','--needed','waybar'],check=True)
             run.reset_mock()
             with self.assertRaisesRegex(RuntimeError, 'NEW_PLAN_REQUIRED.*unapproved'):
                 setup.install_packages(['unreviewed-package'])
@@ -90,9 +91,10 @@ class ManagedSetupTests(unittest.TestCase):
                 setup.install_packages(['waybar'])
             run.assert_not_called()
 
-    def test_explicit_arch_upgrade_uses_whole_transaction_and_keeps_final_confirmation(self):
+    @patch('adws_niri_install.installed_packages', return_value={'fontconfig'})
+    def test_explicit_arch_upgrade_uses_whole_transaction_and_keeps_final_confirmation(self, installed):
         with patch.object(setup,'approved_plan',return_value=self.plan(system_upgrade=True)), patch.object(setup.shutil,'which',return_value='/bin/tool'), patch.object(setup.os,'geteuid',return_value=0), patch.object(setup,'checked_run') as run:
-            setup.install_packages(['waybar'],system_upgrade=True)
+            setup.install_packages(['waybar','fontconfig'],system_upgrade=True)
             run.assert_called_once_with(['pacman','--config','/etc/pacman.conf','-Syu','--needed','--','waybar'],check=True)
             self.assertNotIn('--noconfirm',run.call_args.args[0])
 

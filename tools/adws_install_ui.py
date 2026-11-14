@@ -3,6 +3,7 @@ import curses
 import os
 import sys
 import textwrap
+import unicodedata
 
 
 def interactive():
@@ -20,49 +21,74 @@ def choose(title, labels, default=0, detail=''):
             if answer.isdecimal() and 1 <= int(answer) <= len(labels):
                 return int(answer) - 1
 
-    def menu(screen):
+    return _menu(title, labels, default, detail)
+
+
+def _clip(text, columns):
+    used = 0
+    for end, char in enumerate(text):
+        used += 0 if unicodedata.combining(char) else 2 if unicodedata.east_asian_width(char) in 'WF' else 1
+        if used > columns:
+            return text[:end]
+    return text
+
+
+def _menu(title, labels, default=0, detail='', checked=None):
+    def draw(screen):
         selected = default
+        offset = 0
+        try:
+            curses.curs_set(0)
+        except curses.error:
+            pass
         while True:
             height, width = screen.getmaxyx()
-            width = max(1, width - 2)
             screen.erase()
-            def line(row, value, attr=0):
-                if row < height - 1:
-                    try:
-                        screen.addnstr(row, 0, value, width, attr)
-                    except curses.error:
-                        pass
-            line(0, 'ADWS 安装程序', curses.A_BOLD)
+            def line(row, text, attr=0):
+                if 0 <= row < height - 1:
+                    screen.addstr(row, 0, _clip(text, max(0, width - 1)), attr)
+            line(0, ' ADWS 安装程序 '.ljust(width - 2), curses.A_REVERSE | curses.A_BOLD)
             row = 2
-            for fragment in textwrap.wrap(title, max(10, width // 2)):
+            for fragment in textwrap.wrap(title, max(8, width // 2 - 1)):
                 line(row, fragment, curses.A_BOLD)
                 row += 1
-            for part in detail.splitlines():
-                for fragment in textwrap.wrap(part, max(10, width // 2)):
-                    if row >= height // 2:
-                        break
-                    line(row, fragment)
-                    row += 1
-                if row >= height // 2:
-                    break
+            details = [fragment for part in detail.splitlines()
+                       for fragment in textwrap.wrap(part, max(8, width // 2 - 1))]
+            page = min(len(details), max(1, (height - row - 5) // 2))
+            offset = min(offset, max(0, len(details) - page))
+            for fragment in details[offset:offset + page]:
+                line(row, fragment)
+                row += 1
+            if len(details) > page:
+                line(row, f' PgUp/PgDn 翻阅详情  {offset + 1}–{offset + page}/{len(details)}', curses.A_DIM)
+                row += 1
+            row += 1
             slots = max(1, height - row - 3)
             first = max(0, selected - slots + 1)
             for i in range(first, min(first + slots, len(labels))):
-                line(row, (' › ' if i == selected else '   ') + labels[i],
+                mark = '' if checked is None else ('[✓] ' if i in checked else '[ ] ')
+                line(row, (' › ' if i == selected else '   ') + mark + labels[i],
                      curses.A_REVERSE if i == selected else 0)
                 row += 1
-            line(height - 2, '↑ ↓ 选择   Enter 确认   Esc 退出')
+            hint = '空格 勾选   ' if checked is not None else ''
+            line(height - 2, '↑↓ 选择   ' + hint + 'Enter 确认   Esc 退出')
             screen.refresh()
             key = screen.getch()
             if key in (10, 13, curses.KEY_ENTER):
                 return selected
             if key in (27, ord('q')):
                 raise KeyboardInterrupt
-            if key in (curses.KEY_UP, ord('k')):
+            if key == curses.KEY_PPAGE:
+                offset = max(0, offset - page)
+            elif key == curses.KEY_NPAGE:
+                offset += page
+            elif key == ord(' ') and checked is not None:
+                checked.symmetric_difference_update([selected])
+            elif key in (curses.KEY_UP, ord('k')):
                 selected = (selected - 1) % len(labels)
-            if key in (curses.KEY_DOWN, ord('j')):
+            elif key in (curses.KEY_DOWN, ord('j')):
                 selected = (selected + 1) % len(labels)
-    return curses.wrapper(menu)
+    return curses.wrapper(draw)
 
 
 def prompt(message):
@@ -96,12 +122,9 @@ def text_entry(title):
     return curses.wrapper(edit)
 
 
-def select_targets(title, targets):
-    selected = set()
-    index = 0
-    while True:
-        labels = [('☑ ' if target in selected else '☐ ') + target for target in targets]
-        index = choose(title, ['完成选择', *labels], index)
-        if index == 0:
-            return [target for target in targets if target in selected]
-        selected.symmetric_difference_update([targets[index - 1]])
+def select_targets(title, targets, initial=(), labels=None):
+    targets = list(targets)
+    checked = {i for i, key in enumerate(targets) if key in initial}
+    if targets:
+        _menu(title, [(labels or {}).get(key, key) for key in targets], checked=checked)
+    return [key for i, key in enumerate(targets) if i in checked]

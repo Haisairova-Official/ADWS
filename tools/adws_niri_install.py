@@ -65,12 +65,19 @@ def package_candidates(manager,names):
 
 
 def installed_packages(manager,names):
+    if not names:
+        return set()
     if manager=='apt-get':
         result=query(['dpkg-query','-W','-f=${binary:Package} ${db:Status-Status}\n',*names])
         return {parts[0].split(':')[0] for line in result.stdout.splitlines() if len(parts:=line.split())==2 and parts[1]=='installed'}
     if manager=='pacman':
-        result=query(['pacman','-Q',*names])
-        return {line.split()[0] for line in result.stdout.splitlines() if line.split()}
+        # Deptest resolves virtual and versioned Provides through libalpm.
+        result = query(['pacman', '-T', '--', *names])
+        missing = set(result.stdout.splitlines())
+        if (result.returncode not in (0, 127) or not missing.issubset(names)
+                or (result.returncode == 127) != bool(missing)):
+            raise RuntimeError('无法核对 pacman 已安装依赖：' + result.stderr.strip())
+        return set(names) - missing
     result=query(['rpm','-q','--qf','%{NAME}\n',*names])
     return set(result.stdout.splitlines()).intersection(names)
 
@@ -213,8 +220,14 @@ def build_source(confirm,install_packages,manager):
 
 
 def session_dependencies(manager,confirm,install_packages):
-    installed=installed_packages(manager,SESSION_PACKAGES)
-    missing=[name for name in SESSION_PACKAGES if name not in installed]
+    targets = SESSION_PACKAGES
+    if os.environ.get('ADWS_INSTALL_MANAGED') == '1':
+        from adws_setup import approved_plan
+        plan = approved_plan()
+        if plan:
+            targets = [name for name in targets if name in plan['package_candidates']]
+    installed=installed_packages(manager,targets)
+    missing=[name for name in targets if name not in installed]
     candidates=package_candidates(manager,missing)
     if candidates:install_packages(programs=list(candidates))
     unavailable=[name for name in missing if name not in candidates]
